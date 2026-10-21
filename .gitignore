@@ -1,0 +1,35 @@
+# Gradle / Android build output
+.gradle/
+build/
+*/build/
+.kotlin/
+captures/
+.cxx/
+.externalNativeBuild/
+
+# IDE
+.idea/
+*.iml
+
+# Local config and secrets (never commit)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+*.pem
+*.p12
+.env
+.env.*
+!.env.example
+
+# Build and release artifacts
+*.apk
+*.aab
+*.sha256
+*.zip
+release/
+staging/
+
+# Logs and local tooling
+*.log
+tools/privacy-local.txt

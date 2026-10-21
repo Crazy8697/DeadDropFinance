@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Plain dark window behind the Compose screen. The DarkRelay look is Stage 14. -->
+    <style name="Theme.DeadDropFinance" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

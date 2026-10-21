@@ -1,0 +1,17 @@
+Dead Drop Finance
+Copyright 2026 DarkRelay
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Android app includes third-party components, each under its own license. They are listed in
+THIRD-PARTY-NOTICES.md, and their license texts are in the licenses folder (inside the app, under
+assets/licenses).
+
+It includes the kotlinx.coroutines and kotlinx.serialization libraries, which carry these notices
+under section 4(d) of the Apache License, Version 2.0:
+
+   kotlinx.coroutines library.
+   Copyright 2016-2025 JetBrains s.r.o and contributors
+
+   kotlinx.serialization library.
+   Copyright 2017-2019 JetBrains s.r.o and respective authors and developers

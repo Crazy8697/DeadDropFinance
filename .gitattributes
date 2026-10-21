@@ -1,0 +1,5 @@
+gradlew text eol=lf
+*.bat text eol=crlf
+*.jar binary
+docs/mockups export-ignore
+docs/mockups/** export-ignore
