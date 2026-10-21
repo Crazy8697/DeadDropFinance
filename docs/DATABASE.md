@@ -34,6 +34,9 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   `reminder_days` on `envelope`), `bill_id` on `rule`, the `subscription` table (change-logged) and `notif_app` (the
   bank apps whose notifications are read: this phone's own, not change-logged, holding only the last parsed amount
   and payee, never notification text). All new columns have defaults or are nullable.
+- Version 8 (0.11.0): adds the `parked_buy` table (parked buys: name, price, wait, when it's ready, bought,
+  dropped, the envelope it's bought from and its matched charge; change-logged like the budget tables). No existing
+  table changes. `MigrationTest` checks 7 to 8 and 1 to the latest.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a

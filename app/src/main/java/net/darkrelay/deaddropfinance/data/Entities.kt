@@ -313,6 +313,36 @@ data class SubscriptionEntity(
     override fun fields() = mapOf("name" to name, "match_key" to matchKey, "status" to status.name, "bill_id" to billId, "deleted" to deleted)
 }
 
+/** Where a parked buy stands: still waiting (or ready to decide), bought, or dropped. */
+enum class ParkedStatus { WAITING, BOUGHT, DROPPED }
+
+/**
+ * A purchase parked to think over (FEATURES.md, Parked buys). It waits until [readyAt] (epoch millis), then the app
+ * says whether Rollover covers it. Once bought, [envelopeId] is where its money comes from, and its real charge is
+ * sorted there when it comes in ([transactionId]).
+ */
+@Entity(tableName = "parked_buy")
+data class ParkedBuyEntity(
+    @PrimaryKey override val id: String = newId(),
+    val name: String,
+    val amount: Long,
+    @ColumnInfo(name = "wait_days") val waitDays: Int,
+    @ColumnInfo(name = "parked_at") val parkedAt: Long,
+    @ColumnInfo(name = "ready_at") val readyAt: Long,
+    val status: ParkedStatus = ParkedStatus.WAITING,
+    @ColumnInfo(name = "envelope_id") val envelopeId: String? = null,
+    @ColumnInfo(name = "bought_on") val boughtOn: LocalDate? = null,
+    @ColumnInfo(name = "transaction_id") val transactionId: String? = null,
+    @ColumnInfo(name = "created_at") override val createdAt: Long,
+    @ColumnInfo(name = "updated_at") override val updatedAt: Long,
+    override val deleted: Boolean = false,
+) : Synced {
+    override fun fields() = mapOf(
+        "name" to name, "amount" to amount, "wait_days" to waitDays, "parked_at" to parkedAt, "ready_at" to readyAt, "status" to status.name,
+        "envelope_id" to envelopeId, "bought_on" to boughtOn?.toString(), "transaction_id" to transactionId, "deleted" to deleted,
+    )
+}
+
 /**
  * A bank or wallet app whose notifications the user lets the app read (this phone's own, not change-logged). Only
  * the parsed result is kept ([lastAmount], [lastPayee]); the notification text never is.

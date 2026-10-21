@@ -109,7 +109,7 @@ object Alerts {
             }
         }
         if (s.safeToSpend) {
-            val everyday = b.envelopes.filter { it.everyday && !it.archived }
+            val everyday = b.everydayEnvelopes
             if (everyday.isNotEmpty()) {
                 val was = everyday.sumOf { before(it.id) }
                 val now = everyday.sumOf { after(it.id) }

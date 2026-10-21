@@ -23,7 +23,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - If the money runs out before the list does, the app shows which envelopes did not fill and by how much. No advice, no suggestions.
 - Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself still starts only when the deposit lands.
 - A late payday (the date passed, no deposit yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it lands.
-- A synced deposit that looks like the payday deposit (same payer, within 20% of the last one, around the expected date) shows a Home card: "It's payday" runs it in one tap. A deposit read from a bank notification starts payday by itself (see Live spend alerts).
+- Stage 11: when the payday deposit lands, payday runs by itself (Rollover sweep, auto-fill, the Pay these now checklist), whether it came in through bank sync, a CSV import or a bank notification. No tap. A deposit counts as the payday deposit by the Stage 10 rules: money in from the same payer (or no payer read), within 20% of the last payday, and not more than a few days before the expected date.
+- Payday runs once per deposit. A deposit a notification already started payday for comes in again through sync or CSV as the same row, and anything within 5 days of a payday already run is the same payday, so nothing is swept or filled twice.
+- There is no "It's payday" card (Stage 10 had one; Stage 11 removed it). Marking a deposit as payday by hand, on its own screen, still works.
 
 ## Envelopes (Stage 6)
 - One flat list. No groups. The user drags envelopes to set the fill order.
@@ -144,10 +146,12 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A newly detected subscription is marked "New".
 
 ## Safe to Spend (Stage 11)
-- From 0.8.0, an envelope can be marked Everyday spending (envelope edit screen); the setup wizard marks the Groceries and Gas starters. Alerts already use it; the Home card comes in Stage 11.
-- Safe to Spend counts only the envelopes marked as everyday spending. The default is groceries and gas. The user can change which envelopes count.
+- From 0.8.0, an envelope can be marked Everyday spending (envelope edit screen); the setup wizard marks the Groceries and Gas starters. Alerts and the forecast use it too.
+- Safe to Spend counts only the envelopes marked as everyday spending. The default is groceries and gas. The user can change which envelopes count: tapping the Safe to Spend card opens a list of envelopes with a switch each, and the envelope edit screen has the same switch. A change shows on Home right away.
 - It is what is left in those envelopes. Bills due before the next payday and set-asides live in their own envelopes, so they are already out of it.
-- Rollover is excluded. It is not shown on the home screen.
+- Rollover is excluded, even if marked. It is not shown on the home screen anywhere and has no callouts there. Cover from Rollover stays on the envelope screens.
+- Home, top to bottom (the reference prototype's order): Safe to Spend, the biggest thing on the screen, with which envelopes it counts and "until next payday"; the balance forecast card; Ready to Assign, only when money is waiting; Pay these now (collapsing to "All N payday bills paid"); transactions to sort; the parked buys card; the everyday envelopes, then All envelopes. The setup card, the alerts offer and the update bar, when there is one, sit above it all.
+- With no envelope marked everyday, the card asks the user to pick some.
 
 ## Receipt scanning (Stage 9)
 - Scan receipt: from Activity (Scan, and "Scan a receipt for one of these" in To sort), from a transaction's screen (Add receipt), and from More, Receipts. A photo or PDF shared to the app from another app opens the scanner too.
@@ -197,16 +201,18 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Two lines: Plan (the everyday envelope money spread evenly across the days) and Usual pace (modeled on the timing and size of the user's own spending in recent budget months). With too little history, only Plan shows.
 - It flags the first day the balance would go below zero, with a plain overdraft warning.
 - A home screen card under Safe to Spend. Tapping it opens a full view with a day-by-day list. Marking bills paid updates it.
-- Stage 10 as built: the card sits at the top of Home until Safe to Spend's card arrives (Stage 11) and goes under it. The full view has the chart (Plan solid, Usual pace dashed, the first day below zero marked) and Plan and Usual pace switches. Only budget accounts count (not archived or track-only), and history before an account's starting balance never does.
+- As built: the card sits right under Safe to Spend (Stage 11; Stage 10 had it at the top of Home). The full view has the chart (Plan solid, Usual pace dashed, the first day below zero marked) and Plan and Usual pace switches. Only budget accounts count (not archived or track-only), and history before an account's starting balance never does.
 - Usual pace spends, for each day, what the user spent on the same day after payday in the last three budget months (bills, subscriptions, transfers and washes left out, since those are counted on their own). It needs two full budget months; until then only Plan shows and the view says why.
 - Plan spreads what's in the envelopes marked Everyday spending evenly over the days; with none marked it says so.
 
 ## Parked buys (Stage 11)
-- Park a non-essential purchase with a name and a price. It waits a set time before the app gives a verdict. Wait options are 1 day, 2 days and 1 week; the default is set in Settings (1 day out of the box).
-- After the wait, it shows whether Rollover covers it: "There's room" with what would be left, or "Not right now". Actions: buy from Rollover (or from another envelope the user picks), keep waiting, or drop it.
-- Buying marks it bought. The real charge is sorted against the chosen envelope when it syncs.
-- A running total of dropped amounts.
-- A home screen card, plus an entry in More.
+- Park a non-essential purchase with a name and a price. It waits a set time before the app gives a verdict. Wait options are 1 day, 2 days and 1 week; the default is set in Settings (More, Parking lot wait; 1 day out of the box), and the park form can pick another.
+- After the wait, it shows whether Rollover covers it: "There's room" with what would be left, or "Not right now". Actions: buy from Rollover (or from another envelope the user picks), keep waiting, or drop it. Until the wait is over it can only be dropped.
+- Keep waiting waits one more day.
+- Buying marks it bought; no money moves then. The real charge is sorted against the chosen envelope when it comes in (bank sync, CSV import or a bank notification): money out, unsorted (or sorted by a rule as it came in), from the day before buying to 14 days after, and from 10% under to 25% over the parked price (tax, shipping). The closest amount wins. Until its charge comes in, a buy from Rollover is held back from Rollover in the next verdicts.
+- A running total of dropped amounts ("Dropped so far").
+- A home screen card ("N waiting, M ready to decide"), plus an entry in More.
+- Parked buys are budget rows (change-logged, schema version 8).
 
 ## Price history (Stage 23)
 - Built from scanned receipt items only: the price of each item over time and the change since it was first seen.

@@ -144,8 +144,11 @@ class Budget(
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
 
+    /** The envelopes Safe to Spend counts: marked everyday, not archived, and never Rollover. In fill order. */
+    val everydayEnvelopes: List<EnvelopeEntity> get() = fillOrder.filter { it.everyday && it.mode != EnvelopeMode.ROLLOVER }
+
     /** What's left in the everyday envelopes (Safe to Spend), or null when no envelope is marked everyday. */
-    val safeToSpend: Long? get() = envelopes.filter { it.everyday && !it.archived }.takeIf { it.isNotEmpty() }?.sumOf { envelopeBalance(it.id) }
+    val safeToSpend: Long? get() = everydayEnvelopes.takeIf { it.isNotEmpty() }?.sumOf { envelopeBalance(it.id) }
 
     /** Money given back to a purchase by the returns confirmed against it (positive cents). */
     fun returnedOf(purchaseId: String): Long = transactions.filter { it.returnOf == purchaseId }.sumOf { it.amount }

@@ -22,7 +22,7 @@ FEATURES
  8  Auto-categorize rules + approve flow + live spend alerts + returns + balance check
  9  Receipt scanning (multi-photo capture, stitching, gallery pick, on-device text recognition, subtotal check, learned item rules, split to envelopes, match to bank charge, scan on every store charge, gas station holds, photos deleted after Apply split, trip detail screen, return item matching)
 10  Recurring bills, paydays, reminders (off by default, per bill), Payday checklist, autopay warnings, subscriptions screen, balance forecast, live spend alerts from bank notifications
-11  Safe to Spend home screen (built from the reference prototype) + parked buys
+11  Safe to Spend home screen (built from the reference prototype) + parked buys + payday runs by itself when the deposit lands (sync, CSV, notification)
 12  Encrypted one-tap backup and restore
 
 RELEASE PREP

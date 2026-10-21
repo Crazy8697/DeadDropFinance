@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,6 +93,9 @@ sealed interface Nav {
     data class Subscription(val key: String) : Nav
     data object Forecast : Nav
     data object Reading : Nav
+    data object ParkedBuys : Nav
+    /** Which envelopes Safe to Spend counts. */
+    data object SafeToSpend : Nav
 }
 
 /** Where a notification opens the app ([where]: MainActivity.OPEN_*); [n] rises with each one. */
@@ -165,6 +169,11 @@ fun AppRoot(
     val sorting = remember(store) { Sorting(store, actions) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
     val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
+    val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
+    val parked by remember(store) { store.dao.parkedBuys() }.collectAsState(initial = emptyList())
+    var parkWait by remember { mutableIntStateOf(1) }
+    // a parked buy turns ready with time alone, so the clock is checked every minute
+    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
     val notifApps by remember(store) { store.dao.notifApps() }.collectAsState(initial = emptyList())
     // bumped when something outside Compose changes (the payday correction, reading access, the pending inbox)
@@ -265,6 +274,10 @@ fun AppRoot(
         }
     }
     LaunchedEffect(Unit) {
+        parkWait = parkedOps.defaultWait()
+        while (true) { nowMs = System.currentTimeMillis(); delay(60_000) }
+    }
+    LaunchedEffect(Unit) {
         // photos left behind by a receipt that's gone (or a scan never saved)
         withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
     }
@@ -283,8 +296,6 @@ fun AppRoot(
     val series = remember(b, subscriptions) { net.darkrelay.deaddropfinance.domain.Recurring.detect(b.transactions, subscriptions) }
     val forecast = remember(b, series, nextPayday) { nextPayday?.let { net.darkrelay.deaddropfinance.domain.Forecast.build(b, series, today, it) } }
     val checklist = remember(b, nextPayday) { net.darkrelay.deaddropfinance.domain.Bills.checklist(b.bills, b.billPayments, b.paydayDates.lastOrNull(), nextPayday ?: today.plusDays(14)) }
-    val notPayday = remember(planTick) { sync.settings.notPayday }
-    val landed = b.transactions.filter { it.id !in notPayday && net.darkrelay.deaddropfinance.domain.Paydays.looksLikePayday(it, b, prediction.next) }.maxByOrNull { it.date }
     fun askNotifications() = platform.requestNotifications { _ ->
         alertTick++
         sync.settings.alertsAsked = true
@@ -360,29 +371,24 @@ fun AppRoot(
                         }
                     }
                 }
-                val top2: @Composable () -> Unit = {
-                    Column {
-                        head?.invoke()
-                        if (landed != null) PaydayLandedCard(
-                            landed,
-                            onRun = {
-                                run(scope) {
-                                    val plan = actions.markPayday(landed.id)
-                                    message = "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover."
-                                    if (plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
-                                }
-                            },
-                            onNotNow = { sync.settings.notPayday = sync.settings.notPayday + landed.id; planTick++ },
-                        )
-                        if (prediction.late && prediction.next != null) LatePaydayNote(prediction.next, today)
-                        forecast?.let { ForecastCard(it) { go(Nav.Forecast) } }
-                    }
-                }
+                val late = prediction.late && prediction.next != null
                 Refreshable(connections.isNotEmpty(), refreshing, { refresh() }) {
                     HomeScreen(
-                        b, update = top2,
-                        onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) }, onAddEnvelope = { go(Nav.EnvelopeEdit(null)) },
-                        belowReady = if (checklist.isEmpty()) null else {
+                        b, top = head,
+                        onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
+                        onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
+                        parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
+                        parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
+                        onParked = { go(Nav.ParkedBuys) },
+                        forecast = if (forecast == null && !late) null else {
+                            {
+                                Column {
+                                    if (late) LatePaydayNote(prediction.next!!, today)
+                                    forecast?.let { ForecastCard(it) { go(Nav.Forecast) } }
+                                }
+                            }
+                        },
+                        checklist = if (checklist.isEmpty()) null else {
                             {
                                 PaydayChecklistCard(
                                     checklist,
@@ -445,6 +451,9 @@ fun AppRoot(
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
                 onReceipts = { go(Nav.Receipts) },
+                onParked = { go(Nav.ParkedBuys) },
+                parkWait = parkWait,
+                onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
                 sortAlerts = {
                     val st = sync.settings
                     val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
@@ -642,6 +651,19 @@ fun AppRoot(
                 )
             }
             Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: back()
+            Nav.ParkedBuys -> ParkedBuysScreen(
+                parked, b, nowMs, parkWait, message ?: error, ::back,
+                onPark = { n, a, w -> run(scope) { parkedOps.park(n, a, w); nowMs = System.currentTimeMillis(); message = null } },
+                onBuy = { id, env ->
+                    run(scope) {
+                        parkedOps.buy(id, env)
+                        message = "Bought. Its charge is sorted to ${b.envelopes.firstOrNull { it.id == env }?.name ?: "that envelope"} when it comes in."
+                    }
+                },
+                onKeep = { id -> run(scope) { parkedOps.keepWaiting(id); nowMs = System.currentTimeMillis(); message = null } },
+                onDrop = { id -> run(scope) { parkedOps.drop(id); message = null } },
+            )
+            Nav.SafeToSpend -> SafeToSpendScreen(b, error, ::back) { id, on -> run(scope) { actions.setEveryday(id, on) } }
             Nav.Reading -> {
                 val granted = key(planTick) { platform.notifAccessGranted() }
                 val launcher by produceState(emptyList<Pair<String, String>>(), readingOn) { value = withContext(Dispatchers.IO) { platform.launcherApps() } }
@@ -759,9 +781,8 @@ fun AppRoot(
                     val acct = importState.accountId ?: return@ImportScreen
                     scope.launch {
                         val res = actions.importCsv(acct, plan)
-                        if (sync.settings.autoApprove) sorting.autoApprove(res.newIds)
-                        if (res.newIds.isNotEmpty()) receiptsOps.matchWaiting()
-                        billActions.matchPayments(res.newIds)
+                        // the same as bank sync: payday runs by itself when its deposit is in the file
+                        net.darkrelay.deaddropfinance.domain.Arrivals(store, actions, files = platform.receiptFiles).landed(res.newIds, sync.settings.autoApprove)
                         importState = ImportState(result = res)
                     }
                 },

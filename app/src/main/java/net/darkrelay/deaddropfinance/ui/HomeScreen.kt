@@ -1,15 +1,20 @@
 package net.darkrelay.deaddropfinance.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import net.darkrelay.deaddropfinance.UpdateCheck
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
@@ -43,49 +49,125 @@ fun UpdateBar(release: UpdateCheck.Release, onNotes: () -> Unit, onDownload: () 
     }
 }
 
+/** The parts of Home, top to bottom, in the reference prototype's order. Rollover is never one of them. */
+enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
+
 /**
- * Home for this stage: Ready to Assign with Assign, the update bar, To sort count, and the envelope list. No Safe
- * to Spend card yet (Stage 11); Rollover sits in the list like any envelope, with no callouts.
+ * Which parts Home shows, in order: Safe to Spend always first; the forecast when there's a next payday to forecast
+ * to; Ready to Assign only when money is waiting; the payday checklist when it has bills; To sort when something is
+ * waiting; the parked buys card; then the everyday envelopes with All envelopes.
+ */
+fun homeSections(b: Budget, hasForecast: Boolean, hasChecklist: Boolean): List<HomeSection> = buildList {
+    add(HomeSection.SAFE_TO_SPEND)
+    if (hasForecast) add(HomeSection.FORECAST)
+    if (b.readyToAssign > 0) add(HomeSection.READY_TO_ASSIGN)
+    if (hasChecklist) add(HomeSection.PAY_THESE_NOW)
+    if (b.toSort.isNotEmpty()) add(HomeSection.TO_SORT)
+    add(HomeSection.PARKED_BUYS)
+    add(HomeSection.ENVELOPES)
+}
+
+/** "Groceries", "Groceries and Gas", "Groceries, Gas and Household". */
+fun namesText(names: List<String>): String = when (names.size) {
+    0 -> ""
+    1 -> names[0]
+    else -> names.dropLast(1).joinToString(", ") + " and " + names.last()
+}
+
+/**
+ * Home (Stage 11, built from the reference prototype): Safe to Spend is the biggest thing on the screen, then the
+ * balance forecast, Ready to Assign (only with money waiting), Pay these now, To sort, parked buys, and the everyday
+ * envelopes. Rollover isn't shown here anywhere. [top] holds the setup card, the alerts offer and the update bar.
  */
 @Composable
 fun HomeScreen(
     budget: Budget,
-    update: (@Composable () -> Unit)?,
+    top: (@Composable () -> Unit)?,
     onAssign: () -> Unit,
     onToSort: () -> Unit,
     onEnvelope: (String) -> Unit,
-    onAddEnvelope: () -> Unit,
-    /** Under Ready to Assign: the payday checklist. */
-    belowReady: (@Composable () -> Unit)? = null,
+    onAllEnvelopes: () -> Unit,
+    onSafeToSpend: () -> Unit,
+    parkedWaiting: Int,
+    parkedReady: Int,
+    onParked: () -> Unit,
+    /** The late payday note and the balance forecast card. */
+    forecast: (@Composable () -> Unit)? = null,
+    /** The payday checklist (Pay these now). */
+    checklist: (@Composable () -> Unit)? = null,
 ) {
+    val sections = homeSections(budget, forecast != null, checklist != null)
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-        item { update?.invoke() }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(10.dp)).background(DdfColors.Teal).padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text("Ready to assign", style = MaterialTheme.typography.labelMedium, color = DdfColors.Text)
-                    Text(Money.format(budget.readyToAssign), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium,
-                        color = if (budget.readyToAssign < 0) DdfColors.Warning else DdfColors.Text)
+        if (top != null) item { top() }
+        for (s in sections) when (s) {
+            HomeSection.SAFE_TO_SPEND -> item { SafeToSpendCard(budget, onSafeToSpend) }
+            HomeSection.FORECAST -> item { forecast?.invoke() }
+            HomeSection.READY_TO_ASSIGN -> item {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).background(DdfColors.Teal).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Ready to assign", style = MaterialTheme.typography.labelMedium, color = DdfColors.Text)
+                        Text(Money.format(budget.readyToAssign), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium, color = DdfColors.Text)
+                    }
+                    Button(onClick = onAssign) { Text("Assign") }
                 }
-                Button(onClick = onAssign) { Text("Assign") }
+            }
+            HomeSection.PAY_THESE_NOW -> item { checklist?.invoke() }
+            HomeSection.TO_SORT -> item {
+                val n = budget.toSort.size
+                HomeLinkCard(TabIcons.Inbox, "$n transaction${if (n == 1) "" else "s"} to sort", null, onToSort)
+            }
+            HomeSection.PARKED_BUYS -> item {
+                HomeLinkCard(TabIcons.Hourglass, "Parked buys", "$parkedWaiting waiting" + if (parkedReady > 0) ", $parkedReady ready to decide" else "", onParked)
+            }
+            HomeSection.ENVELOPES -> {
+                items(budget.everydayEnvelopes, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
+                item { TextButton(onClick = onAllEnvelopes) { Text("All envelopes", color = DdfColors.Cyan) } }
             }
         }
-        if (belowReady != null) item { belowReady() }
-        if (budget.toSort.isNotEmpty()) item {
-            ListRow(onClick = onToSort) {
-                Row { Text("${budget.toSort.size} to sort", modifier = Modifier.weight(1f), color = DdfColors.Cyan); Text("Open") }
-            }
-        }
-        item { SectionTitle("Envelopes") { TextButton(onClick = onAddEnvelope) { Text("Add") } } }
-        val list = budget.fillOrder
-        if (list.size <= 1 && list.all { it.mode == EnvelopeMode.ROLLOVER } && budget.envelopeBalances.values.all { it == 0L }) {
-            item { EmptyState("No envelopes yet besides Rollover. Add one to give your money a job.") }
-        }
-        items(list, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
         item { Gap(24) }
+    }
+}
+
+/** Safe to Spend: what's left in the everyday envelopes until next payday, and which envelopes those are. */
+@Composable
+fun SafeToSpendCard(budget: Budget, onChange: () -> Unit) {
+    val counted = budget.everydayEnvelopes
+    val safe = budget.safeToSpend
+    Card(
+        Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable(onClick = onChange),
+        border = BorderStroke(1.dp, DdfColors.Cyan),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Safe to spend", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            if (safe == null) {
+                Text("Pick the envelopes you spend from day to day, like groceries and gas.", Modifier.padding(vertical = 4.dp), color = DdfColors.Text)
+                TextButton(onClick = onChange) { Text("Choose envelopes") }
+            } else {
+                Text(
+                    Money.format(safe), fontSize = 32.sp, fontWeight = FontWeight.Medium, lineHeight = 38.sp,
+                    color = if (safe < 0) DdfColors.Warning else DdfColors.Cyan,
+                )
+                Text("in ${namesText(counted.map { it.name })} until next payday", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/** A Home card that opens a screen: an icon, a title, a quiet detail, and a chevron. */
+@Composable
+private fun HomeLinkCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, detail: String?, onClick: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable(onClick = onClick)) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = DdfColors.Cyan, modifier = Modifier.size(18.dp))
+            HGap()
+            Text(title)
+            if (detail != null) { HGap(6); Text(detail, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
+            Spacer(Modifier.weight(1f))
+            Icon(TabIcons.Chevron, contentDescription = null, tint = DdfColors.Muted, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

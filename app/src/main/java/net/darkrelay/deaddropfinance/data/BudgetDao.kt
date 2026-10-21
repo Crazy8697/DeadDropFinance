@@ -72,6 +72,15 @@ interface BudgetDao {
     @Query("SELECT * FROM subscription WHERE id = :id")
     suspend fun subscription(id: String): SubscriptionEntity?
 
+    @Query("SELECT * FROM parked_buy WHERE deleted = 0 ORDER BY parked_at")
+    fun parkedBuys(): Flow<List<ParkedBuyEntity>>
+
+    @Query("SELECT * FROM parked_buy WHERE deleted = 0 ORDER BY parked_at")
+    suspend fun parkedBuysNow(): List<ParkedBuyEntity>
+
+    @Query("SELECT * FROM parked_buy WHERE id = :id")
+    suspend fun parkedBuy(id: String): ParkedBuyEntity?
+
     @Query("SELECT * FROM notif_app ORDER BY label")
     fun notifApps(): Flow<List<NotifAppEntity>>
 
@@ -150,6 +159,7 @@ interface BudgetDao {
     @Upsert suspend fun upsertReceiptItem(e: ReceiptItemEntity)
     @Upsert suspend fun upsertItemReturn(e: ItemReturnEntity)
     @Upsert suspend fun upsertSubscription(e: SubscriptionEntity)
+    @Upsert suspend fun upsertParkedBuy(e: ParkedBuyEntity)
 
     // ---- change log and meta ----------------------------------------------------------------------------------
     @Insert suspend fun insertChange(e: ChangeLogEntity)

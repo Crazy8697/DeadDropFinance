@@ -90,11 +90,6 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getStringSet("notif_packages", emptySet())!!.toSet()
         set(v) = prefs.edit { putStringSet("notif_packages", v) }
 
-    /** Deposits the user said aren't payday, so the "looks like payday" card doesn't ask again. */
-    var notPayday: Set<String>
-        get() = prefs.getStringSet("not_payday", emptySet())!!.toSet()
-        set(v) = prefs.edit { putStringSet("not_payday", v) }
-
     fun alertSettings() = net.darkrelay.deaddropfinance.domain.Alerts.Settings(alertSpending, alertLowOrOverspent, alertSafeToSpend, alertAmountsOnLockScreen)
 
     fun lastAttempt(connectionId: String): Long = prefs.getLong("attempt.$connectionId", 0)

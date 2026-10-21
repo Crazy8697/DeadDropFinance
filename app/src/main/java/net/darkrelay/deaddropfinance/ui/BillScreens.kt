@@ -37,7 +37,6 @@ import net.darkrelay.deaddropfinance.data.BillRecurrence
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.PaymentMethod
 import net.darkrelay.deaddropfinance.data.AccountType
-import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.domain.BillActions
 import net.darkrelay.deaddropfinance.domain.Bills
 import net.darkrelay.deaddropfinance.domain.Budget
@@ -307,7 +306,7 @@ fun BillEditScreen(
     }
 }
 
-// ---- payday checklist and the payday that looks like it landed (Home) ------------------------------------------------
+// ---- payday checklist (Home) ------------------------------------------------------------------------------------------
 
 @Composable
 fun PaydayChecklistCard(items: List<Bills.Cycle>, onTick: (Bills.Cycle, Boolean) -> Unit, onBill: (String) -> Unit) {
@@ -338,17 +337,6 @@ fun PaydayChecklistCard(items: List<Bills.Cycle>, onTick: (Bills.Cycle, Boolean)
                 }
             }
             Text("Tick a bill when you pay it. Bank sync ticks them too.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-fun PaydayLandedCard(t: TransactionEntity, onRun: () -> Unit, onNotNow: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Text("Looks like payday landed", style = MaterialTheme.typography.titleMedium)
-            Text("${t.payee.ifBlank { "A deposit" }}, ${Money.format(t.amount)} on ${dayText(t.date)}.", color = DdfColors.Muted)
-            Row { TextButton(onClick = onRun) { Text("It's payday") }; TextButton(onClick = onNotNow) { Text("Not payday") } }
         }
     }
 }

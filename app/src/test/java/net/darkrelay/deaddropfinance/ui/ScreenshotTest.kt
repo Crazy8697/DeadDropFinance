@@ -44,6 +44,9 @@ import net.darkrelay.deaddropfinance.data.BillPaymentEntity
 import net.darkrelay.deaddropfinance.data.BillRecurrence
 import net.darkrelay.deaddropfinance.data.PaymentMethod
 import net.darkrelay.deaddropfinance.data.NotifAppEntity
+import net.darkrelay.deaddropfinance.data.ParkedBuyEntity
+import net.darkrelay.deaddropfinance.data.ParkedStatus
+import net.darkrelay.deaddropfinance.domain.ParkedBuys
 import net.darkrelay.deaddropfinance.data.SubscriptionEntity
 import net.darkrelay.deaddropfinance.data.SubscriptionStatus
 import net.darkrelay.deaddropfinance.domain.Bills
@@ -141,9 +144,9 @@ class ScreenshotTest {
 
     private companion object { const val TALL = "w400dp-h1500dp-xhdpi" }
 
-    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}) }
-    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, {}, {}, {}, {}) }, {}, {}, {}, {}) }
-    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}) }
+    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test fun envelopes() = shot("04-envelopes") { EnvelopesScreen(budget, {}, {}, {}, {}) }
     @Test fun envelopesEmpty() = shot("05-envelopes-empty") { EnvelopesScreen(empty, {}, {}, {}, {}) }
     @Test fun envelopeDetailFill() = shot("06-envelope-detail") { EnvelopeDetailScreen(budget.envelopes[2], budget, today, {}, {}, {}, {}, {}, {}, {}) }
@@ -227,9 +230,9 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
         AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns, today) { _, _, _ -> } }, budget = budget)
     }
-    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}) }
+    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test fun fixDialog() = shot("47-fix-dialog") {
-        HomeScreen(budget, null, {}, {}, {}, {})
+        HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {})
         FixDialog(SyncService.FixPrompt("c2", FixCode.SIMPLEFIN_TOKEN, "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again."), {}, {})
     }
     @Test fun activitySyncNote() = shot("48-activity-sync-note") {
@@ -250,7 +253,7 @@ class ScreenshotTest {
             LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, today, null)
         }
     }
-    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}); UnlinkDialog("Everyday Checking", {}, {}) }
+    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}); UnlinkDialog("Everyday Checking", {}, {}) }
     private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
     private val shareTrack = acct("share", "Membership Share", AccountType.BANK, 5_00).copy(trackOnly = true)
     private val budget2 = Budget(budget.accounts + listOf(savingsHeld, shareTrack), budget.envelopes, budget.transactions, budget.lines, budget.moves)
@@ -263,7 +266,7 @@ class ScreenshotTest {
     @Test fun accountsList() = shot("58-accounts-track-only-and-archived") {
         AccountsScreen(Budget(budget2.accounts + acct("old", "Old Savings", AccountType.BANK, 80_00).copy(archived = true), budget.envelopes, budget.transactions, budget.lines, budget.moves), {}, {}, {})
     }
-    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}) }
+    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}, {}, 0, 0, {}) }
 
     // ---- 0.7.3 ---------------------------------------------------------------------------------------------------
     private fun epochOf(d: java.time.LocalDate) = d.atTime(9, 0).toEpochSecond(java.time.ZoneOffset.UTC)
@@ -382,7 +385,7 @@ class ScreenshotTest {
             LinkPanel(checkLink(appBalance + 25_00).map { it.copy(accountId = null) }, budget8.accounts, mapOf("s1" to LinkPick("chk")), { _, _ -> }, false, null, today, null, budget = budget8)
         }
     }
-    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}) }
+    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
 
     // ---- 0.9.0: receipts ----------------------------------------------------------------------------------------
@@ -520,18 +523,13 @@ class ScreenshotTest {
     @Test fun bottomBarWithBills() = shot("96-bottom-bar-bills") { Box(Modifier.fillMaxSize()) { Column(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) { BottomTabs(Nav.Bills) {} } } }
     @Test @Config(qualifiers = TALL) fun homeWithForecastAndChecklist() = shot("97-home-forecast-checklist") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!)
-        HomeScreen(budget10, { Column { ForecastCard(forecast10) {} } }, {}, {}, {}, {}, belowReady = { PaydayChecklistCard(list, { _, _ -> }, {}) })
+        HomeScreen(budget10, null, {}, {}, {}, {}, {}, 0, 0, {}, forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) })
     }
     @Test fun homeChecklistCollapsed() = shot("98-checklist-all-paid") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!).map { c -> c.copy(payments = c.payments + pay(c.bill.id, c.remaining, c.due, PaymentMethod.HAND)) }
         Page { PaydayChecklistCard(list, { _, _ -> }, {}) }
     }
-    @Test fun homePaydayLandedAndLate() = shot("99-payday-landed-and-late") {
-        Page {
-            PaydayLandedCard(TransactionEntity(id = "x", accountId = "chk", date = today, payee = "SAMPLE EMPLOYER PAYROLL", amount = 1895_20, createdAt = 0, updatedAt = 0), {}, {})
-            LatePaydayNote(today.minusDays(2), today)
-        }
-    }
+    @Test fun homePaydayLate() = shot("99-payday-late") { Page { LatePaydayNote(today.minusDays(2), today) } }
     @Test @Config(qualifiers = TALL) fun billsTab() = shot("100-bills-tab") { BillsScreen(budget10, today, pred10, series10, {}, {}, {}, {}, {}) }
     @Test @Config(qualifiers = TALL) fun billDetailPartial() = shot("101-bill-detail-partial") {
         BillDetailScreen(budget10.bills.first { it.id == "b1" }, budget10.let { b -> Budget(b.accounts + acct("cash", "Wallet", AccountType.CASH, 40_00), b.envelopes, b.transactions, b.lines, b.moves, b.bills, b.billPayments) }, today, null, {}, {}, {}, { _, _ -> }, {}, {}, {})
@@ -573,6 +571,40 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun envelopeDebtReminder() = shot("113-envelope-debt-reminder") { EnvelopeEditScreen(budget10.envelopes.first { it.id == "debt" }, null, {}, {}) }
     @Test @Config(qualifiers = TALL) fun ruleCountsTowardBill() = shot("114-rule-counts-toward-bill") {
         RuleEditScreen(RuleEntity(id = "rb", matchText = "sample landlord", splits = "rent:1", billId = "b1", createdAt = 0, updatedAt = 0), null, budget10, emptyList(), null, {}, {}, {})
+    }
+
+    // ---- Stage 11: Safe to Spend Home, parked buys -----------------------------------------------------------------
+    private val budget11: Budget get() = budget10.let { b -> Budget(b.accounts, b.envelopes, b.transactions, b.lines, b.moves + move(null, "roll", 140_00), b.bills, b.billPayments) }
+    private val nowMs = today.atTime(18, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
+    private fun parkedAt(id: String, name: String, amount: Long, daysAgo: Long, wait: Int, status: ParkedStatus = ParkedStatus.WAITING, env: String? = null): ParkedBuyEntity {
+        val at = nowMs - daysAgo * ParkedBuys.DAY_MS - 3 * 60 * 60 * 1000 + 40 * 60 * 1000
+        return ParkedBuyEntity(id = id, name = name, amount = amount, waitDays = wait, parkedAt = at, readyAt = at + wait * ParkedBuys.DAY_MS, status = status, envelopeId = env, boughtOn = if (env != null) today else null, createdAt = 0, updatedAt = 0)
+    }
+    private val parked11 = listOf(
+        parkedAt("pk1", "Sample Soldering Station", 189_99, 4, 2),
+        parkedAt("pk2", "Sample Drill Bits", 39_99, 3, 1),
+        parkedAt("pk3", "Sample Game", 29_99, 0, 1),
+        parkedAt("pk4", "Sample Desk Lamp", 24_00, 5, 1, ParkedStatus.BOUGHT, "food"),
+        parkedAt("pk5", "Sample Headphones", 59_00, 6, 2, ParkedStatus.DROPPED),
+    )
+
+    @Test @Config(qualifiers = TALL) fun homeSafeToSpend() = shot("115-home-safe-to-spend") {
+        val list = Bills.checklist(budget11.bills, budget11.billPayments, budget11.paydayDates.last(), pred10.next!!)
+        HomeScreen(
+            budget11, null, {}, {}, {}, {}, {}, ParkedBuys.waiting(parked11).size, ParkedBuys.ready(parked11, nowMs).size, {},
+            forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) },
+        )
+    }
+    @Test fun homeNoEverydayYet() = shot("116-home-pick-everyday") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test @Config(qualifiers = TALL) fun safeToSpendPick() = shot("117-safe-to-spend-envelopes") { SafeToSpendScreen(budget11, null, {}) { _, _ -> } }
+    @Test @Config(qualifiers = TALL) fun parkedBuys() = shot("118-parked-buys") {
+        ParkedBuysScreen(parked11, budget11, nowMs, 1, null, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, zone = java.time.ZoneOffset.UTC)
+    }
+    @Test @Config(qualifiers = TALL) fun parkSomething() = shot("119-park-something") {
+        ParkedBuysScreen(parked11.filter { it.id == "pk3" }, budget11, nowMs, 2, null, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, startAdding = true, zone = java.time.ZoneOffset.UTC)
+    }
+    @Test @Config(qualifiers = TALL) fun moreParked() = shot("120-more-parked-buys") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onParked = {}, parkWait = 2)
     }
 }
 

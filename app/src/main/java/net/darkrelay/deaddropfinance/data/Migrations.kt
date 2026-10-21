@@ -89,5 +89,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7)
+    /** 7 to 8 (0.11.0): parked buys. A new table only; nothing existing changes. */
+    val V7_V8 = object : Migration(7, 8) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `parked_buy` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `amount` INTEGER NOT NULL, `wait_days` INTEGER NOT NULL, `parked_at` INTEGER NOT NULL, `ready_at` INTEGER NOT NULL, `status` TEXT NOT NULL, `envelope_id` TEXT, `bought_on` TEXT, `transaction_id` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8)
 }

@@ -79,6 +79,7 @@ class MigrationTest {
             assertTrue(d.receiptItemsNow().isEmpty())
             assertTrue(d.subscriptionsNow().isEmpty())
             assertTrue(d.notifAppsNow().isEmpty())
+            assertTrue(d.parkedBuysNow().isEmpty())
         } finally {
             db.close()
         }
@@ -232,6 +233,42 @@ class MigrationTest {
             assertEquals(SubscriptionStatus.NEW, d.subscriptionsNow().single().status)
             assertEquals("Sample Bank", d.notifAppsNow().single().label)
             assertTrue(d.changes().any { it.entityType == "subscription" })
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun sevenToEightAddsParkedBuysWithEverythingKept() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-7.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 7)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        // a 0.10.x budget: Rollover and an everyday envelope, a bill with a payment, a subscription and a notification app
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, everyday, reminder, reminder_days, created_at, updated_at, deleted) VALUES ('r1', 'Rollover', 'ROLLOVER', 0, 0, 0, 0, 2, 1, 1, 0)")
+        raw.execSQL("INSERT INTO envelope (id, name, mode, target, archived, sort_order, everyday, reminder, reminder_days, created_at, updated_at, deleted) VALUES ('e1', 'Sample Groceries', 'FILL_TO_TARGET', 30000, 0, 1, 1, 0, 2, 1, 1, 0)")
+        raw.execSQL("INSERT INTO bill (id, name, envelope_id, amount_due, due_date, recurrence, autopay, reminder, reminder_days, match_text, any_amount, varies, created_at, updated_at, deleted) VALUES ('b1', 'Sample Bill', NULL, 4200, '2030-02-05', 'MONTHLY', 0, 0, 2, 'sample bill', 0, 0, 1, 1, 0)")
+        raw.execSQL("INSERT INTO bill_payment (id, bill_id, transaction_id, amount, date, period_due, method, created_at, updated_at, deleted) VALUES ('p1', 'b1', 't1', 1234, '2030-01-02', '2030-01-05', 'HAND', 1, 1, 0)")
+        raw.execSQL("INSERT INTO subscription (id, name, match_key, status, bill_id, created_at, updated_at, deleted) VALUES ('s1', '', 'sample stream', 'CONFIRMED', NULL, 1, 1, 0)")
+        raw.execSQL("INSERT INTO notif_app (package_name, label, account_id, enabled, templates, last_amount, last_payee, last_deposit, last_at) VALUES ('com.example.samplebank', 'Sample Bank', 'a1', 1, '', NULL, NULL, 0, NULL)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            assertEquals(true, d.envelope("e1")!!.everyday)
+            assertEquals(EnvelopeMode.ROLLOVER, d.envelope("r1")!!.mode)
+            assertEquals("sample bill", d.bill("b1")!!.matchText)
+            assertEquals(PaymentMethod.HAND, d.billPayment("p1")!!.method)
+            assertEquals(SubscriptionStatus.CONFIRMED, d.subscriptionsNow().single().status)
+            assertEquals("a1", d.notifAppsNow().single().accountId)
+            assertEquals(-1234L, d.transaction("t1")!!.amount)
+            assertTrue(d.parkedBuysNow().isEmpty())
+            // the new table works, through the store (change-logged)
+            val store = BudgetStore(db)
+            store.write { put(null, ParkedBuyEntity(name = "Sample Lamp", amount = 8999, waitDays = 1, parkedAt = 1, readyAt = 2, createdAt = now, updatedAt = now)) }
+            val p = d.parkedBuysNow().single()
+            assertEquals(ParkedStatus.WAITING, p.status)
+            assertNull(p.envelopeId)
+            assertTrue(d.changes().any { it.entityType == "parked_buy" })
         } finally {
             db.close()
         }

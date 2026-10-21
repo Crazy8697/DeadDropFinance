@@ -256,8 +256,9 @@ class BillActions(
 
 /**
  * A parsed bank notification becomes a pending transaction right away (FEATURES.md, Live spend alerts): money out in
- * To sort with its suggestion, or a deposit, which starts payday when it looks like the payday deposit. Bank sync
- * later matches the real record to it (never a second one). Only the parsed result is kept.
+ * To sort with its suggestion (or a bought parked buy's charge), or a deposit, which starts payday when it looks like
+ * the payday deposit (Arrivals). Bank sync later matches the real record to it (never a second one, never a second
+ * payday). Only the parsed result is kept.
  */
 class NotifLog(
     private val store: BudgetStore,
@@ -294,15 +295,9 @@ class NotifLog(
         }
         var payday = false
         if (p.deposit && account.onBudget) {
-            val b = actions.snapshot()
-            val t = b.transactions.first { it.id == id }
-            val pred = Paydays.predict(b.paydayDates, today(), BillActions(store, actions, today).paydayCorrection())
-            val recent = b.paydayDates.lastOrNull()?.let { java.time.temporal.ChronoUnit.DAYS.between(it, today()) < 5 } == true
-            if (!recent && Paydays.looksLikePayday(t, b, pred.next)) {
-                actions.markPayday(id, today())
-                payday = true
-            }
+            payday = Arrivals(store, actions, today, clock).paydays(listOf(id)).isNotEmpty()
         } else {
+            ParkedBuys(store, actions, today, clock).matchCharges(listOf(id))
             BillActions(store, actions, today).matchPayments(listOf(id))
         }
         return Logged(id, payday, duplicate = false)

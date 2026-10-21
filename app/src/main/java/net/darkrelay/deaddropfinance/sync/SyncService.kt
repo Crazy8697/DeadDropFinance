@@ -255,14 +255,11 @@ class SyncService(
                 }
                 windowStart = windowEnd.plusDays(1)
             }
-            // auto-approve (off by default): rule matches among the new rows are sorted as they arrive
-            if (settings.autoApprove && total.newIds.isNotEmpty()) {
-                runCatching { net.darkrelay.deaddropfinance.domain.Sorting(store).autoApprove(total.newIds) }
+            // the new rows: payday runs by itself when its deposit lands, parked buys' charges are sorted, auto-approve
+            // (off by default) sorts rule matches, payments count toward bills, waiting receipts are attached
+            runCatching {
+                net.darkrelay.deaddropfinance.domain.Arrivals(store, today = { today() }, clock = clock).landed(total.newIds, settings.autoApprove)
             }
-            // bills: payments that came in count toward them (and tick the payday checklist)
-            if (total.newIds.isNotEmpty()) runCatching { net.darkrelay.deaddropfinance.domain.BillActions(store).matchPayments(total.newIds) }
-            // receipts waiting for their charge: attached when the match is clear
-            if (total.newIds.isNotEmpty()) runCatching { net.darkrelay.deaddropfinance.domain.Receipts(store).matchWaiting() }
             // a new account's starting balance is set once the whole history is in
             for (l in latest.values) {
                 val acct = l.accountId ?: continue

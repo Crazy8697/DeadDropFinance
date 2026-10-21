@@ -59,6 +59,10 @@ fun MoreScreen(
     /** Sorting (rules, auto-approve) and Alerts sections. */
     sortAlerts: (@Composable () -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
+    onParked: (() -> Unit)? = null,
+    /** The default wait for a new parked buy, in days (Settings). */
+    parkWait: Int = 1,
+    onParkWait: (Int) -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
@@ -72,6 +76,14 @@ fun MoreScreen(
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onReceipts != null) {
             ListRow(onReceipts) { Column { Text("Receipts"); Text("Scanned receipts, and the ones waiting for their charge", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
+        if (onParked != null) {
+            ListRow(onParked) { Column { Text("Parked buys"); Text("Wait before you buy", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text("Parking lot wait")
+                Text("How long a parked buy waits before you decide", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                WaitChips(parkWait, onParkWait)
+            }
         }
         sortAlerts?.invoke()
         SectionTitle("Privacy")

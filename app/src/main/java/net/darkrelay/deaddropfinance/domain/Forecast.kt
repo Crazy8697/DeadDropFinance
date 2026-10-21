@@ -71,7 +71,7 @@ object Forecast {
             add(due, Out(e.name, e.requiredPayment ?: continue, Kind.DEBT))
         }
 
-        val everyday = b.envelopes.filter { it.everyday && !it.archived }
+        val everyday = b.everydayEnvelopes
         val planMoney = everyday.sumOf { maxOf(0L, b.envelopeBalance(it.id)) }
         val planDays = Rules.allocate(planMoney, List(n) { 1L })
         val plan = line(start, dates, fixed, planDays)

@@ -111,6 +111,13 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         }
     }
 
+    /** Counts an envelope in Safe to Spend, or stops counting it. Rollover never counts. */
+    suspend fun setEveryday(id: String, on: Boolean) = store.write {
+        val old = dao.envelope(id) ?: throw BudgetRuleException("That envelope is gone.")
+        if (old.mode == EnvelopeMode.ROLLOVER) throw BudgetRuleException("Rollover never counts in Safe to Spend.")
+        put(old, old.copy(everyday = on, updatedAt = now))
+    }
+
     suspend fun setEnvelopeArchived(id: String, archived: Boolean) = store.write {
         val old = dao.envelope(id) ?: return@write
         if (old.mode == EnvelopeMode.ROLLOVER) throw BudgetRuleException("Rollover can't be archived or deleted.")
