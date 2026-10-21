@@ -61,7 +61,8 @@ sealed interface Nav {
     data object More : Nav
     data class Envelope(val id: String) : Nav
     data class EnvelopeEdit(val id: String?) : Nav
-    data class MoveMoney(val fromId: String?) : Nav
+    /** Move money; [backToReady] starts it as a move back into Ready to Assign (fixing an over-assigned budget). */
+    data class MoveMoney(val fromId: String?, val backToReady: Boolean = false) : Nav
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
     data class TxEdit(val id: String?, val split: Boolean = false) : Nav
     data class TxDetail(val id: String) : Nav
@@ -69,6 +70,7 @@ sealed interface Nav {
     data class AccountEdit(val id: String?) : Nav
     data object Import : Nav
     data object Erase : Nav
+    data object Purge : Nav
     data object BankSync : Nav
     /** The SimpleFIN connect screen; [fixId] repairs that connection with a new token instead of adding one. */
     data class SyncConnect(val fixId: String? = null) : Nav
@@ -94,6 +96,12 @@ sealed interface Nav {
     data object Forecast : Nav
     data object Reading : Nav
     data object ParkedBuys : Nav
+    data object Backup : Nav
+    data object SetupImport : Nav
+    data object About : Nav
+    data object Help : Nav
+    data object Licenses : Nav
+    data class Document(val name: String) : Nav
     /** Which envelopes Safe to Spend counts. */
     data object SafeToSpend : Nav
 }
@@ -108,10 +116,14 @@ data class SharedReceipt(val uris: List<android.net.Uri>, val n: Int)
 interface Platform {
     fun openUrl(url: String)
     fun pickCsv(onPicked: (name: String, text: String?) -> Unit)
+    /** The system's file picker for a setup JSON file; [onPicked] gets its name and text (null if it couldn't be read). */
+    fun pickJson(onPicked: (name: String, text: String?) -> Unit)
     /** Puts the background sync job in line with the settings. */
     fun scheduleSync(hasConnections: Boolean)
     /** Erase everything and start over (the activity shows what's next). */
     fun eraseEverything()
+    /** Purge data: everything but the SimpleFIN connection; the app then starts at the setup wizard. */
+    fun purgeData()
     val more: MoreState
     fun setLock(on: Boolean)
     fun setTimeout(minutes: Int)
@@ -147,6 +159,20 @@ interface Platform {
     /** Picked apps' notifications waiting to be checked (in memory only). */
     fun notifPending(): Map<String, String>
     fun clearNotifPending(pkg: String)
+    /** The documents and license texts the app carries (assets/licenses), by file name. */
+    fun docs(): List<String>
+    /** One carried document's text, or null. */
+    fun readDoc(name: String): String?
+    /** The system's save picker for a new backup file named [name]; null if cancelled. */
+    fun createBackupFile(name: String, done: (android.net.Uri?) -> Unit)
+    /** The system's file picker for a backup to restore; null if cancelled. */
+    fun pickBackupFile(done: (android.net.Uri?) -> Unit)
+    /** A picked file's name as the phone shows it. */
+    fun displayName(uri: android.net.Uri): String
+    /** Writes the backup to [uri]. Runs off the main thread. */
+    suspend fun writeBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    /** Restores from [uri]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
+    suspend fun restoreBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -164,6 +190,10 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 @Composable
 fun AppRoot(
     store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
+    /** Called once a shared file or a notification's destination is taken, so it isn't taken again later. */
+    onTaken: () -> Unit = {},
+    /** Rises each time the app comes back to the front: what Android's settings may have changed is read again. */
+    resumeTick: Int = 0,
 ) {
     val actions = remember(store) { BudgetActions(store, platform.receiptFiles) }
     val sorting = remember(store) { Sorting(store, actions) }
@@ -172,6 +202,9 @@ fun AppRoot(
     val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
     val parked by remember(store) { store.dao.parkedBuys() }.collectAsState(initial = emptyList())
     var parkWait by remember { mutableIntStateOf(1) }
+    var backupState by remember { mutableStateOf(BackupState()) }
+    var importSetup by remember { mutableStateOf(SetupImportState()) }
+    var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     // a parked buy turns ready with time alone, so the clock is checked every minute
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
@@ -202,6 +235,8 @@ fun AppRoot(
     val syncBusy by sync.busy.collectAsState()
     val stack = remember { mutableStateListOf<Nav>(Nav.Home) }
     var error by remember { mutableStateOf<String?>(null) }
+    // a user action is running (run): another tap waits for it
+    var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<UpdateCheck.Release?>(null) }
     var more by remember { mutableStateOf(platform.more) }
@@ -232,13 +267,65 @@ fun AppRoot(
     fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) }
     fun tab(n: Nav) { error = null; message = null; stack.clear(); stack.add(n) }
     fun backTo(n: Nav) { while (stack.size > 1 && stack.last() != n) stack.removeAt(stack.lastIndex) }
+    /**
+     * Runs a user action: one at a time (a second tap while it runs is ignored, so nothing is saved twice), with the
+     * last message cleared first, and any failure shown as an error instead of closing the app.
+     */
     fun run(scope: CoroutineScope, popAfter: Boolean = false, block: suspend () -> Unit) = scope.launch {
+        if (working) return@launch
+        working = true
+        message = null
         try {
             block(); error = null
             if (popAfter) back()
         } catch (e: BudgetRuleException) {
             error = e.message
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            error = "That didn't work. Try again."
+        } finally {
+            working = false
         }
+    }
+    /** After a restore: the settings it brought are read again, and applied where the phone needs it. */
+    fun reloadSettings() {
+        val st = sync.settings
+        st.setupDone = true
+        setupDone = true
+        autoApprove = st.autoApprove
+        background = st.backgroundEnabled
+        interval = st.intervalHours
+        alertsAsked = st.alertsAsked
+        more = platform.more
+        platform.setHide(more.hideScreen)
+        alertTick++
+        planTick++
+        scope.launch { parkWait = parkedOps.defaultWait(); platform.scheduleSync(store.sync.connectionsNow().isNotEmpty()) }
+    }
+    /** The settings a setup file changes, applied where each one lives. */
+    fun applySettings(s: net.darkrelay.deaddropfinance.domain.SetupImport.SettingsIn) {
+        val st = sync.settings
+        s.autoApprove?.let { st.autoApprove = it; autoApprove = it }
+        s.backgroundSync?.let { st.backgroundEnabled = it; background = it }
+        s.syncEveryHours?.let { st.intervalHours = it; interval = it }
+        s.alertSpending?.let { st.alertSpending = it }
+        s.alertLowOrOverspent?.let { st.alertLowOrOverspent = it }
+        s.alertSafeToSpendNegative?.let { st.alertSafeToSpend = it }
+        s.alertAmountsOnLockScreen?.let { st.alertAmountsOnLockScreen = it }
+        s.alertBillReminders?.let { st.alertBills = it }
+        s.alertAutopayWarnings?.let { st.alertAutopay = it }
+        s.appLock?.let { platform.setLock(it) }
+        s.lockAfterMinutes?.let { platform.setTimeout(it) }
+        s.hideScreen?.let { platform.setHide(it) }
+        s.checkForUpdatesAtStartup?.let { platform.setCheckAtStartup(it) }
+        s.parkingLotWait?.let { parkWait = it }
+        more = platform.more
+        alertTick++
+        scope.launch { platform.scheduleSync(store.sync.connectionsNow().isNotEmpty()) }
+    }
+    fun lastBackupText(): String? = sync.settings.lastBackupAt.takeIf { it > 0 }?.let { at ->
+        "${syncTime(at)}, ${sync.settings.lastBackupName}"
     }
     fun openWizard() { picks.clear(); wizardConn = null; wizardDoor = null; starters = emptySet(); wizard = WizardPage.WELCOME }
     fun refresh() = scope.launch {
@@ -252,10 +339,12 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         store.ensureSystemEnvelopes()
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
-        val mode = setupMode(sync.settings.setupDone, sync.settings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), store.sync.connectionsNow().isNotEmpty())
+        val afterPurge = sync.settings.setupAfterPurge
+        val mode = setupMode(sync.settings.setupDone, sync.settings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), store.sync.connectionsNow().isNotEmpty(), afterPurge)
         if (mode == SetupMode.WIZARD) {
             openWizard()
             wizardForced = true
+            if (afterPurge) store.sync.connectionsNow().firstOrNull()?.let { c -> wizardDoor = Door.EASY; wizardConn = c.id }
         }
         platform.scheduleSync(store.sync.connectionsNow().isNotEmpty())
         launch { sync.syncAll(SyncService.Trigger.OPEN) }
@@ -264,7 +353,9 @@ fun AppRoot(
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
         }
     }
+    LaunchedEffect(resumeTick) { alertTick++ }
     LaunchedEffect(openTo?.n) {
+        if (openTo != null) onTaken()
         when (openTo?.where) {
             null -> {}
             net.darkrelay.deaddropfinance.MainActivity.OPEN_BILLS -> tab(Nav.Bills)
@@ -333,6 +424,7 @@ fun AppRoot(
     LaunchedEffect(shared?.n) {
         val s = shared ?: return@LaunchedEffect
         if (s.uris.isEmpty()) return@LaunchedEffect
+        onTaken()
         startScan(null)
         val id = scanId!!
         scanning = true
@@ -377,6 +469,8 @@ fun AppRoot(
                         b, top = head,
                         onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
                         onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
+                        onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
+                        envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
                         parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
                         parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
                         onParked = { go(Nav.ParkedBuys) },
@@ -450,8 +544,14 @@ fun AppRoot(
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
+                onPurge = { go(Nav.Purge) },
+                onHelp = { go(Nav.Help) },
+                onAbout = { go(Nav.About) },
                 onReceipts = { go(Nav.Receipts) },
                 onParked = { go(Nav.ParkedBuys) },
+                onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
+                onBackup = { backupState = BackupState(lastBackup = lastBackupText()); restoreUri = null; go(Nav.Backup) },
+                backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",
                 parkWait = parkWait,
                 onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
                 sortAlerts = {
@@ -486,7 +586,7 @@ fun AppRoot(
             )
             is Nav.Envelope -> {
                 val e = b.envelopes.firstOrNull { it.id == top.id }
-                if (e == null) back() else EnvelopeDetailScreen(
+                if (e == null) Gone(::back) else EnvelopeDetailScreen(
                     e, b, today, onBack = ::back, onEdit = { go(Nav.EnvelopeEdit(e.id)) }, onMove = { go(Nav.MoveMoney(e.id)) },
                     onCover = { run(scope) { actions.coverFromRollover(e.id) } },
                     onUseTarget = { avg -> run(scope) { actions.saveEnvelope(e.id, BudgetActions.EnvelopeDraft(e.name, e.mode, target = avg)) } },
@@ -496,7 +596,7 @@ fun AppRoot(
             is Nav.EnvelopeEdit -> EnvelopeEditScreen(b.envelopes.firstOrNull { it.id == top.id }, error, ::back) { d ->
                 run(scope, popAfter = true) { actions.saveEnvelope(top.id, d) }
             }
-            is Nav.MoveMoney -> MoveMoneyScreen(b, top.fromId, error, ::back) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
+            is Nav.MoveMoney -> MoveMoneyScreen(b, top.fromId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
             is Nav.Assign -> AssignScreen(
                 b, today, error, ::back,
                 onAdd = { id -> run(scope) { if (actions.addToEnvelope(id) == 0L) throw BudgetRuleException("Nothing is ready to assign.") } },
@@ -511,7 +611,7 @@ fun AppRoot(
             is Nav.TxDetail -> {
                 val t = b.transactions.firstOrNull { it.id == top.id }
                 LaunchedEffect(top.id, b.transactions.size) { washCandidates = actions.washCandidates(top.id) }
-                if (t == null) back() else TransactionDetailScreen(
+                if (t == null) Gone(::back) else TransactionDetailScreen(
                     t, b, washCandidates, message ?: error, ::back, onEdit = { go(Nav.TxEdit(t.id)) },
                     onDelete = { run(scope, popAfter = true) { actions.deleteTransaction(t.id) } },
                     onDeleteWithReceipt = { also -> run(scope, popAfter = true) { actions.deleteTransaction(t.id, deleteReceipt = also) } },
@@ -519,9 +619,9 @@ fun AppRoot(
                         run(scope) {
                             if (mark) {
                                 val plan = actions.markPayday(t.id)
+                                if (plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
                                 message = "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover." +
                                     if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."
-                                if (plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
                             } else actions.unmarkPayday(t.id)
                         }
                     },
@@ -548,7 +648,7 @@ fun AppRoot(
                 val pages by produceState(emptyList<androidx.compose.ui.graphics.ImageBitmap?>(), top.id, pageCount) {
                     value = (0 until pageCount).map { platform.receiptPage(top.id, it) }
                 }
-                if (form == null) back() else ReceiptEditScreen(
+                if (form == null) Gone(::back) else ReceiptEditScreen(
                     form, pages, top.isNew, scanning, error,
                     onBack = { if (top.isNew) dropScan(); back() },
                     onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
@@ -576,7 +676,7 @@ fun AppRoot(
                 val pages by produceState(emptyList<androidx.compose.ui.graphics.ImageBitmap?>(), top.id, r?.pages) {
                     value = (0 until (r?.pages ?: 0)).map { platform.receiptPage(top.id, it) }
                 }
-                if (r == null) back() else ReceiptDetailScreen(
+                if (r == null) Gone(::back) else ReceiptDetailScreen(
                     r, receiptItems.filter { it.receiptId == r.id }, pages, b.transactions.firstOrNull { it.id == r.transactionId }, b, itemReturns, message ?: error,
                     onBack = ::back, onEdit = { go(Nav.ReceiptEdit(r.id, isNew = false)) }, onMatch = { go(Nav.ReceiptMatch(r.id)) },
                     onSplit = { go(Nav.ItemSplit(r.id)) }, onDetach = { run(scope) { receiptsOps.detach(r.id) } },
@@ -586,7 +686,7 @@ fun AppRoot(
             is Nav.ReceiptMatch -> {
                 val r = receipts.firstOrNull { it.id == top.id }
                 val list by produceState(emptyList<net.darkrelay.deaddropfinance.domain.ReceiptMatch.Candidate>(), top.id, b.transactions.size) { value = receiptsOps.candidates(top.id) }
-                if (r == null) back() else ReceiptMatchScreen(r, list, onBack = { back(); if (stack.last() !is Nav.Receipt) go(Nav.Receipt(r.id)) }) { txId ->
+                if (r == null) Gone(::back) else ReceiptMatchScreen(r, list, onBack = { back(); if (stack.last() !is Nav.Receipt) go(Nav.Receipt(r.id)) }) { txId ->
                     run(scope) { receiptsOps.attach(r.id, txId); back(); if (stack.last() !is Nav.Receipt) go(Nav.Receipt(r.id)); message = "Matched." }
                 }
             }
@@ -594,7 +694,7 @@ fun AppRoot(
                 val r = receipts.firstOrNull { it.id == top.receiptId }
                 val tx = r?.transactionId?.let { id -> b.transactions.firstOrNull { it.id == id } }
                 val items = receiptItems.filter { it.receiptId == top.receiptId }
-                if (r == null || tx == null) back() else {
+                if (r == null || tx == null) Gone(::back) else {
                     val txEnv = b.lines.filter { it.transactionId == tx.id }.singleOrNull()?.envelopeId
                     val initial = remember(r.id) { net.darkrelay.deaddropfinance.domain.ItemSplit.suggestions(items, rules, b.envelopes.filter { !it.archived }.map { it.id }.toSet(), txEnv) }
                     ItemSplitScreen(r, items, tx, b, initial, error, ::back) { pick -> run(scope, popAfter = true) { receiptsOps.splitByItems(r.id, pick); message = "Split by items." } }
@@ -603,11 +703,11 @@ fun AppRoot(
             Nav.Receipts -> ReceiptsScreen(receipts, b, ::back, onReceipt = { go(Nav.Receipt(it)) }, onScan = { startScan(null) })
             Nav.Bills -> BillsScreen(
                 b, today, prediction, series, onBill = { go(Nav.Bill(it)) }, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.BillEdit(null)) },
-                onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { d -> scope.launch { billActions.correctPayday(d); planTick++ } },
+                onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { d -> run(scope) { billActions.correctPayday(d); planTick++ } },
             )
             is Nav.Bill -> {
                 val bill = b.bills.firstOrNull { it.id == top.id }
-                if (bill == null) back() else BillDetailScreen(
+                if (bill == null) Gone(::back) else BillDetailScreen(
                     bill, b, today, message ?: error, ::back, onEdit = { go(Nav.BillEdit(bill.id)) },
                     onPaid = { due -> run(scope) { billActions.markPaid(bill.id, due) } },
                     onCash = { due, acct -> run(scope) { billActions.markPaid(bill.id, due, cashAccountId = acct); message = "Logged as paid in cash." } },
@@ -640,7 +740,7 @@ fun AppRoot(
             Nav.Subscriptions -> SubscriptionsScreen(series, ::back) { go(Nav.Subscription(it)) }
             is Nav.Subscription -> {
                 val s = series.firstOrNull { top.key in it.keys }
-                if (s == null) back() else SubscriptionDetailScreen(
+                if (s == null) Gone(::back) else SubscriptionDetailScreen(
                     s, series.filter { it.key != s.key && !it.dismissed }, b, message ?: error, ::back,
                     onConfirm = { run(scope) { billActions.confirm(s) } },
                     onRename = { n -> run(scope) { billActions.rename(s, n); message = "Renamed." } },
@@ -650,7 +750,7 @@ fun AppRoot(
                     onRestore = { run(scope) { billActions.restore(s) } },
                 )
             }
-            Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: back()
+            Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: Gone(::back)
             Nav.ParkedBuys -> ParkedBuysScreen(
                 parked, b, nowMs, parkWait, message ?: error, ::back,
                 onPark = { n, a, w -> run(scope) { parkedOps.park(n, a, w); nowMs = System.currentTimeMillis(); message = null } },
@@ -663,6 +763,112 @@ fun AppRoot(
                 onKeep = { id -> run(scope) { parkedOps.keepWaiting(id); nowMs = System.currentTimeMillis(); message = null } },
                 onDrop = { id -> run(scope) { parkedOps.drop(id); message = null } },
             )
+            Nav.Backup -> BackupScreen(
+                backupState, ::back,
+                onBackUp = { pw ->
+                    val name = net.darkrelay.deaddropfinance.backup.Backups.fileName(today)
+                    platform.createBackupFile(name) { uri ->
+                        if (uri == null) return@createBackupFile
+                        scope.launch {
+                            backupState = backupState.copy(working = "Backing up...", message = null, error = null)
+                            backupState = try {
+                                val s = platform.writeBackup(uri, pw.toCharArray())
+                                sync.settings.lastBackupAt = System.currentTimeMillis()
+                                sync.settings.lastBackupName = platform.displayName(uri)
+                                backupState.copy(
+                                    working = null, lastBackup = lastBackupText(),
+                                    message = "Backed up: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos.",
+                                )
+                            } catch (e: Exception) {
+                                backupState.copy(working = null, error = "The backup couldn't be saved there. Try another place.")
+                            }
+                        }
+                    }
+                },
+                onPickRestore = {
+                    platform.pickBackupFile { uri ->
+                        if (uri != null) { restoreUri = uri; backupState = backupState.copy(restoreName = platform.displayName(uri), message = null, error = null) }
+                    }
+                },
+                onRestore = { pw ->
+                    val uri = restoreUri
+                    if (uri != null) scope.launch {
+                        backupState = backupState.copy(working = "Restoring...", message = null, error = null)
+                        backupState = try {
+                            val s = platform.restoreBackup(uri, pw.toCharArray())
+                            reloadSettings()
+                            restoreUri = null
+                            backupState.copy(
+                                working = null, restoreName = null,
+                                message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos.",
+                            )
+                        } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
+                            backupState.copy(working = null, error = e.message)
+                        } catch (e: Exception) {
+                            backupState.copy(working = null, error = "That file couldn't be read. Nothing was changed.")
+                        }
+                    }
+                },
+                onCancelRestore = { restoreUri = null; backupState = backupState.copy(restoreName = null, error = null) },
+            )
+            Nav.SetupImport -> {
+                val importer = remember(store) { net.darkrelay.deaddropfinance.domain.SetupImporter(store, actions) }
+                SetupImportScreen(
+                    importSetup, ::back,
+                    onPick = {
+                        platform.pickJson { name, text ->
+                            if (text == null) { importSetup = SetupImportState(fileName = name, errors = listOf("The file couldn't be read.")); return@pickJson }
+                            scope.launch {
+                                importSetup = when (val parsed = net.darkrelay.deaddropfinance.domain.SetupImport.parse(text)) {
+                                    is net.darkrelay.deaddropfinance.domain.SetupImport.Parsed.Bad -> SetupImportState(fileName = name, errors = parsed.errors)
+                                    is net.darkrelay.deaddropfinance.domain.SetupImport.Parsed.Ok -> when (val c = importer.check(parsed.plan)) {
+                                        is net.darkrelay.deaddropfinance.domain.SetupImporter.Checked.Bad -> SetupImportState(fileName = name, errors = c.errors)
+                                        is net.darkrelay.deaddropfinance.domain.SetupImporter.Checked.Ok -> SetupImportState(fileName = name, plan = parsed.plan, preview = c.preview)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onImport = {
+                        val plan = importSetup.plan
+                        if (plan != null) scope.launch {
+                            importSetup = importSetup.copy(working = true)
+                            importSetup = try {
+                                val p = importer.apply(plan)
+                                plan.settings?.let { applySettings(it) }
+                                planTick++
+                                SetupImportState(message = "Imported: ${p.addCount} added, ${p.updateCount} updated" + if (plan.settings != null) ", settings set." else ".")
+                            } catch (e: BudgetRuleException) {
+                                importSetup.copy(working = false, preview = null, plan = null, errors = listOf(e.message ?: "It couldn't be imported."))
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                importSetup.copy(working = false, preview = null, plan = null, errors = listOf("It couldn't be imported. Nothing was changed."))
+                            }
+                        }
+                    },
+                    onCancel = { importSetup = SetupImportState() },
+                )
+            }
+            Nav.About -> AboutScreen(more.version, ::back, platform::openUrl, onLicenses = { go(Nav.Licenses) }, onDoc = { go(Nav.Document(it)) })
+            Nav.Help -> HelpScreen(
+                more.checking, more.updateMessage, ::back, onLicenses = { go(Nav.Licenses) }, onSupport = { platform.openUrl(DarkRelayLinks.CHEESE) },
+                onCheck = {
+                    more = more.copy(checking = true, updateMessage = null)
+                    platform.checkForUpdates(manual = true) { r, msg ->
+                        if (r != null) release = r
+                        more = platform.more.copy(updateMessage = if (r != null) "Version ${r.version} is available. See Home." else msg)
+                    }
+                },
+            )
+            Nav.Licenses -> {
+                val files = remember { platform.docs() }
+                LicensesScreen(files, ::back) { go(Nav.Document(it)) }
+            }
+            is Nav.Document -> {
+                val text by produceState<String?>(null, top.name) { value = withContext(Dispatchers.IO) { platform.readDoc(top.name) } }
+                DocumentScreen(APP_DOCS.firstOrNull { it.first == top.name }?.second ?: top.name, text, ::back)
+            }
             Nav.SafeToSpend -> SafeToSpendScreen(b, error, ::back) { id, on -> run(scope) { actions.setEveryday(id, on) } }
             Nav.Reading -> {
                 val granted = key(planTick) { platform.notifAccessGranted() }
@@ -677,13 +883,13 @@ fun AppRoot(
                     },
                     onOpenAccess = { platform.openNotifAccess() }, onOpenAppInfo = { platform.openAppInfo() },
                     onPick = { pkg, label, acct ->
-                        scope.launch {
+                        run(scope) {
                             billActions.pickApp(pkg, label, acct)
                             sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
                         }
                     },
                     onDrop = { pkg ->
-                        scope.launch {
+                        run(scope) {
                             billActions.dropApp(pkg); platform.clearNotifPending(pkg)
                             sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
                         }
@@ -701,7 +907,7 @@ fun AppRoot(
                             planTick++
                         }
                     },
-                    onForget = { pkg -> scope.launch { billActions.forget(pkg) } },
+                    onForget = { pkg -> run(scope) { billActions.forget(pkg) } },
                     onRefresh = { planTick++ },
                 )
             }
@@ -710,7 +916,7 @@ fun AppRoot(
                 val purchase = b.transactions.firstOrNull { it.id == top.purchaseId }
                 val r = receipts.firstOrNull { it.transactionId == top.purchaseId }
                 val pre by produceState(emptyMap<String, Long>(), top) { value = receiptsOps.preselect(top.creditId, top.purchaseId) }
-                if (credit == null || purchase == null || r == null) back() else key(pre) {
+                if (credit == null || purchase == null || r == null) Gone(::back) else key(pre) {
                     ReturnItemsScreen(
                         credit, purchase, r, receiptItems.filter { it.receiptId == r.id }, itemReturns, pre, b, error, ::back,
                         onApply = { picks -> run(scope, popAfter = true) { receiptsOps.returnItems(credit.id, purchase.id, picks) } },
@@ -737,7 +943,7 @@ fun AppRoot(
                     } ?: suggestions[t.id]?.lines?.singleOrNull()?.envelopeId
                     RulePrefill(net.darkrelay.deaddropfinance.domain.Payees.key(t), if (t.amount < 0) -1 else 1, null, target)
                 }
-                if (top.id != null && r == null) back() else RuleEditScreen(
+                if (top.id != null && r == null) Gone(::back) else RuleEditScreen(
                     r, prefill, b, rules, error, ::back,
                     onSave = { d -> run(scope, popAfter = true) { sorting.saveRule(top.id, d) } },
                     onDelete = if (r == null) null else { { run(scope, popAfter = true) { sorting.deleteRule(r.id) } } },
@@ -754,7 +960,7 @@ fun AppRoot(
                     syncSection = if (a == null) null else {
                         {
                             AccountSyncSection(b, a.id, links, connections, onAdjust = { amount, date -> run(scope) { actions.addAdjustment(a.id, amount, date) } }) { lid, acct, remove ->
-                                scope.launch { sync.setLink(lid, acct, remove) }
+                                run(scope) { sync.setLink(lid, acct, remove) }
                             }
                         }
                     },
@@ -766,6 +972,7 @@ fun AppRoot(
                 )
             }
             Nav.Erase -> EraseScreen(::back, working = erasing) { erasing = true; platform.eraseEverything() }
+            Nav.Purge -> PurgeScreen(::back, working = erasing, connectionNames = connections.map { it.name }) { erasing = true; platform.purgeData() }
             Nav.Import -> ImportScreen(
                 b, importState, ::back,
                 onPick = {
@@ -779,7 +986,7 @@ fun AppRoot(
                 onToggleSkip = { n -> importState = importState.copy(skippedRows = importState.skippedRows.let { if (n in it) it - n else it + n }) },
                 onImport = { plan ->
                     val acct = importState.accountId ?: return@ImportScreen
-                    scope.launch {
+                    run(scope) {
                         val res = actions.importCsv(acct, plan)
                         // the same as bank sync: payday runs by itself when its deposit is in the file
                         net.darkrelay.deaddropfinance.domain.Arrivals(store, actions, files = platform.receiptFiles).landed(res.newIds, sync.settings.autoApprove)
@@ -795,10 +1002,10 @@ fun AppRoot(
                     connections, links, b.accounts, hints, background, interval, syncBusy, syncMessage, ::back,
                     onAdd = { syncMessage = null; connectUi.error = null; go(Nav.SyncConnect()) },
                     onSyncNow = { id -> scope.launch { syncMessage = sync.syncConnection(id, SyncService.Trigger.MANUAL).message } },
-                    onFix = { c -> fixConnection(c.id, c.fixCode, ctl, connectUi, connections, ::go, scope, sync) },
+                    onFix = { c -> fixConnection(c.id, c.fixCode, ctl, connectUi, connections, { n -> if (stack.last() != n) go(n) }, scope, sync, platform::openUrl) },
                     onLinks = { id -> picks.clear(); go(Nav.SyncLink(id)) },
                     onDisconnect = { id, remove, offBudget ->
-                        scope.launch {
+                        run(scope) {
                             sync.disconnect(id, remove, offBudget)
                             platform.scheduleSync(store.sync.connectionsNow().isNotEmpty())
                             syncMessage = if (remove) "Disconnected. Its transactions were removed." else "Disconnected. Its transactions were kept."
@@ -813,12 +1020,16 @@ fun AppRoot(
                 ScreenTitle("SimpleFIN", ::back)
                 SimpleFinDoor(connectUi, platform::openUrl) {
                     ctl.connectSimpleFin(connectUi, fix?.id) { id ->
-                        if (fix != null) { scope.launch { syncMessage = sync.syncConnection(id).message }; backTo(Nav.BankSync) } else { back(); go(Nav.SyncLink(id)) }
+                        if (fix != null) {
+                            scope.launch { syncMessage = sync.syncConnection(id).message }
+                            // the result shows on Bank sync, also when the repair started from Home's prompt
+                            if (stack.contains(Nav.BankSync)) backTo(Nav.BankSync) else { stack.removeAt(stack.lastIndex); go(Nav.BankSync) }
+                        } else { back(); go(Nav.SyncLink(id)) }
                     }
                 }
             }
             is Nav.SyncLink -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                ScreenTitle("Link accounts", ::back) { TextButton(onClick = { scope.launch { runCatching { sync.refreshAccounts(top.connectionId) } } }) { Text("Refresh list") } }
+                ScreenTitle("Link accounts", ::back) { TextButton(onClick = { scope.launch { runCatching { sync.refreshAccounts(top.connectionId) }.onFailure { syncMessage = "The list couldn't be refreshed. Check the connection and try again." } } }) { Text("Refresh list") } }
                 LinkPanel(
                     links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { id, p -> picks[id] = p }, linkBusy, null, budget = b,
                     onApply = {
@@ -855,7 +1066,7 @@ fun AppRoot(
             onAddStarters = {
                 val have = b.envelopes.map { it.name.lowercase() }.toSet()
                 val chosen = starters.filter { it.lowercase() !in have }
-                scope.launch {
+                run(scope) {
                     // groceries and gas are everyday spending (Safe to Spend) from the start
                     for (n in chosen) actions.saveEnvelope(null, BudgetActions.EnvelopeDraft(n, EnvelopeMode.FILL_TO_TARGET, everyday = n in EVERYDAY_STARTERS))
                     starters = emptySet()
@@ -863,6 +1074,7 @@ fun AppRoot(
                 }
             },
             onFinish = {
+                sync.settings.setupAfterPurge = false
                 sync.settings.setupDone = true
                 setupDone = true
                 wizard = null
@@ -877,14 +1089,25 @@ fun AppRoot(
     Scaffold(
         bottomBar = { BottomTabs(stack.first()) { tab(it) } },
     ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad)) { screen(top) }
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            // screens that don't show errors themselves get them here, so a failed action never goes unsaid
+            val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Reading, Nav.Receipts)
+            val e = error
+            if (shown && e != null) {
+                androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Text(e, color = DdfColors.Error, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { error = null }) { Text("OK") }
+                }
+            }
+            Box(Modifier.fillMaxSize()) { screen(top) }
+        }
     }
 
     val p = prompt
     if (p != null && wizard == null) {
         FixDialog(p, onFix = {
             sync.dismissPrompt()
-            fixConnection(p.connectionId, p.code, ctl, connectUi, connections, ::go, scope, sync)
+            fixConnection(p.connectionId, p.code, ctl, connectUi, connections, { n -> if (stack.last() != n) go(n) }, scope, sync, platform::openUrl)
         }, onLater = { sync.dismissPrompt() })
     }
 }
@@ -892,14 +1115,25 @@ fun AppRoot(
 /** Sends the user straight to the fix for a connection that needs one. */
 private fun fixConnection(
     connectionId: String, code: String?, ctl: SyncController, ui: ConnectUi, connections: List<net.darkrelay.deaddropfinance.data.ConnectionEntity>,
-    go: (Nav) -> Unit, scope: CoroutineScope, sync: SyncService,
+    go: (Nav) -> Unit, scope: CoroutineScope, sync: SyncService, openUrl: (String) -> Unit,
 ) {
     val c = connections.firstOrNull { it.id == connectionId } ?: return
     ui.error = null
     when (code) {
         FixCode.SIMPLEFIN_TOKEN -> go(Nav.SyncConnect(c.id))
+        // payment is settled on the SimpleFIN Bridge itself
+        FixCode.SIMPLEFIN_PAYMENT -> openUrl(ProviderLinks.SIMPLEFIN_BRIDGE)
         else -> go(Nav.BankSync)
     }
+}
+
+/**
+ * The data a screen shows is gone (deleted elsewhere, or not arrived yet just after it was made): back, after a
+ * moment, so a row that's just been written has time to arrive and the screen stays.
+ */
+@Composable
+private fun Gone(onGone: () -> Unit) {
+    LaunchedEffect(Unit) { delay(400); onGone() }
 }
 
 /** Pull down to sync, when there is a bank connection to sync. */

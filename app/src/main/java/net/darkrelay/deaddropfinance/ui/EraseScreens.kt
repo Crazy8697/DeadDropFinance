@@ -59,6 +59,54 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
     }
 }
 
+/** The word that has to be typed to confirm Purge data. */
+const val PURGE_WORD = "PURGE"
+
+/**
+ * Purge data: the same confirmation as Erase everything (what goes, typed word), for a reset that keeps the
+ * SimpleFIN connection so no new setup token is needed.
+ */
+@Composable
+fun PurgeScreen(onBack: () -> Unit, working: Boolean, connectionNames: List<String>, onPurge: () -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        ScreenTitle("Purge data", onBack)
+        Text("This deletes everything Dead Drop Finance keeps on this phone, for good:")
+        Gap()
+        for (line in listOf(
+            "Every account and its balance",
+            "Every transaction",
+            "Every envelope and what's in it",
+            "Bills, paydays, rules and subscriptions",
+            "Receipts and their photos, and parked buys",
+            "Settings, including app lock and Hide screen",
+        )) {
+            Text("  $line", color = DdfColors.Muted)
+        }
+        Gap()
+        Text(
+            if (connectionNames.isEmpty()) "Kept: a SimpleFIN connection, if you add one before purging. There's none now."
+            else "Kept: your SimpleFIN connection (${connectionNames.joinToString(", ")}), so you don't need a new setup token.",
+            color = DdfColors.Cyan,
+        )
+        Gap()
+        Text("Only a backup file can bring the rest back.", color = DdfColors.Warning)
+        Gap()
+        Text("The app then starts over like a fresh install, at the setup wizard, with bank sync connected.", color = DdfColors.Muted)
+        Gap(16)
+        OutlinedTextField(
+            value = typed, onValueChange = { typed = it.take(10) }, singleLine = true,
+            label = { Text("Type $PURGE_WORD to confirm") }, modifier = Modifier.fillMaxWidth(),
+        )
+        Gap()
+        Button(
+            onClick = onPurge, enabled = typed.trim() == PURGE_WORD && !working, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = DdfColors.Error, contentColor = DdfColors.Background),
+        ) { Text(if (working) "Purging..." else "Purge data") }
+        Gap(24)
+    }
+}
+
 /** After an erase: what's left elsewhere (the SimpleFIN connection on the Bridge) and how to remove it. */
 @Composable
 fun ErasedScreen(onOpen: (String) -> Unit, onStartOver: () -> Unit) {

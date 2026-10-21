@@ -49,6 +49,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "0.10.0") assertEquals(1000, BuildConfig.VERSION_CODE)
         // 0.11.0 (Stage 11: Safe to Spend home, parked buys, payday from sync) -> 0 * 10000 + 11 * 100 + 0
         if (BuildConfig.VERSION_NAME == "0.11.0") assertEquals(1100, BuildConfig.VERSION_CODE)
+        // 0.15.0 (Stages 12 to 15: backup, setup import, Purge data, icon, review fixes, terms, About and Help) -> 0 * 10000 + 15 * 100 + 0
+        if (BuildConfig.VERSION_NAME == "0.15.0") assertEquals(1500, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

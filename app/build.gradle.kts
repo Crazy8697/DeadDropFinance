@@ -206,7 +206,10 @@ val privacyGateApk = tasks.register<Exec>("privacyGateApk") {
 if (!privacyGateOn) logger.info("DeadDropFinance: privacy gate off (no ddf.privacy.gate=true in local.properties)")
 
 val copyLicenseAssets = tasks.register<CopyLicenseAssets>("copyLicenseAssets") {
-    files.from(rootProject.file("LICENSE"), rootProject.file("NOTICE"), rootProject.file("THIRD-PARTY-NOTICES.md"))
+    files.from(
+        rootProject.file("LICENSE"), rootProject.file("NOTICE"), rootProject.file("THIRD-PARTY-NOTICES.md"),
+        rootProject.file("PRIVACY.md"), rootProject.file("TERMS.md"),
+    )
     licenseTexts.set(rootProject.layout.projectDirectory.dir("licenses"))
 }
 androidComponents {

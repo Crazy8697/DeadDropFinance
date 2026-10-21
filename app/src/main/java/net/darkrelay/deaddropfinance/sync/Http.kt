@@ -24,13 +24,16 @@ class Http(
     private val readTimeoutMs: Int = 30_000,
     private val baseBackoffMs: Long = 1_000,
 ) {
-    suspend fun get(url: String, headers: Map<String, String> = emptyMap()) = call("GET", url, headers)
+    /** [beforeEach] runs before every attempt, retries included (a request limiter counts each one that goes out). */
+    suspend fun get(url: String, headers: Map<String, String> = emptyMap(), beforeEach: (suspend () -> Unit)? = null) = call("GET", url, headers, maxAttempts, beforeEach)
 
-    suspend fun post(url: String, headers: Map<String, String> = emptyMap()) = call("POST", url, headers)
+    /** [retry] false: one attempt only, for a request that must never be sent twice (claiming a one-time token). */
+    suspend fun post(url: String, headers: Map<String, String> = emptyMap(), retry: Boolean = true) = call("POST", url, headers, if (retry) maxAttempts else 1, null)
 
-    private suspend fun call(method: String, url: String, headers: Map<String, String>): HttpResult {
+    private suspend fun call(method: String, url: String, headers: Map<String, String>, attempts: Int, beforeEach: (suspend () -> Unit)?): HttpResult {
         var lastIssue: SyncError? = null
-        for (attempt in 1..maxAttempts) {
+        for (attempt in 1..attempts) {
+            beforeEach?.invoke()
             try {
                 val r = withContext(Dispatchers.IO) { once(method, url, headers) }
                 when (r.status) {
@@ -43,7 +46,7 @@ class Http(
             } catch (e: IOException) {
                 lastIssue = SyncError.Network("Couldn't reach the provider.")
             }
-            if (attempt < maxAttempts) sleep(baseBackoffMs * (1L shl (attempt - 1)))
+            if (attempt < attempts) sleep(baseBackoffMs * (1L shl (attempt - 1)))
         }
         throw lastIssue ?: SyncError.Network("Couldn't reach the provider.")
     }

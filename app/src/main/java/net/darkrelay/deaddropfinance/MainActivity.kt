@@ -47,6 +47,10 @@ class MainActivity : ComponentActivity() {
     private var pickCallback: ((String, String?) -> Unit)? = null
     private var sync by mutableStateOf<SyncService?>(null)
     private var erased by mutableStateOf(false)
+    /** Rises with each Purge data, so the screens start again from scratch (at the setup wizard). */
+    private var generation by mutableIntStateOf(0)
+    /** Rises each time the activity comes back to the front. */
+    private var resumeTick by mutableIntStateOf(0)
     /** Where a notification opened the app (To sort, Bills, Home, reading setup); [OpenTo.n] rises each time. */
     private var openTo by mutableStateOf<net.darkrelay.deaddropfinance.ui.OpenTo?>(null)
     private var permissionDone: ((Boolean) -> Unit)? = null
@@ -74,6 +78,19 @@ class MainActivity : ComponentActivity() {
         net.darkrelay.deaddropfinance.scan.ReceiptScanner(this, app.receiptImages) { net.darkrelay.deaddropfinance.scan.TesseractReader(this) }
     }
     private val app get() = application as DdfApp
+    private var backupDone: ((Uri?) -> Unit)? = null
+
+    private val backupSaver = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri: Uri? ->
+        val done = backupDone ?: return@registerForActivityResult
+        backupDone = null
+        done(uri)
+    }
+
+    private val backupOpener = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val done = backupDone ?: return@registerForActivityResult
+        backupDone = null
+        done(uri)
+    }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         val done = permissionDone ?: return@registerForActivityResult
@@ -114,12 +131,16 @@ class MainActivity : ComponentActivity() {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
                             erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
-                            o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(
-                                o.store, sync!!, platform,
-                                startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
-                                openTo = openTo,
-                                shared = shared,
-                            )
+                            o is DatabaseOpener.Opened.Ok && sync != null -> androidx.compose.runtime.key(generation) {
+                                AppRoot(
+                                    o.store, sync!!, platform,
+                                    startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
+                                    openTo = openTo,
+                                    shared = shared,
+                                    onTaken = { shared = null; openTo = null },
+                                    resumeTick = resumeTick,
+                                )
+                            }
                             else -> {}
                         }
                     }
@@ -152,6 +173,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumeTick++
         if (!app.lock.locked) clearAlerts()
     }
 
@@ -219,7 +241,14 @@ class MainActivity : ComponentActivity() {
 
         override fun pickCsv(onPicked: (String, String?) -> Unit) {
             pickCallback = onPicked
+            app.lock.expectReturn()
             picker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel"))
+        }
+
+        override fun pickJson(onPicked: (String, String?) -> Unit) {
+            pickCallback = onPicked
+            app.lock.expectReturn()
+            picker.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
         }
 
         override fun eraseEverything() {
@@ -228,6 +257,19 @@ class MainActivity : ComponentActivity() {
                 opened = null
                 withContext(Dispatchers.IO) { app.eraseEverything() }
                 erased = true
+            }
+        }
+
+        override fun purgeData() {
+            lifecycleScope.launch {
+                sync = null
+                // a failed purge rolls its database part back; either way the screens start again from what's there
+                withContext(Dispatchers.IO) { runCatching { app.purgeData() } }
+                sync = withContext(Dispatchers.IO) { app.syncService() }
+                applyHide()
+                shared = null
+                openTo = null
+                generation++
             }
         }
 
@@ -258,6 +300,7 @@ class MainActivity : ComponentActivity() {
             photoDone = done
             val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.capture", f)
             try {
+                app.lock.expectReturn()
                 camera.launch(uri)
             } catch (e: Exception) {
                 photoDone = null; f.delete(); done(null)
@@ -266,6 +309,7 @@ class MainActivity : ComponentActivity() {
 
         override fun pickReceiptFile(done: (Uri?) -> Unit) {
             fileDone = done
+            app.lock.expectReturn()
             receiptPicker.launch(arrayOf("image/*", "application/pdf"))
         }
 
@@ -320,6 +364,43 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun clearNotifPending(pkg: String) = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.Inbox.clear(pkg)
+
+        override fun docs(): List<String> = runCatching { assets.list("licenses")?.toList().orEmpty() }.getOrDefault(emptyList())
+
+        override fun readDoc(name: String): String? = runCatching {
+            if (name.contains('/') || name.contains("..")) return null
+            assets.open("licenses/$name").use { String(it.readBytes(), Charsets.UTF_8) }
+        }.getOrNull()
+
+        override fun createBackupFile(name: String, done: (Uri?) -> Unit) {
+            backupDone = done
+            app.lock.expectReturn()
+            runCatching { backupSaver.launch(name) }.onFailure { backupDone = null; done(null) }
+        }
+
+        override fun pickBackupFile(done: (Uri?) -> Unit) {
+            backupDone = done
+            app.lock.expectReturn()
+            runCatching { backupOpener.launch(arrayOf("*/*")) }.onFailure { backupDone = null; done(null) }
+        }
+
+        override fun displayName(uri: Uri): String = runCatching {
+            contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "the file"
+
+        override suspend fun writeBackup(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
+            val store = (opened as DatabaseOpener.Opened.Ok).store
+            val out = contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("can't write there")
+            try { app.backups(store).write(out, passphrase) } finally { passphrase.fill(' ') }
+        }
+
+        override suspend fun restoreBackup(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
+            val store = (opened as DatabaseOpener.Opened.Ok).store
+            val input = contentResolver.openInputStream(uri) ?: throw net.darkrelay.deaddropfinance.backup.BackupException("That file couldn't be opened.")
+            try { input.use { app.backups(store).restore(it, passphrase) } } finally { passphrase.fill(' ') }
+        }
 
         override fun sweepReceiptFiles(keep: Set<String>) {
             runCatching { app.receiptImages.sweep(keep) }

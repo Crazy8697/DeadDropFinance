@@ -90,7 +90,7 @@ class BankNotificationListener : NotificationListenerService() {
     }
 
     companion object {
-        private const val ID_TEACH = 17000
+        private const val ID_TEACH = 30_000
         private const val ID_PAYDAY = 8003
 
         /** Title, text and the long text of a notification, joined. */

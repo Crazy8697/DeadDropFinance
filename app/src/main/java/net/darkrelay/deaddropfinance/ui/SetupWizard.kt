@@ -135,6 +135,16 @@ fun SetupWizardHost(
             DoorList(onPick = onDoor)
         }
         WizardPage.CONNECT -> {
+            val kept = if (door == Door.EASY) connections.firstOrNull { it.id == wizardConn } else null
+            if (kept != null) {
+                // Purge data kept the connection: no new setup token needed
+                WizardFrame(page, "Connect with SimpleFIN", { onPage(WizardPage.DOOR) }, "Next" to { onPage(WizardPage.LINK) }) {
+                    Text("Bank sync is connected: ${kept.name}", color = DdfColors.Cyan)
+                    Gap()
+                    Text("Your SimpleFIN connection was kept, so there's no new setup token to claim. Next, link its accounts.", color = DdfColors.Muted)
+                }
+                return
+            }
             val title = when (door) { Door.EASY -> "Connect with SimpleFIN"; else -> "Old School" }
             val skip = if (door == Door.OLD_SCHOOL) null else "Skip for now" to { onPage(WizardPage.STARTER) }
             WizardFrame(page, title, { onPage(WizardPage.DOOR) }, skip) {
@@ -180,7 +190,9 @@ enum class SetupMode { WIZARD, CARD, NONE }
  * 0.6.x with accounts in it is a working setup, so it gets a dismissible Home card instead. The card is gone for good
  * once the wizard is finished, a bank connection exists, or the user taps Not now.
  */
-fun setupMode(setupDone: Boolean, cardDismissed: Boolean, hasAccounts: Boolean, hasConnections: Boolean): SetupMode = when {
+fun setupMode(setupDone: Boolean, cardDismissed: Boolean, hasAccounts: Boolean, hasConnections: Boolean, afterPurge: Boolean = false): SetupMode = when {
+    // after Purge data: a fresh install's wizard, with the kept bank connection
+    afterPurge -> SetupMode.WIZARD
     setupDone || hasConnections -> SetupMode.NONE
     !hasAccounts -> SetupMode.WIZARD
     cardDismissed -> SetupMode.NONE

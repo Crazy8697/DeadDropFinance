@@ -39,6 +39,13 @@ class DdfApp : Application() {
 
     fun receiptDir() = File(filesDir, "receipts")
 
+    /** Backup and restore over the open budget; a restore stages photos in the cache first. */
+    fun backups(store: net.darkrelay.deaddropfinance.data.BudgetStore) = net.darkrelay.deaddropfinance.backup.Backups(
+        store.db, receiptImages, File(cacheDir, "restore"),
+        net.darkrelay.deaddropfinance.backup.SettingsTransfer(listOf("sync", "lock", "updates").associateWith { getSharedPreferences(it, MODE_PRIVATE) }),
+        BuildConfig.VERSION_NAME,
+    )
+
     /** The camera writes its photo here (cache), and the app deletes it as soon as it's read. */
     fun captureDir() = File(cacheDir, "scan")
 
@@ -86,10 +93,29 @@ class DdfApp : Application() {
             deleteKeystoreKey = { alias -> java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias) },
             settings = listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
             cancelScheduledWork = { androidx.work.WorkManager.getInstance(this).cancelAllWork() },
-            extraDirs = listOf(receiptDir(), net.darkrelay.deaddropfinance.scan.TesseractReader.ocrDir(this), captureDir()),
+            extraDirs = listOf(receiptDir(), net.darkrelay.deaddropfinance.scan.TesseractReader.ocrDir(this), captureDir(), File(cacheDir, "restore")),
         ).erase()
         secretStore = null
         left
+    }
+
+    /**
+     * Purge data: everything but the SimpleFIN connection (FEATURES.md). The database stays open; the next start of
+     * the screens opens the setup wizard with the connection kept.
+     */
+    suspend fun purgeData() = openLock.withLock {
+        val o = opened as? DatabaseOpener.Opened.Ok ?: return@withLock
+        // no sync may write while the budget is emptied: the running one stops, and a fresh one starts after
+        service?.shutdown()
+        service = null
+        runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
+        net.darkrelay.deaddropfinance.data.Purger(
+            o.store.db, secrets(), listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
+            listOf(receiptDir(), captureDir(), File(cacheDir, "restore")),
+        ).purge()
+        val settings = SyncSettings(this)
+        settings.setupAfterPurge = true
+        SyncScheduler.apply(this, settings, o.store.sync.connectionsNow().isNotEmpty())
     }
 
     companion object {

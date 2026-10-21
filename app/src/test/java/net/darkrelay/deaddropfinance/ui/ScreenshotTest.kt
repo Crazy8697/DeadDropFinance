@@ -61,6 +61,9 @@ import org.junit.rules.RuleChain
 import org.junit.runners.model.Statement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
@@ -144,15 +147,15 @@ class ScreenshotTest {
 
     private companion object { const val TALL = "w400dp-h1500dp-xhdpi" }
 
-    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test fun envelopes() = shot("04-envelopes") { EnvelopesScreen(budget, {}, {}, {}, {}) }
     @Test fun envelopesEmpty() = shot("05-envelopes-empty") { EnvelopesScreen(empty, {}, {}, {}, {}) }
     @Test fun envelopeDetailFill() = shot("06-envelope-detail") { EnvelopeDetailScreen(budget.envelopes[2], budget, today, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun envelopeDetailDebt() = shot("07-envelope-detail-debt") { EnvelopeDetailScreen(budget.envelopes[6], budget, today, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun envelopeEdit() = shot("08-envelope-edit") { EnvelopeEditScreen(budget.envelopes[4], null, {}, {}) }
-    @Test fun moveMoney() = shot("09-move-money") { MoveMoneyScreen(budget, "roll", null, {}, { _, _, _ -> }) }
+    @Test fun moveMoney() = shot("09-move-money") { MoveMoneyScreen(budget, "roll", null, {}) { _, _, _ -> } }
     @Test @Config(qualifiers = TALL) fun assign() = shot("10-assign") {
         AssignScreen(budget, today, null, {}, {}, { _, _ -> }, listOf(Payday.Shortfall("heat", 40_00, 15_00)))
     }
@@ -230,9 +233,9 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
         AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns, today) { _, _, _ -> } }, budget = budget)
     }
-    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test fun fixDialog() = shot("47-fix-dialog") {
-        HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {})
+        HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {})
         FixDialog(SyncService.FixPrompt("c2", FixCode.SIMPLEFIN_TOKEN, "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again."), {}, {})
     }
     @Test fun activitySyncNote() = shot("48-activity-sync-note") {
@@ -253,7 +256,7 @@ class ScreenshotTest {
             LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, today, null)
         }
     }
-    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}); UnlinkDialog("Everyday Checking", {}, {}) }
+    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}); UnlinkDialog("Everyday Checking", {}, {}) }
     private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
     private val shareTrack = acct("share", "Membership Share", AccountType.BANK, 5_00).copy(trackOnly = true)
     private val budget2 = Budget(budget.accounts + listOf(savingsHeld, shareTrack), budget.envelopes, budget.transactions, budget.lines, budget.moves)
@@ -266,7 +269,7 @@ class ScreenshotTest {
     @Test fun accountsList() = shot("58-accounts-track-only-and-archived") {
         AccountsScreen(Budget(budget2.accounts + acct("old", "Old Savings", AccountType.BANK, 80_00).copy(archived = true), budget.envelopes, budget.transactions, budget.lines, budget.moves), {}, {}, {})
     }
-    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
 
     // ---- 0.7.3 ---------------------------------------------------------------------------------------------------
     private fun epochOf(d: java.time.LocalDate) = d.atTime(9, 0).toEpochSecond(java.time.ZoneOffset.UTC)
@@ -385,7 +388,7 @@ class ScreenshotTest {
             LinkPanel(checkLink(appBalance + 25_00).map { it.copy(accountId = null) }, budget8.accounts, mapOf("s1" to LinkPick("chk")), { _, _ -> }, false, null, today, null, budget = budget8)
         }
     }
-    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
 
     // ---- 0.9.0: receipts ----------------------------------------------------------------------------------------
@@ -523,7 +526,7 @@ class ScreenshotTest {
     @Test fun bottomBarWithBills() = shot("96-bottom-bar-bills") { Box(Modifier.fillMaxSize()) { Column(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) { BottomTabs(Nav.Bills) {} } } }
     @Test @Config(qualifiers = TALL) fun homeWithForecastAndChecklist() = shot("97-home-forecast-checklist") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!)
-        HomeScreen(budget10, null, {}, {}, {}, {}, {}, 0, 0, {}, forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) })
+        HomeScreen(budget10, null, {}, {}, {}, {}, {}, {}, 0, 0, {}, forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) })
     }
     @Test fun homeChecklistCollapsed() = shot("98-checklist-all-paid") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!).map { c -> c.copy(payments = c.payments + pay(c.bill.id, c.remaining, c.due, PaymentMethod.HAND)) }
@@ -591,11 +594,11 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun homeSafeToSpend() = shot("115-home-safe-to-spend") {
         val list = Bills.checklist(budget11.bills, budget11.billPayments, budget11.paydayDates.last(), pred10.next!!)
         HomeScreen(
-            budget11, null, {}, {}, {}, {}, {}, ParkedBuys.waiting(parked11).size, ParkedBuys.ready(parked11, nowMs).size, {},
+            budget11, null, {}, {}, {}, {}, {}, {}, ParkedBuys.waiting(parked11).size, ParkedBuys.ready(parked11, nowMs).size, {},
             forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) },
         )
     }
-    @Test fun homeNoEverydayYet() = shot("116-home-pick-everyday") { HomeScreen(budget, null, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeNoEverydayYet() = shot("116-home-pick-everyday") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test @Config(qualifiers = TALL) fun safeToSpendPick() = shot("117-safe-to-spend-envelopes") { SafeToSpendScreen(budget11, null, {}) { _, _ -> } }
     @Test @Config(qualifiers = TALL) fun parkedBuys() = shot("118-parked-buys") {
         ParkedBuysScreen(parked11, budget11, nowMs, 1, null, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, zone = java.time.ZoneOffset.UTC)
@@ -605,6 +608,91 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun moreParked() = shot("120-more-parked-buys") {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onParked = {}, parkWait = 2)
+    }
+
+    // ---- 0.15.0: the launcher icon from the master (as a round and a squircle launcher mask it, themed in one colour) --------------
+    @Test fun launcherIcon() = shot("121-launcher-icon") {
+        androidx.compose.foundation.layout.Row(Modifier.padding(16.dp)) {
+            for (shape in listOf(androidx.compose.foundation.shape.CircleShape, androidx.compose.foundation.shape.RoundedCornerShape(30))) {
+                Box(Modifier.size(108.dp).clip(shape).background(androidx.compose.ui.graphics.Color(0xFF0B131B))) {
+                    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(net.darkrelay.deaddropfinance.R.drawable.ic_launcher_foreground), null, Modifier.size(108.dp))
+                }
+                androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+            }
+            Box(Modifier.size(108.dp).clip(androidx.compose.foundation.shape.CircleShape).background(androidx.compose.ui.graphics.Color(0xFF2E4A3E))) {
+                androidx.compose.foundation.Image(
+                    androidx.compose.ui.res.painterResource(net.darkrelay.deaddropfinance.R.drawable.ic_launcher_monochrome), null, Modifier.size(108.dp),
+                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(androidx.compose.ui.graphics.Color(0xFFCDE8D6)),
+                )
+            }
+        }
+    }
+
+    // ---- 0.15.0: Home answers, backup, setup import, purge, About, Help, Licenses -----------------------------------------
+    /** budget11 over-assigned (the account holds less than the envelopes); its Sample Loan payment is due before payday, a card's after. */
+    private val budget15: Budget get() = budget11.let { b ->
+        val card = env("card", "Sample Card", EnvelopeMode.DEBT, 9, per = 40_00).copy(requiredPayment = 35_00, dueDate = today.plusDays(40), debtOwed = 600_00)
+        Budget(b.accounts, b.envelopes + card, b.transactions, b.lines, b.moves + move(null, "save", b.readyToAssign + 75_00), b.bills, b.billPayments)
+    }
+    @Test @Config(qualifiers = TALL) fun homeOverAssignedAndDebtDue() = shot("122-home-over-assigned-debt-due") {
+        val b = budget15
+        HomeScreen(
+            b, null, {}, {}, {}, {}, {}, {}, 1, 0, {},
+            forecast = { ForecastCard(forecast10) {} }, envelopes = homeEnvelopes(b, today, pred10.next),
+        )
+    }
+    @Test fun moveMoneyBack() = shot("123-move-money-back-to-ready") { MoveMoneyScreen(budget15, null, null, {}, backToReady = true) { _, _, _ -> } }
+    @Test @Config(qualifiers = TALL) fun backup() = shot("124-backup-and-restore") {
+        BackupScreen(BackupState(lastBackup = "Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", message = "Backed up: 2 accounts, 41 transactions, 3 receipts, 5 photos."), {}, {}, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun backupRestorePicked() = shot("125-backup-restore-picked") {
+        BackupScreen(BackupState(restoreName = "deaddrop-2030-03-01.ddfbak", error = "Wrong password, or the backup file is damaged."), {}, {}, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun setupImportPreview() = shot("126-import-setup-preview") {
+        SetupImportScreen(
+            SetupImportState(
+                fileName = "sample-setup.json", plan = net.darkrelay.deaddropfinance.domain.SetupImport.Plan(),
+                preview = net.darkrelay.deaddropfinance.domain.SetupImporter.Preview(
+                    add = linkedMapOf("Envelopes" to listOf("Fuel", "Sample Loan"), "Bills" to listOf("Sample Car Cover"), "Rules" to listOf("sample payroll", "sample corner shop")),
+                    update = linkedMapOf("Envelopes" to listOf("Groceries"), "Bills" to listOf("Sample Power Co")),
+                    settings = listOf("autoApprove", "syncEveryHours", "parkingLotWait"), nextPayday = today.plusDays(14),
+                ),
+            ),
+            {}, {}, {}, {},
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun setupImportErrors() = shot("127-import-setup-errors") {
+        SetupImportScreen(
+            SetupImportState(fileName = "sample-setup.json", errors = listOf(
+                "envelopes[1] (\"Groceries\"): \"target\" must be an amount like \"12.34\".",
+                "bills[2] (\"Sample Phone\"): \"due\" must be a date like \"2030-05-17\".",
+                "\"transactions\": the importer never imports transactions. Take them out of the file (CSV import or bank sync brings transactions in).",
+            )),
+            {}, {}, {}, {},
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun purge() = shot("128-purge-data") { PurgeScreen({}, false, listOf("Sample Bridge")) {} }
+    @Test fun wizardAfterPurge() = shot("129-wizard-after-purge") {
+        val c = net.darkrelay.deaddropfinance.data.ConnectionEntity(id = "c1", provider = net.darkrelay.deaddropfinance.data.Provider.SIMPLEFIN, name = "Sample Bridge", createdAt = 0)
+        SetupWizardHost(
+            page = WizardPage.CONNECT, forced = true, budget = empty, connections = listOf(c), links = emptyList(), ui = ConnectUi(), picks = emptyMap(), linkBusy = false,
+            syncMessage = null, starters = emptySet(), more = more, hasAccounts = false, onPage = {}, onDoor = {}, door = Door.EASY, onConnected = {}, wizardConn = "c1",
+            onSimpleFin = {}, onApplyLinks = {}, onPick = { _, _ -> }, onLock = {}, onAddAccount = {}, onImport = {}, onOpen = {}, onToggleStarter = {}, onAddStarters = {}, onFinish = {},
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun moreFull() = shot("130-more-backup-import-purge-about") {
+        MoreScreen(
+            more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {}, onParked = {}, onBackup = {},
+            backupLine = "Last backup Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", onSetupImport = {}, onPurge = {}, onHelp = {}, onAbout = {},
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("0.15.0", {}, {}, {}, {}) }
+    @Test fun help() = shot("132-help") { HelpScreen(false, "You're on the latest version", {}, {}, {}, {}) }
+    @Test fun licenses() = shot("133-licenses") {
+        LicensesScreen(listOf("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md", "PRIVACY.md", "TERMS.md", "Apache-2.0.txt", "BSD-3-Clause-SQLCipher.txt", "libpng-2.0.txt"), {}, {})
+    }
+    @Test fun document() = shot("134-document") {
+        DocumentScreen("Privacy policy", "# Dead Drop Finance privacy policy\n\nInvented sample text for the screenshot.\n\n## What DarkRelay gets\n\nNothing.", {})
     }
 }
 

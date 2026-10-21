@@ -264,14 +264,23 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
 
 /** Move money between envelopes, or between an envelope and Ready to Assign (null). Rollover included. */
 @Composable
-fun MoveMoneyScreen(budget: Budget, fromId: String?, error: String?, onBack: () -> Unit, onMove: (String?, String?, Long) -> Unit) {
+fun MoveMoneyScreen(
+    budget: Budget, fromId: String?, error: String?, onBack: () -> Unit,
+    /** Over-assigned: start as a move from the fullest envelope back into Ready to Assign, for what's over. */
+    backToReady: Boolean = false,
+    onMove: (String?, String?, Long) -> Unit,
+) {
     val options: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "Ready to assign (${Money.format(budget.readyToAssign)})") +
         budget.fillOrder.map { it.id to "${it.name} (${Money.format(budget.envelopeBalance(it.id))})" }
-    var from by remember { mutableStateOf(fromId) }
-    var to by remember { mutableStateOf<String?>(budget.fillOrder.firstOrNull { it.id != fromId }?.id) }
-    var amount by remember { mutableStateOf("") }
+    val fullest = budget.fillOrder.maxByOrNull { budget.envelopeBalance(it.id) }?.id
+    var from by remember { mutableStateOf(if (backToReady) fullest else fromId) }
+    var to by remember { mutableStateOf<String?>(if (backToReady) null else budget.fillOrder.firstOrNull { it.id != fromId }?.id) }
+    var amount by remember { mutableStateOf(if (backToReady && budget.readyToAssign < 0) Money.plain(-budget.readyToAssign) else "") }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Move money", onBack)
+        if (backToReady && budget.readyToAssign < 0) {
+            Text("Ready to assign is ${Money.format(budget.readyToAssign)}: more is in envelopes than you have. Move that much back.", color = DdfColors.Warning)
+        }
         Picker("From", options, from, { from = it })
         Picker("To", options, to, { to = it })
         AmountField("Amount", amount, { amount = it })

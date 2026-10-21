@@ -2,6 +2,7 @@ package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,8 @@ import androidx.compose.ui.unit.sp
 import net.darkrelay.deaddropfinance.UpdateCheck
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
+import java.time.LocalDate
+import net.darkrelay.deaddropfinance.domain.Bills
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.Money
 
@@ -50,21 +53,34 @@ fun UpdateBar(release: UpdateCheck.Release, onNotes: () -> Unit, onDownload: () 
 }
 
 /** The parts of Home, top to bottom, in the reference prototype's order. Rollover is never one of them. */
-enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
+enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, OVER_ASSIGNED, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
 
 /**
  * Which parts Home shows, in order: Safe to Spend always first; the forecast when there's a next payday to forecast
- * to; Ready to Assign only when money is waiting; the payday checklist when it has bills; To sort when something is
- * waiting; the parked buys card; then the everyday envelopes with All envelopes.
+ * to; Ready to Assign only when money is waiting, or the over-assigned warning in its place when it's below zero; the
+ * payday checklist when it has bills; To sort when something is waiting; the parked buys card; then Home's envelopes
+ * with All envelopes.
  */
 fun homeSections(b: Budget, hasForecast: Boolean, hasChecklist: Boolean): List<HomeSection> = buildList {
     add(HomeSection.SAFE_TO_SPEND)
     if (hasForecast) add(HomeSection.FORECAST)
     if (b.readyToAssign > 0) add(HomeSection.READY_TO_ASSIGN)
+    if (b.readyToAssign < 0) add(HomeSection.OVER_ASSIGNED)
     if (hasChecklist) add(HomeSection.PAY_THESE_NOW)
     if (b.toSort.isNotEmpty()) add(HomeSection.TO_SORT)
     add(HomeSection.PARKED_BUYS)
     add(HomeSection.ENVELOPES)
+}
+
+/**
+ * The envelopes Home lists, in fill order: the everyday ones, plus any debt envelope with a payment due before the
+ * next payday (none of those without a next payday to go by). Never Rollover.
+ */
+fun homeEnvelopes(b: Budget, today: LocalDate, nextPayday: LocalDate?): List<EnvelopeEntity> = b.fillOrder.filter { e ->
+    e.mode != EnvelopeMode.ROLLOVER && (
+        e.everyday ||
+            (e.mode == EnvelopeMode.DEBT && nextPayday != null && Bills.nextDebtDue(b, e, today)?.isBefore(nextPayday) == true)
+        )
 }
 
 /** "Groceries", "Groceries and Gas", "Groceries, Gas and Household". */
@@ -76,8 +92,8 @@ fun namesText(names: List<String>): String = when (names.size) {
 
 /**
  * Home (Stage 11, built from the reference prototype): Safe to Spend is the biggest thing on the screen, then the
- * balance forecast, Ready to Assign (only with money waiting), Pay these now, To sort, parked buys, and the everyday
- * envelopes. Rollover isn't shown here anywhere. [top] holds the setup card, the alerts offer and the update bar.
+ * balance forecast, Ready to Assign (only with money waiting; a warning row when over-assigned), Pay these now, To
+ * sort, parked buys, and the everyday envelopes with any debt payment due before payday. Rollover isn't shown here. [top] holds the setup card, the alerts offer and the update bar.
  */
 @Composable
 fun HomeScreen(
@@ -88,6 +104,8 @@ fun HomeScreen(
     onEnvelope: (String) -> Unit,
     onAllEnvelopes: () -> Unit,
     onSafeToSpend: () -> Unit,
+    /** Over-assigned: moves money back to Ready to Assign. */
+    onFixOverAssigned: () -> Unit,
     parkedWaiting: Int,
     parkedReady: Int,
     onParked: () -> Unit,
@@ -95,6 +113,8 @@ fun HomeScreen(
     forecast: (@Composable () -> Unit)? = null,
     /** The payday checklist (Pay these now). */
     checklist: (@Composable () -> Unit)? = null,
+    /** The envelopes to list (homeEnvelopes); the everyday ones when not given. */
+    envelopes: List<EnvelopeEntity> = budget.everydayEnvelopes,
 ) {
     val sections = homeSections(budget, forecast != null, checklist != null)
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -114,6 +134,19 @@ fun HomeScreen(
                     Button(onClick = onAssign) { Text("Assign") }
                 }
             }
+            HomeSection.OVER_ASSIGNED -> item {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, DdfColors.Warning, RoundedCornerShape(10.dp))
+                        .clickable(onClick = onFixOverAssigned).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Over-assigned by ${Money.format(-budget.readyToAssign)}", color = DdfColors.Warning, fontWeight = FontWeight.Medium)
+                        Text("More is in envelopes than you have. Tap to move some back.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Icon(TabIcons.Chevron, contentDescription = null, tint = DdfColors.Warning, modifier = Modifier.size(18.dp))
+                }
+            }
             HomeSection.PAY_THESE_NOW -> item { checklist?.invoke() }
             HomeSection.TO_SORT -> item {
                 val n = budget.toSort.size
@@ -123,7 +156,7 @@ fun HomeScreen(
                 HomeLinkCard(TabIcons.Hourglass, "Parked buys", "$parkedWaiting waiting" + if (parkedReady > 0) ", $parkedReady ready to decide" else "", onParked)
             }
             HomeSection.ENVELOPES -> {
-                items(budget.everydayEnvelopes, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
+                items(envelopes, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
                 item { TextButton(onClick = onAllEnvelopes) { Text("All envelopes", color = DdfColors.Cyan) } }
             }
         }

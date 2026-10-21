@@ -19,6 +19,7 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.ConnectionEntity
 import net.darkrelay.deaddropfinance.data.ConnectionStatus
 import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
+import net.darkrelay.deaddropfinance.data.TransactionSource
 import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.SecretStore
 import net.darkrelay.deaddropfinance.data.SyncLogEntity
@@ -223,8 +224,15 @@ class SyncService(
                 refreshAccountsNow(conn.id)
                 return finish(conn, true, total, "No accounts are linked yet.", emptyList())
             }
+            // a pending row older than the overlap (a long hold) is fetched again too, so when it posts under a new id
+            // it's matched to the pending row, never added a second time (within the provider's 90-day reach)
+            val pendingSince = store.dao.transactionsNow().filter { it.pending && it.source == TransactionSource.SYNC }
+                .groupBy { t -> links.firstOrNull { t.externalId?.startsWith(SyncEngine.externalPrefix(conn.provider, it.providerAccountId)) == true }?.providerAccountId }
+                .mapValues { (_, ts) -> ts.minOf { it.date } }
             val wanted = links.associate { l ->
-                l.providerAccountId to minOf(l.lastSyncedDate?.minusDays(src.overlapDays) ?: l.historyFrom ?: today.minusDays(30), today)
+                val from = l.lastSyncedDate?.minusDays(src.overlapDays) ?: l.historyFrom ?: today.minusDays(30)
+                val held = pendingSince[l.providerAccountId]?.minusDays(1)?.takeIf { l.lastSyncedDate != null && it.isAfter(today.minusDays(85)) }
+                l.providerAccountId to minOf(held?.let { minOf(it, from) } ?: from, today)
             }
             // A long history goes window by window, each saved as it lands: if a sync stops halfway (the request
             // limit, the network, the app closing), the next one starts from the last saved window, with no doubles.
@@ -374,8 +382,8 @@ class SyncService(
             val synced = store.dao.transactionsNow().filter { t -> prefixes.any { p -> t.externalId?.startsWith(p) == true } }
             for (t in synced) {
                 if (removeTransactions) {
-                    put(t, t.copy(deleted = true, updatedAt = now))
-                    store.dao.linesOf(t.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+                    net.darkrelay.deaddropfinance.domain.TransactionCleanup.releaseReceipts(this, store.dao, t.id)
+                    net.darkrelay.deaddropfinance.domain.TransactionCleanup.tombstone(this, store.dao, t.id)
                 } else {
                     put(t, t.copy(externalId = null, updatedAt = now))
                 }

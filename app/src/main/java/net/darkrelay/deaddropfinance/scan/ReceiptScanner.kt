@@ -81,18 +81,23 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
 
     /** Reads [uri] and stores its pages from [firstPage] on. Returns each page's lines. Call off the main thread. */
     fun scan(uri: Uri, receiptId: String, firstPage: Int): List<List<ReceiptParser.Line>> {
-        val pages = if (context.contentResolver.getType(uri) == "application/pdf") pdfPages(uri) else listOfNotNull(photo(uri))
-        if (pages.isEmpty()) throw IllegalArgumentException("That file couldn't be read as an image or a PDF.")
         val out = mutableListOf<List<ReceiptParser.Line>>()
-        reader().use { r ->
-            pages.forEachIndexed { i, bmp ->
-                val g = toGray(bmp)
-                bmp.recycle()
-                val cleaned = ImageCleanup.clean(g).image
-                out += r.read(ImageCleanup.scaleDown(cleaned, OCR_MAX))
-                images.write(receiptId, firstPage + i, jpeg(ImageCleanup.scaleDown(cleaned, STORE_MAX)))
+        try {
+            reader().use { r ->
+                // one page at a time: a long PDF never has all its pages in memory at once
+                val each: (Bitmap) -> Unit = { bmp ->
+                    val g = toGray(bmp)
+                    bmp.recycle()
+                    val cleaned = ImageCleanup.clean(g).image
+                    out += r.read(ImageCleanup.scaleDown(cleaned, OCR_MAX))
+                    images.write(receiptId, firstPage + out.size - 1, jpeg(ImageCleanup.scaleDown(cleaned, STORE_MAX)))
+                }
+                if (context.contentResolver.getType(uri) == "application/pdf") pdfPages(uri, each) else photo(uri)?.let(each)
             }
+        } catch (e: OutOfMemoryError) {
+            throw IllegalArgumentException("That file is too big to read on this phone.")
         }
+        if (out.isEmpty()) throw IllegalArgumentException("That file couldn't be read as an image or a PDF.")
         return out
     }
 
@@ -109,12 +114,12 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
         null
     }
 
-    private fun pdfPages(uri: Uri): List<Bitmap> {
-        val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return emptyList()
-        return fd.use {
+    private fun pdfPages(uri: Uri, each: (Bitmap) -> Unit) {
+        val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: return
+        fd.use {
             PdfRenderer(it).use { pdf ->
-                (0 until minOf(pdf.pageCount, MAX_PDF_PAGES)).map { n ->
-                    pdf.openPage(n).use { page ->
+                for (n in 0 until minOf(pdf.pageCount, MAX_PDF_PAGES)) {
+                    val bmp = pdf.openPage(n).use { page ->
                         // about 200 dpi, white behind the page
                         val scale = 200f / 72f
                         var w = (page.width * scale).toInt(); var h = (page.height * scale).toInt()
@@ -125,6 +130,7 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
                             page.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         }
                     }
+                    each(bmp)
                 }
             }
         }

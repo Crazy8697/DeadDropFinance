@@ -56,10 +56,16 @@ fun MoreScreen(
     onSetup: () -> Unit = {},
     syncLine: String? = null,
     onErase: () -> Unit = {},
+    onPurge: (() -> Unit)? = null,
+    onHelp: (() -> Unit)? = null,
+    onAbout: (() -> Unit)? = null,
     /** Sorting (rules, auto-approve) and Alerts sections. */
     sortAlerts: (@Composable () -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
     onParked: (() -> Unit)? = null,
+    onBackup: (() -> Unit)? = null,
+    onSetupImport: (() -> Unit)? = null,
+    backupLine: String = "Encrypted, one file",
     /** The default wait for a new parked buy, in days (Settings). */
     parkWait: Int = 1,
     onParkWait: (Int) -> Unit = {},
@@ -76,6 +82,12 @@ fun MoreScreen(
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onReceipts != null) {
             ListRow(onReceipts) { Column { Text("Receipts"); Text("Scanned receipts, and the ones waiting for their charge", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
+        if (onSetupImport != null) {
+            ListRow(onSetupImport) { Column { Text("Import setup"); Text("Envelopes, bills, rules and settings from a JSON file", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
+        if (onBackup != null) {
+            ListRow(onBackup) { Column { Text("Backup and restore"); Text(backupLine, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         }
         if (onParked != null) {
             ListRow(onParked) { Column { Text("Parked buys"); Text("Wait before you buy", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
@@ -105,6 +117,12 @@ fun MoreScreen(
         OutlinedButton(onClick = onCheckNow, enabled = !s.checking) { Text(if (s.checking) "Checking..." else "Check for updates") }
         if (s.updateMessage != null) Text(s.updateMessage, modifier = Modifier.padding(vertical = 6.dp))
         ListRow(onSetup) { Column { Text("Setup"); Text("Run the setup wizard again. Nothing you have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        if (onPurge != null) ListRow(onPurge) {
+            Column {
+                Text("Purge data", color = DdfColors.Error)
+                Text("Deletes all your data and settings, keeps the SimpleFIN connection", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         ListRow(onErase) {
             Column {
                 Text("Erase everything and start over", color = DdfColors.Error)
@@ -112,7 +130,9 @@ fun MoreScreen(
             }
         }
         SectionTitle("About")
-        Text("Dead Drop Finance, version ${s.version}", color = DdfColors.Muted)
+        if (onHelp != null) ListRow(onHelp) { Column { Text("Help"); Text("Licenses, support DarkRelay, check for updates", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        if (onAbout != null) ListRow(onAbout) { Column { Text("About"); Text("Version ${s.version}, credits, licenses, darkrelay.net", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        else Text("Dead Drop Finance, version ${s.version}", color = DdfColors.Muted)
         Gap(24)
     }
 }
@@ -291,7 +311,8 @@ fun DataUnavailableScreen(reason: String) {
         Text("Your budget can't be opened on this phone", style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Gap()
         Text(
-            "The key that unlocks it isn't available ($reason). Nothing has been deleted. Restoring from a backup will be possible once backups exist (a later version).",
+            "The key that unlocks it isn't available ($reason). Nothing has been deleted. If you have a backup file: in Android's settings, " +
+                "App info, Storage, Clear storage starts the app fresh, and the backup can then be restored from More, Backup and restore.",
             color = DdfColors.Muted, textAlign = TextAlign.Center,
         )
     }

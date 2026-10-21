@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Only for the update check: one anonymous GET of the GitHub releases page for this app. -->
+    <!-- Bank sync with SimpleFIN (only when set up) and the update check (one anonymous GET of this app's GitHub releases). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- App lock: fingerprint or the phone's PIN through the system prompt -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
@@ -27,11 +27,14 @@
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="@string/app_name"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.DeadDropFinance">
+        <!-- Rotation, keyboard and theme changes are handled by Compose in place: the screen and anything being
+             typed or picked are kept (the activity isn't rebuilt). -->
         <activity
             android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|layoutDirection|locale"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

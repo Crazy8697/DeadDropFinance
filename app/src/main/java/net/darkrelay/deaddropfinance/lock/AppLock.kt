@@ -65,14 +65,28 @@ class AppLock(private val context: Context, private val clock: () -> Long = Syst
 
     fun attach() = ProcessLifecycleOwner.get().lifecycle.addObserver(this)
 
+    /** The app is opening the camera or a file picker for the user: coming back from it soon isn't leaving the app. */
+    private var expecting = false
+
+    fun expectReturn() { expecting = true }
+
+    private companion object {
+        /** Longer than this in the camera or a picker, and the usual lock applies. */
+        const val PICKER_GRACE_MS = 10L * 60 * 1000
+    }
+
     override fun onStop(owner: LifecycleOwner) {
         backgroundedAt = clock()
     }
 
     override fun onStart(owner: LifecycleOwner) {
-        if (LockPolicy.shouldLockOnReturn(settings.lockEnabled, deviceSecure(), backgroundedAt, clock(), settings.timeoutMinutes)) {
+        val away = backgroundedAt?.let { clock() - it }
+        // back from the camera or a picker within PICKER_GRACE_MS: no lock, so the photo or file isn't lost
+        val fromPicker = expecting && away != null && away < PICKER_GRACE_MS
+        if (!fromPicker && LockPolicy.shouldLockOnReturn(settings.lockEnabled, deviceSecure(), backgroundedAt, clock(), settings.timeoutMinutes)) {
             set(true)
         }
+        expecting = false
         backgroundedAt = null
     }
 

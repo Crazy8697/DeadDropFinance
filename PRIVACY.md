@@ -1,0 +1,69 @@
+# Dead Drop Finance privacy policy
+
+Effective with version 0.15.0.
+
+Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
+policy says what the app keeps, what it sends, and to whom.
+
+## What DarkRelay gets
+
+Nothing. The app has no DarkRelay account, no DarkRelay server, no analytics, no crash reporting and no ads.
+DarkRelay never receives your budget, your bank data, your bank logins or anything about how you use the app.
+
+## What the app keeps, on your phone
+
+- Your budget: accounts, transactions, envelopes, bills, rules, subscriptions, parked buys and receipts, in a
+  database encrypted with a key that's protected by your phone's secure hardware (the Android Keystore).
+- Receipt photos you take or pick, encrypted in the app's private storage. They never go to the phone's gallery or
+  shared storage.
+- Your SimpleFIN access, if you connect bank sync, in its own encrypted file.
+- From bank notifications you choose to have read: the amount and payee, saved as a transaction, and for each app
+  how its notifications are laid out (the few words around the amount and payee in the one you confirmed). The rest
+  of the text is read in memory and never saved, logged or sent.
+- Your settings.
+
+Android's own backup is turned off for the app, so none of this leaves the phone through it.
+
+## What the app sends, and where
+
+- Bank sync (only if you set it up): the app talks straight to SimpleFIN Bridge from your phone, with the access you
+  gave it, to fetch your accounts and transactions. SimpleFIN is a separate service with its own terms and privacy
+  policy (https://beta-bridge.simplefin.org/info/privacy), which you agree to with SimpleFIN when you sign up.
+- Update check (on by default, can be turned off in More): the app asks GitHub for the latest release of the app.
+  Nothing about you or your budget is sent; GitHub sees the request like any web request.
+- Links you tap (darkrelay.net, SimpleFIN, support) open in your browser.
+
+## Backups
+
+A backup is one file encrypted with a password you choose, saved wherever you pick. It contains your budget, receipt
+photos and settings, but not your bank connection. Where it goes after that is up to you. Without the password it
+can't be opened, by anyone, including DarkRelay.
+
+## Permissions
+
+- Notifications: for spend alerts, bill reminders and autopay warnings, if you turn them on.
+- Notification access: only if you turn on reading bank notifications, for the apps you pick.
+- Internet and network state: for bank sync and the update check.
+- Biometric: for app lock with your fingerprint or the phone's PIN.
+- Run at startup, keep awake briefly and run in the foreground: so background sync and reminders keep running
+  after a restart.
+- The app has no camera, location, contacts or storage permission. Photos come from the camera app or a file you pick.
+
+## Deleting your data
+
+- Purge data (More) deletes your data and settings but keeps the SimpleFIN connection.
+- Erase everything (More) deletes everything the app keeps, its keys included.
+- Uninstalling the app deletes everything it keeps on the phone.
+- Your SimpleFIN connection also exists on the SimpleFIN Bridge; delete it there to remove it.
+
+## Children
+
+The app isn't directed to children under 13.
+
+## Changes
+
+A new version of this policy comes with a new version of the app, and the app's release notes say when it changed.
+
+## Contact
+
+Questions about this policy: open an issue at https://github.com/Crazy8697/DeadDropFinance/issues.

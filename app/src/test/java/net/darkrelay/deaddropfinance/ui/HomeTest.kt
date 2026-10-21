@@ -98,6 +98,36 @@ class HomeTest {
         assertFalse(b.everydayEnvelopes.any { it.mode == EnvelopeMode.ROLLOVER })
     }
 
+    @Test fun homeListsADebtEnvelopeDueBeforePaydayAndHidesOneDueAfter() = world { _, a ->
+        a.saveAccount(null, "Sample Checking", AccountType.BANK, 900_00, day.minusDays(5))
+        val food = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, everyday = true))
+        val soon = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Loan", EnvelopeMode.DEBT, requiredPayment = 75_00, dueDate = day.plusDays(4)))
+        val later = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Card", EnvelopeMode.DEBT, requiredPayment = 40_00, dueDate = day.plusDays(20)))
+        a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Fund", EnvelopeMode.FILL_TO_TARGET))
+        val payday = day.plusDays(12)
+        val b = a.snapshot()
+        assertEquals(listOf(food, soon), homeEnvelopes(b, day, payday).map { it.id })
+        assertFalse(homeEnvelopes(b, day, payday).any { it.id == later })
+        // on the payday itself isn't before it; with no next payday known, only the everyday ones
+        assertEquals(listOf(food), homeEnvelopes(b, day, day.plusDays(4)).map { it.id })
+        assertEquals(listOf(food), homeEnvelopes(b, day, null).map { it.id })
+        assertFalse(homeEnvelopes(b, day, payday).any { it.mode == EnvelopeMode.ROLLOVER })
+    }
+
+    @Test fun aNegativeReadyToAssignShowsTheOverAssignedRow() = world { _, a ->
+        a.saveAccount(null, "Sample Checking", AccountType.BANK, 100_00, day.minusDays(5))
+        val food = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, everyday = true))
+        a.move(null, food, 100_00)
+        assertFalse(HomeSection.OVER_ASSIGNED in homeSections(a.snapshot(), false, false))
+        // the account is changed to hold less than the envelopes do
+        a.saveAccount(a.snapshot().accounts.single().id, "Sample Checking", AccountType.BANK, 60_00, day.minusDays(5))
+        val b = a.snapshot()
+        assertEquals(-40_00L, b.readyToAssign)
+        val s = homeSections(b, hasForecast = true, hasChecklist = false)
+        assertEquals(listOf(HomeSection.SAFE_TO_SPEND, HomeSection.FORECAST, HomeSection.OVER_ASSIGNED, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES), s)
+        assertFalse(HomeSection.READY_TO_ASSIGN in s)
+    }
+
     @Test fun thereIsNoItsPaydayCardAnywhere() {
         val main = listOf(File("src/main"), File("app/src/main")).first { it.isDirectory }
         val hits = main.walk().filter { it.isFile && (it.extension == "kt" || it.extension == "xml") }.filter { f ->

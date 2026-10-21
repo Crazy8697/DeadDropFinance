@@ -157,6 +157,7 @@ private fun ParkForm(defaultWait: Int, onPark: (String, Long, Int) -> Unit, onCa
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     var wait by remember { mutableIntStateOf(defaultWait) }
+    var problem by remember { mutableStateOf<String?>(null) }
     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Park something", style = MaterialTheme.typography.titleMedium)
@@ -164,8 +165,18 @@ private fun ParkForm(defaultWait: Int, onPark: (String, Long, Int) -> Unit, onCa
             AmountField("Price", price, { price = it })
             Text("Wait before deciding", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
             WaitChips(wait) { wait = it }
+            ErrorLine(problem)
             Row {
-                Button(onClick = { onPark(name, Money.parse(price) ?: 0L, wait) }) { Text("Park it") }
+                Button(onClick = {
+                    val amount = Money.parse(price)
+                    // checked here, so the form stays open with what was typed
+                    problem = when {
+                        name.isBlank() -> "Give it a name."
+                        amount == null || amount <= 0 -> "Enter its price."
+                        else -> null
+                    }
+                    if (problem == null) onPark(name, amount!!, wait)
+                }) { Text("Park it") }
                 TextButton(onClick = onCancel) { Text("Cancel") }
             }
         }

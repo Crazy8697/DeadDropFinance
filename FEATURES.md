@@ -5,6 +5,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Accounts (Stage 6)
 - An account's starting balance is its balance as of its start date, so it already includes everything before that date. A transaction dated before the start date (bank history from a sync or a CSV, for example) is kept and shown as history but doesn't change the balance or the budget.
 - Delete account (on the account screen): removes the account and all its transactions for good, after a confirmation that names the account, says how many transactions go with it, and says it can't be undone. Envelope balances and Ready to Assign change to match. A transfer with another account keeps that account's side, as an entry in To sort. Any bank link for the account is removed.
+- Purge data (in More, next to Erase everything, with the same kind of confirmation: what goes, and PURGE typed): resets the app to a fresh install's state, with one exception. Every account, transaction, envelope, bill, payday, rule, subscription, receipt and receipt photo, parked buy and the change log are deleted, and every setting goes back to its default. The SimpleFIN connection (and its saved access) is kept, so no new setup token has to be claimed; its bank accounts are kept unlinked. The app then opens at the setup wizard with bank sync shown as connected, ready to link its accounts again.
 - Erase everything and start over (in More): wipes every account, transaction, envelope, bank connection and setting from the phone, after a confirmation that lists what's lost, says there's no backup, and needs the word ERASE typed. The app then starts like a fresh install, at the setup wizard. The last screen explains that a SimpleFIN connection for the app still exists on the Bridge and how to delete it there.
 - Archiving an account takes its balance out of Ready to Assign, after a confirmation that says so, as if the account was never in the budget. Its transactions stay as history. Unarchiving puts it back.
 - Track only, not in the budget: an account can hold money that must never be budgeted (for example a membership share that has to stay in a savings account). Its balance shows on the account list and syncs normally, but it never counts in Ready to Assign, and its transactions never land in To sort: they're recorded as already handled. Bank sync's link screen offers it as a choice. Moving money between a budget account and a track-only one comes out of, or goes into, Ready to Assign.
@@ -58,7 +59,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Fields: balance owed (optional until known), optional required payment and due date, and an add-every-payday amount.
 - With a required payment and due date it reminds like a bill (Stage 10): a Remind me switch on the envelope, off by default, with how many days ahead. Its payment shows in the Bills tab's Coming up and in the forecast.
 - The balance goes down with every payment. Extra payments beyond the required amount are allowed.
-- Interest, payoff plans and projected payoff dates come later (Stage 24).
+- Interest, payoff plans and projected payoff dates come later (Stage 21).
 
 ## Transactions (Stage 6)
 - One transaction can be split across several envelopes (for example one store run that is part groceries, part household; or one bill payment that is part current charge, part past-due debt).
@@ -131,7 +132,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When bank sync brings the real record, the two are matched (the same money within 5 days and 20%, same payee): the entry takes the bank's amount and date, never a second row. An entry sync never brings is flagged in Activity after a week ("Not in bank sync after a week": Keep or Delete).
 - A deposit notification that looks like the payday deposit starts payday as soon as it lands (sweep, auto-fill, checklist). Bank sync confirms it later; if its amount differs a little, the same row takes the bank's amount and nothing is doubled. A repeat of the same notification within 10 minutes is ignored.
 - Reading is learned per app: the first money notification from an app is shown in the app once ("Check how <app> is read": pick the amount, fix the payee, money in or out); after that the app's notifications like it are read by themselves, spending and deposits each learned once. Nothing bank-specific is built in.
-- Privacy: the notification text is read in memory on the phone; only the parsed amount and payee are kept (as the transaction, in the encrypted database). The text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
+- Privacy: the notification text is read in memory on the phone. What's kept, in the encrypted database: the parsed amount and payee (as the transaction, and as the app's last read for the test line), and, per app, how its notifications are laid out (the few words around the amount and payee in the one the user confirmed). The rest of the text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
 - Installed from a download, the app is under Android's restricted settings (Android 13 and up): the reading screen walks through it with buttons to Open notification access and Open app info (three dots, Allow restricted settings).
 - Test: each picked app shows what was last read from it (amount, payee, time).
 
@@ -150,7 +151,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Safe to Spend counts only the envelopes marked as everyday spending. The default is groceries and gas. The user can change which envelopes count: tapping the Safe to Spend card opens a list of envelopes with a switch each, and the envelope edit screen has the same switch. A change shows on Home right away.
 - It is what is left in those envelopes. Bills due before the next payday and set-asides live in their own envelopes, so they are already out of it.
 - Rollover is excluded, even if marked. It is not shown on the home screen anywhere and has no callouts there. Cover from Rollover stays on the envelope screens.
-- Home, top to bottom (the reference prototype's order): Safe to Spend, the biggest thing on the screen, with which envelopes it counts and "until next payday"; the balance forecast card; Ready to Assign, only when money is waiting; Pay these now (collapsing to "All N payday bills paid"); transactions to sort; the parked buys card; the everyday envelopes, then All envelopes. The setup card, the alerts offer and the update bar, when there is one, sit above it all.
+- Home, top to bottom (the reference prototype's order): Safe to Spend, the biggest thing on the screen, with which envelopes it counts and "until next payday"; the balance forecast card; Ready to Assign, only when money is waiting; Pay these now (collapsing to "All N payday bills paid"); transactions to sort; the parked buys card; the everyday envelopes plus any debt envelope with a payment due before the next payday, then All envelopes. The setup card, the alerts offer and the update bar, when there is one, sit above it all.
+- A negative Ready to Assign (over-assigned) shows in its place as a warning row with the amount; tapping it opens Move money, set to move that much from the fullest envelope back to Ready to Assign.
 - With no envelope marked everyday, the card asks the user to pick some.
 
 ## Receipt scanning (Stage 9)
@@ -161,20 +163,20 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - The store, date, total, tax and items (description, quantity, price) are read and shown as a form under the photo, to fix before saving. Fields the recognition wasn't sure of, or that don't add up (items plus tax against the total), are marked "check this".
 - Discounts and coupons are negative items. Quantities like "2 @ 1.99", "2 x" and weights ("1.25 lb @ 3.99/lb") are read.
 - Photos are stored encrypted in the app's private files (their own key, wrapped by the Android Keystore), never in shared storage or the gallery. A photo chosen from the phone stays where it was; only the app's encrypted copy is kept.
-- Items are kept as data (store, item text, cleaned name, quantity, unit price, date) for the price history later (Stage 23).
+- Items are kept as data (store, item text, cleaned name, quantity, unit price, date) for the price history later (Stage 20).
 - Matching: a receipt is matched to its bank transaction by total, date (the charge may post up to 5 days later, or a day before) and store name. One clear match is attached by itself; several possible ones show a short list; with none, the receipt waits in Receipts and is matched when its charge syncs in or is imported. A transaction has one receipt.
 - Restaurants and gas stations: the charge may be up to 30% more than the receipt (a tip, or a pump's final amount), and the app says so.
 - Split by items: each item to an envelope (a rule whose words are in the item's name suggests one; a discount goes with the item above it), tax and any tip shared out by what each envelope's items cost, and the transaction split to match. The photos stay after the split (Stage 10; 0.9.0 deleted them, and those can't come back).
 - Tax is shared over all items by price: receipts don't reliably say which items were taxed.
 - Delete a transaction: its receipt goes back to Receipts (waiting for a charge), or is deleted too when the user ticks that. Delete account: receipts on its transactions go with them, photos included. Erase everything: photos, the recognition files and any camera capture are wiped too.
-- Stage 12's encrypted backup must include receipts: the rows and the encrypted photos.
+- The encrypted backup (Stage 12) includes receipts: the rows and the photos.
 
 ## Transaction detail screen (Stage 9)
 - Tapping a charge opens its own screen.
 - With a receipt, it shows a Receipt line that opens the receipt: the photo, the items with their envelopes and anything returned, Split by items, and Not this transaction.
 - Without a receipt, it has Add receipt, along with Edit and Split.
 
-## Merchant page (Stage 23)
+## Merchant page (Stage 20)
 - Part of reports. Reached from a transaction screen ("All <store> trips").
 - For the chosen period it shows the amount spent, the number of trips and the average trip, totals by category with bars, the most-bought items counted across scanned trips, and the list of trips.
 - Item counts come only from scanned receipts, and the page says so. Trips without a scanned receipt still count toward the totals.
@@ -214,7 +216,29 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A home screen card ("N waiting, M ready to decide"), plus an entry in More.
 - Parked buys are budget rows (change-logged, schema version 8).
 
-## Price history (Stage 23)
+## Backup and restore (Stage 12)
+- More, Backup and restore. Back up now saves one file wherever the user picks with the phone's file picker (a name like deaddrop-2030-05-14.ddfbak). Restore from file picks one the same way.
+- The file is encrypted with a backup password the user types each time (at least 8 characters, typed twice), never stored: a key is made from it (PBKDF2 with HMAC-SHA256, 600,000 rounds, a random salt), and the contents are sealed with AES-256-GCM in chunks that can't be reordered, swapped or cut short unnoticed. Without the password nobody can open it.
+- It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sync, sorting, alerts, app lock, Hide screen, update checks). Not the phone's bank connections or their saved access: those stay on the phone, and on a new phone bank sync is connected again after restoring.
+- Restore replaces everything in the app with the backup's, after a warning on the screen. The whole file is read and checked first (password, every table, every photo); only then is the budget replaced, in one step, and the photos swapped in. A wrong password, a file that isn't a backup, a damaged or cut-short file, or a backup from a newer version is refused with a plain reason, and nothing changes. The phone's own bank connections stay as they are.
+- The screen shows when the last backup was made and its file name. Dropbox shows as "later" (Stage 69D).
+
+## JSON setup importer (Stage 12)
+- More, Import setup: a JSON file picked with the phone's file picker sets up envelopes (name, mode, target or per-payday amount, goal, fill order, Everyday spending, debt fields), bills (every field), the next payday, auto-categorize rules, subscriptions and settings. The format, every field and an example are in docs/IMPORT.md.
+- It never imports transactions: a file with them is refused.
+- New names are added; names already in the app are updated with the fields the file gives. Nothing is ever deleted.
+- Before anything changes it shows what will be added and what will be updated (and which settings and the next payday), with Import and Cancel.
+- A bad file or field is refused whole, with each problem named by where it is. Nothing is applied from a file with errors.
+
+## About, Help and legal (Stages 14 and 15)
+- About (More): the app's icon, name, version, license line, credits (SimpleFIN, and every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Buy DarkRelay some cheese 🧀" (buymeacoffee.com/crazy8697).
+- Help (More): Licenses, Support DarkRelay, Check for updates.
+- Licenses shows the app's license, NOTICE, the third-party notices and every license text, all carried in the app.
+- The privacy policy (PRIVACY.md) and end user agreement (TERMS.md) are in the repository and in the app.
+- SimpleFIN's terms (read on SimpleFIN's own site for 0.15.0) ask for no attribution. They require staying within the published usage limits (24 requests a day or fewer, 90-day date ranges), showing SimpleFIN's errors to the user, handling access tokens securely, and not using SimpleFIN's branding or logos. The app sends at most 20 requests a day per connection, asks for 89 days at a time with a 5-day overlap, shows SimpleFIN's messages on the Bank sync screen, keeps the access in its own encrypted file, and uses SimpleFIN's name only in text.
+- The launcher icon is built from the locked master (design/deaddropfinance-icon.svg): an adaptive icon with background and foreground, and a one-colour version for themed icons. The launch screen and window behind the app are the DarkRelay near-black.
+
+## Price history (Stage 20)
 - Built from scanned receipt items only: the price of each item over time and the change since it was first seen.
 - A "Prices going up" list in Reports, also reachable from the merchant page's most-bought items.
 - Cross-store comparison only for items the user pairs by hand, because register names differ from store to store.

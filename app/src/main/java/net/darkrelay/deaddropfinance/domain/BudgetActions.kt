@@ -81,7 +81,9 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
 
     suspend fun saveEnvelope(id: String?, d: EnvelopeDraft, today: LocalDate = LocalDate.now()): String {
         if (d.name.isBlank()) throw BudgetRuleException("Give the envelope a name.")
-        if (d.mode == EnvelopeMode.ROLLOVER || d.mode == EnvelopeMode.CASH) throw BudgetRuleException("That kind of envelope is made by the app.")
+        // Rollover and Cash can be renamed (below), never made
+        val system = id?.let { dao.envelope(it) }?.isSystem == true
+        if (!system && (d.mode == EnvelopeMode.ROLLOVER || d.mode == EnvelopeMode.CASH)) throw BudgetRuleException("That kind of envelope is made by the app.")
         listOf(d.target, d.perPayday, d.goalAmount, d.debtOwed, d.requiredPayment).forEach {
             if (it != null && it < 0) throw BudgetRuleException("Amounts here can't be negative.")
         }
@@ -181,7 +183,9 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         if (tx.kind != TransactionKind.NORMAL) throw BudgetRuleException("That's a transfer.")
         checkLines(TransactionDraft(tx.accountId, tx.date, tx.payee, tx.memo, tx.amount, lines, tx.pending))
         store.write {
-            val old = dao.transaction(txId)!!
+            val old = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
+            // bank sync may have changed its amount since the screen read it: the lines must still add up
+            if (old.amount != tx.amount) throw BudgetRuleException("Its amount just changed (bank sync). Check it and sort it again.")
             put(old, old.copy(sortedBy = sortedBy, sortedAt = now, ruleId = ruleId, returnOf = returnOf, updatedAt = now))
             replaceLines(this, txId, lines)
         }
@@ -189,9 +193,9 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
 
     /** Puts a sorted transaction back in To sort (a return undone, say). */
     suspend fun unsort(txId: String) {
-        val tx = dao.transaction(txId) ?: return
-        if (tx.kind != TransactionKind.NORMAL) return
         store.write {
+            val tx = dao.transaction(txId) ?: return@write
+            if (tx.kind != TransactionKind.NORMAL) return@write
             // items it returned can be returned again
             dao.itemReturnsNow().filter { it.transactionId == txId }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             put(tx, tx.copy(sortedBy = null, sortedAt = null, ruleId = null, returnOf = null, updatedAt = now))
@@ -266,12 +270,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
                     else -> t.accountId
                 }
                 if (other == null || other == id) {
-                    put(t, t.copy(deleted = true, updatedAt = now))
-                    dao.linesOf(t.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
-                    (dao.movesOfPayday(t.id) + dao.movesLinkedTo(t.id)).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
-                    t.washGroupId?.let { g ->
-                        all.filter { it.washGroupId == g && it.id != t.id && !(it.accountId == id) }.forEach { put(it, it.copy(washGroupId = null, updatedAt = now)) }
-                    }
+                    TransactionCleanup.tombstone(this, dao, t.id)
                 } else {
                     // the other account's side stays: money in if the deleted account sent it, money out if it received it
                     val signed = if (t.accountId == id) t.amount else -t.amount
@@ -318,15 +317,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         gone.forEach { receiptFiles?.delete(it) }
     }
 
-    private suspend fun deleteTransactionRows(w: BudgetStore.Writer, id: String) = with(w) {
-        val old = dao.transaction(id) ?: return@with
-        put(old, old.copy(deleted = true, updatedAt = now))
-        dao.linesOf(id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
-        (dao.movesOfPayday(id) + dao.movesLinkedTo(id)).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
-        old.washGroupId?.let { g ->
-            dao.transactionsNow().filter { it.washGroupId == g && it.id != id }.forEach { put(it, it.copy(washGroupId = null, updatedAt = now)) }
-        }
-    }
+    private suspend fun deleteTransactionRows(w: BudgetStore.Writer, id: String) = TransactionCleanup.tombstone(w, dao, id)
 
     /** Sorts a To sort transaction into one envelope (or Ready to Assign, for income, or as a transfer), by hand. */
     suspend fun sortInto(txId: String, envelopeId: String?, toReadyToAssign: Boolean = false, transfer: Boolean = false) {

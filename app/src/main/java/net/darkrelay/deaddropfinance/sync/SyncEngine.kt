@@ -114,7 +114,10 @@ class SyncEngine(private val store: BudgetStore) {
             it3b.remove()
             seen += prefix + f.id
             put(match, match.copy(externalId = prefix + f.id, pending = f.pending, date = f.date, amount = f.amount, importDescription = f.description, updatedAt = now))
-            if (f.amount != match.amount) adjustLines(match.id, match.amount, f.amount, now)
+            if (f.amount != match.amount) {
+                adjustLines(match.id, match.amount, f.amount, now)
+                net.darkrelay.deaddropfinance.domain.TransactionCleanup.followAmount(this, store.dao, match.id, f.amount)
+            }
             linked++
         }
 
@@ -128,8 +131,9 @@ class SyncEngine(private val store: BudgetStore) {
                     put(v, v.copy(externalId = prefix + repl.id, pending = false, date = repl.date, importDescription = repl.description, updatedAt = now))
                     updated++
                 } else {
-                    put(v, v.copy(deleted = true, updatedAt = now))
-                    store.dao.linesOf(v.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+                    // everything that counted it goes too: a payday's sweep and fill, bill payments, a receipt's link
+                    net.darkrelay.deaddropfinance.domain.TransactionCleanup.releaseReceipts(this, store.dao, v.id)
+                    net.darkrelay.deaddropfinance.domain.TransactionCleanup.tombstone(this, store.dao, v.id)
                     removed++
                     notes += "A pending ${v.payee.ifBlank { "transaction" }} for ${Money.format(v.amount)} on ${v.date} disappeared without posting and was removed."
                 }
@@ -164,7 +168,10 @@ class SyncEngine(private val store: BudgetStore) {
         val date = if (old.pending || old.date == f.date) f.date else old.date
         if (pending == old.pending && date == old.date && f.amount == old.amount && f.description == old.importDescription) return false
         put(old, old.copy(pending = pending, date = date, amount = f.amount, importDescription = f.description, updatedAt = now))
-        if (f.amount != old.amount) adjustLines(old.id, old.amount, f.amount, now)
+        if (f.amount != old.amount) {
+            adjustLines(old.id, old.amount, f.amount, now)
+            net.darkrelay.deaddropfinance.domain.TransactionCleanup.followAmount(this, store.dao, old.id, f.amount)
+        }
         return true
     }
 

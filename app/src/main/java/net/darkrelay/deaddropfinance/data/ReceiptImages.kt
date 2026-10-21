@@ -59,6 +59,26 @@ class ReceiptImages(private val dir: File, private val key: () -> ByteArray) : R
         (dir.listFiles() ?: emptyArray()).filter { it.name.startsWith("$receiptId-") }.forEach { it.delete() }
     }
 
+    /** Every stored page, as (receipt id, page). */
+    fun stored(): List<Pair<String, Int>> = (dir.listFiles() ?: emptyArray()).filter { it.name.endsWith(".enc") }.mapNotNull { f ->
+        val base = f.name.removeSuffix(".enc")
+        base.substringAfterLast('-').toIntOrNull()?.let { base.substringBeforeLast('-') to it }
+    }.sortedWith(compareBy({ it.first }, { it.second }))
+
+    /** A store for [other] files under this same key: a restore stages its photos there first. */
+    fun staging(other: File) = ReceiptImages(other, key)
+
+    /** Restore: every photo here is replaced by the ones staged in [staged] (a [staging] store), which is emptied. */
+    fun replaceWith(staged: File) {
+        dir.mkdirs()
+        (dir.listFiles() ?: emptyArray()).forEach { it.delete() }
+        (staged.listFiles() ?: emptyArray()).forEach { f ->
+            val to = File(dir, f.name)
+            if (!f.renameTo(to)) { f.copyTo(to, overwrite = true); f.delete() }
+        }
+        staged.delete()
+    }
+
     /** Removes files whose receipt is gone (a crash between deleting the row and the file, say). */
     fun sweep(keep: Set<String>) {
         (dir.listFiles() ?: emptyArray()).forEach { f ->

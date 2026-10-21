@@ -5,7 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-/** DarkRelay colors: near-black, cyan accent, teal buttons. Full polish comes in Stage 15. */
+/** DarkRelay colors (the reference mockup's): near-black, cyan accent, teal buttons. */
 object DdfColors {
     val Background = Color(0xFF0B131B)
     val Surface = Color(0xFF111D27)
@@ -15,7 +15,7 @@ object DdfColors {
     val Teal = Color(0xFF0E7490)
     val Text = Color(0xFFE6EEF2)
     val Muted = Color(0xFF8FA3AE)
-    val Warning = Color(0xFFF0A35E)
+    val Warning = Color(0xFFFAC775)
     val Error = Color(0xFFF09595)
 }
 

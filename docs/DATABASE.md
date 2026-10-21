@@ -57,10 +57,15 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - If it can't be decrypted, it is left as it is (never replaced or deleted); the affected connection asks to be
   reconnected.
 - Screens show only a masked hint (the last four characters), never a value.
-- Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
-- Stage 12's encrypted backup must include receipts: the three receipt tables and the encrypted photos in
-  `files/receipts` (with the photo key, or re-encrypted under the backup's key). From 0.10.0 photos are kept after
-  Apply split, so the backup carries them.
+- Credentials don't travel: the backup (0.15.0) leaves out the bank connection tables (`connection`,
+  `linked_account`, `sync_log`) and the credentials file. Nothing exports them.
+- The backup carries every other table (the change log included; this phone's device id in `meta` is kept on
+  restore) and the receipt photos, decrypted from `files/receipts` and sealed under the backup's own key. Restore
+  re-encrypts them under the phone's photo key. A backup from an older schema restores into the current one (every
+  migration only adds, so its columns are a subset); one from a newer schema is refused.
+- Purge data (0.15.0) empties every table but `connection` and `linked_account` (whose accounts are unlinked), keeps
+  this phone's device id and the database key, deletes the receipt photos and every saved secret but the bank
+  access, and clears every settings file.
 - Disconnecting deletes that connection's credentials.
 - Erase everything deletes the database files, the keys folder, both Keystore keys and every settings file.
 - `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see

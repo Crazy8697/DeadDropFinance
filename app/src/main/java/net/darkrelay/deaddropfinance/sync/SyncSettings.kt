@@ -24,6 +24,11 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean("setup_done", false)
         set(v) = prefs.edit { putBoolean("setup_done", v) }
 
+    /** Purge data ran: the next start opens the setup wizard with the kept bank connection. Cleared at Finish. */
+    var setupAfterPurge: Boolean
+        get() = prefs.getBoolean("setup_after_purge", false)
+        set(v) = prefs.edit { putBoolean("setup_after_purge", v) }
+
     /** The Home card for installs updated from 0.6.x was dismissed. */
     var setupCardDismissed: Boolean
         get() = prefs.getBoolean("setup_card_dismissed", false)
@@ -77,6 +82,17 @@ class SyncSettings(private val prefs: SharedPreferences) {
     var reminded: Set<String>
         get() = prefs.getStringSet("reminded", emptySet())!!.toSet()
         set(v) = prefs.edit { putStringSet("reminded", v) }
+
+    // ---- backup (this phone's own: not carried in a backup) -------------------------------------------------------
+
+    /** When the last backup was saved (epoch millis), and the file's name, for the backup screen. */
+    var lastBackupAt: Long
+        get() = prefs.getLong("last_backup_at", 0)
+        set(v) = prefs.edit { putLong("last_backup_at", v) }
+
+    var lastBackupName: String
+        get() = prefs.getString("last_backup_name", "") ?: ""
+        set(v) = prefs.edit { putString("last_backup_name", v) }
 
     // ---- reading bank notifications ----------------------------------------------------------------------------------
 

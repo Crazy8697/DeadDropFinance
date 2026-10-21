@@ -76,9 +76,9 @@ class SimpleFinSource(
     class Row(val account: ProviderAccount, val transactions: List<ProviderTxn>, val complete: Boolean)
 
     private suspend fun request(params: List<Pair<String, String>>): Pair<List<Row>, List<String>> {
-        limiter?.take()
         val query = (listOf("version" to "2") + params).joinToString("&") { (k, v) -> "$k=$v" }
-        val r = http.get("${parsed.base}/accounts?$query", mapOf("Authorization" to parsed.basicAuth))
+        // every attempt that can reach the Bridge counts toward the day's budget, retries included
+        val r = http.get("${parsed.base}/accounts?$query", mapOf("Authorization" to parsed.basicAuth)) { limiter?.take() }
         when (r.status) {
             200 -> {}
             402 -> throw SyncError.NeedsFix(FixCode.SIMPLEFIN_PAYMENT, "SimpleFIN says payment is required. Check your SimpleFIN Bridge subscription.")
@@ -116,7 +116,9 @@ class SimpleFinSource(
                 ?: throw SyncError.BadData("That doesn't decode to a SimpleFIN token.")
             val u = try { URI(claimUrl) } catch (e: Exception) { throw SyncError.BadData("That token has an address that can't be read.") }
             if (u.host == null || !secure(u, allowLoopbackHttp)) throw SyncError.BadData("That token points somewhere that isn't a secure address, so it isn't used.")
-            val r = http.post(claimUrl)
+            // never retried: a claim the Bridge handled but whose answer was lost would fail the second time and
+            // look like a stolen token; one attempt, and the user tries again only when it never got there
+            val r = http.post(claimUrl, retry = false)
             when (r.status) {
                 200 -> {}
                 403 -> throw SyncError.NeedsFix(
