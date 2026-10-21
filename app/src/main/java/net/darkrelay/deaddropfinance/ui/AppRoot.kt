@@ -215,7 +215,9 @@ fun AppRoot(store: BudgetStore, platform: Platform, startupUpdateCheck: Boolean)
                             else ImportState(fileName = name, text = text, layout = CsvImport.detect(text), accountId = b.accounts.firstOrNull { !it.archived }?.id)
                         }
                     },
-                    onLayout = { importState = importState.copy(layout = it) }, onAccount = { importState = importState.copy(accountId = it) },
+                    onLayout = { importState = importState.copy(layout = it, skippedRows = emptySet()) },
+                    onAccount = { importState = importState.copy(accountId = it, skippedRows = emptySet()) },
+                    onToggleSkip = { n -> importState = importState.copy(skippedRows = importState.skippedRows.let { if (n in it) it - n else it + n }) },
                     onImport = { plan ->
                         val acct = importState.accountId ?: return@ImportScreen
                         scope.launch { importState = ImportState(result = actions.importCsv(acct, plan)) }

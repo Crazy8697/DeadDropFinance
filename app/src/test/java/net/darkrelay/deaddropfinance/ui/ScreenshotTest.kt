@@ -132,6 +132,11 @@ class ScreenshotTest {
         val text = "Account: Sample\n\nDate,Description,Debit,Credit,Balance\n03/01/2030,Corner Grocer,40.00,,960.00\n03/02/2030,Sample Payroll Co,,900.00,1860.00\n03/02/2030,Bad Row,,,1860.00\n"
         ImportScreen(budget, ImportState("sample.csv", text, CsvImport.detect(text), "chk"), {}, {}, {}, {}, {})
     }
+    @Test @Config(qualifiers = TALL) fun importDuplicates() = shot("25-import-possible-duplicates") {
+        val text = "Date,Description,Amount\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-02,Corner Grocer,-18.40\n2030-03-02,Corner Grocer,-18.40\n2030-03-04,Sample Payroll Co,900.00\n"
+        val layout = CsvImport.detect(text)
+        ImportScreen(budget, ImportState("sample.csv", text, layout, "chk", skippedRows = setOf(4)), {}, {}, {}, {}, {}, {})
+    }
     @Test fun importEmpty() = shot("22-import-no-accounts") { ImportScreen(empty, ImportState(), {}, {}, {}, {}, {}) }
     @Test fun lock() = shot("23-lock") { LockScreen({}, null) }
     @Test fun unavailable() = shot("24-data-unavailable") { DataUnavailableScreen("the stored key can't be unlocked on this phone") }

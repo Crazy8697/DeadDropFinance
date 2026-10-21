@@ -251,33 +251,56 @@ object CsvImport {
 
     fun dupKey(accountId: String, date: LocalDate, amount: Long, description: String) = "$accountId|$date|$amount|${normalize(description)}"
 
+    /** Identical rows (same date, cents and description) inside one file: the user chooses to import or skip each. */
+    data class DupGroup(val rows: List<Row>)
+
     data class Plan(
+        /** Rows that will be imported: new rows, plus the rows of possible-duplicate groups the user didn't skip. */
         val toImport: List<Row>,
-        /** Rows already in the account (same date, cents and description), or repeated in the file: skipped. */
+        /** Rows the account already holds (same date, cents and description), counted per key: skipped. */
         val alreadyHere: List<Row>,
         /** Rows that are the posted version of a pending transaction entered by hand: that one gets posted instead. */
         val matchedPending: List<Pair<Row, TransactionEntity>>,
         val bad: List<BadRow>,
+        /** Groups of identical rows in the file that are not already here. Imported by default. */
+        val possibleDuplicates: List<DupGroup> = emptyList(),
+        /** Rows in those groups that the user chose to skip. */
+        val skippedByUser: List<Row> = emptyList(),
     ) {
-        val total get() = toImport.size + alreadyHere.size + matchedPending.size + bad.size
+        val total get() = toImport.size + alreadyHere.size + matchedPending.size + bad.size + skippedByUser.size
+        val possibleDuplicateRows get() = possibleDuplicates.sumOf { it.rows.size }
     }
 
-    fun plan(read: Read, accountId: String, existing: List<TransactionEntity>): Plan {
+    /**
+     * Plans the import. Against the account the match is count-aware: for each key, if the file has N rows and the
+     * account holds M transactions with it, min(N, M) rows are "already here" and the rest are new. Identical rows
+     * inside the file are never skipped on their own: they are listed as [Plan.possibleDuplicates] and imported
+     * unless their row number is in [skippedRows].
+     */
+    fun plan(read: Read, accountId: String, existing: List<TransactionEntity>, skippedRows: Set<Int> = emptySet()): Plan {
         val inAccount = existing.filter { it.accountId == accountId && it.kind == TransactionKind.NORMAL }
-        val seen = inAccount.flatMap { t -> listOfNotNull(t.payee, t.importDescription).map { dupKey(accountId, t.date, t.amount, it) } }.toMutableSet()
+        val held = mutableMapOf<String, Int>()
+        for (t in inAccount) {
+            val keys = listOfNotNull(t.payee, t.importDescription).map { dupKey(accountId, t.date, t.amount, it) }.toSet()
+            for (k in keys) held[k] = (held[k] ?: 0) + 1
+        }
         val pending = inAccount.filter { it.pending }.toMutableList()
-        val toImport = mutableListOf<Row>()
+        val fresh = mutableListOf<Row>()
         val dup = mutableListOf<Row>()
         val matched = mutableListOf<Pair<Row, TransactionEntity>>()
         for (r in read.rows) {
             val key = dupKey(accountId, r.date, r.amount, r.description)
-            if (key in seen) { dup += r; continue }
+            val m = held[key] ?: 0
+            if (m > 0) { held[key] = m - 1; dup += r; continue }
             val p = pending.firstOrNull { it.amount == r.amount && kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) <= 5 }
-            if (p != null) { pending.remove(p); matched += r to p; seen += key; continue }
-            seen += key
-            toImport += r
+            if (p != null) { pending.remove(p); matched += r to p; continue }
+            fresh += r
         }
-        return Plan(toImport, dup, matched, read.bad)
+        val groups = fresh.groupBy { dupKey(accountId, it.date, it.amount, it.description) }.values
+            .filter { it.size > 1 }.map { DupGroup(it) }.sortedBy { it.rows.first().rowNumber }
+        val skipped = groups.flatMap { it.rows }.filter { it.rowNumber in skippedRows }
+        val skippedNumbers = skipped.map { it.rowNumber }.toSet()
+        return Plan(fresh.filter { it.rowNumber !in skippedNumbers }, dup, matched, read.bad, groups, skipped)
     }
 
     /** ATM fees are tagged automatically; a rebate of one offsets it. */

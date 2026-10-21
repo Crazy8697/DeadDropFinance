@@ -270,7 +270,7 @@ class BudgetActions(private val store: BudgetStore) {
 
     // ---- CSV import ------------------------------------------------------------------------------------------
 
-    data class ImportResult(val imported: Int, val posted: Int, val skipped: Int, val bad: Int)
+    data class ImportResult(val imported: Int, val posted: Int, val skipped: Int, val bad: Int, val skippedByUser: Int = 0)
 
     /**
      * Writes a planned import in one go: new rows land in To sort (uncategorized), ATM fees and rebates tagged;
@@ -293,7 +293,7 @@ class BudgetActions(private val store: BudgetStore) {
             val old = dao.transaction(p.id) ?: continue
             put(old, old.copy(pending = false, date = r.date, importDescription = r.description, updatedAt = now))
         }
-        ImportResult(plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size)
+        ImportResult(plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size, plan.skippedByUser.size)
     }
 
     // ---- pass-through (wash) ---------------------------------------------------------------------------------

@@ -20,7 +20,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - One flat list. No groups. The user drags envelopes to set the fill order.
 - First run offers starter envelopes with names only and no dollar amounts, plus a "Start blank" button. The app never suggests how much to spend.
 - Envelope modes:
-  - Fill to target: tops the envelope up to its target each payday (an envelope holding 30 with a target of 90 gets 60).
+  - Fill to target: tops the envelope up to its target each payday. Example, an envelope holding 30 with a target of 90:
+    - When the payday does not close a budget month (the first payday, before there is a month to close), nothing is swept, so the envelope gets 60 and ends at 90.
+    - When the payday closes a budget month, the 30 is swept to Rollover first, then the envelope fills from 0 to 90 out of Ready to Assign. It ends at 90 and Rollover holds the 30. Sweep always comes before fill.
   - Add every payday: adds the full amount each payday, for things being saved up for.
   - Goal: an add-every-payday envelope with a goal amount and date ("200 by December 10"). The app works out the per-payday amount and stops filling at the goal.
   - Seasonal: for bills that swing by season (heating, cooling). Adds the 12-month average of its linked bills every payday, so low months build a cushion and high months spend it down.
@@ -50,7 +52,11 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Transactions (Stage 6)
 - One transaction can be split across several envelopes (for example one store run that is part groceries, part household; or one bill payment that is part current charge, part past-due debt).
 - Pending and posted versions of the same transaction are matched, never double counted.
-- Old School CSV import handles bank exports and payment app statement exports, with duplicate detection.
+- Old School CSV import handles bank exports and payment app statement exports, with duplicate detection:
+  - Two rows are the same when they have the same account, date, amount in cents and normalized description.
+  - Against what the account already holds, matching is counted. If the file has N rows with a key and the account holds M, min(N, M) rows are "already here" and skipped, and the rest are new. Three identical rows in the file with one already in the app imports two.
+  - Identical rows inside one file are never skipped automatically, since two real purchases or transfers can look the same. The preview lists them under "Possible duplicates in this file", grouped, with the row numbers. Each row has an import or skip choice, import by default. The counts at the top (to import, already here, possible duplicates, skipped by you, bad) update as the choices change.
+  - A row that is the posted version of a pending transaction (same amount, within 5 days) posts that transaction instead of adding a second one.
 
 ## Bills (Stage 6 data model, Stage 10 reminders and checklist)
 - Bills and envelopes are many to one: several bills can feed one envelope (for example three phone lines billed on different days feeding one Phone envelope).

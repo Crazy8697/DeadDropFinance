@@ -22,6 +22,19 @@ class PaydayTest {
         assertTrue(p.sweeps.isEmpty())
     }
 
+    @Test fun thirtyNinetyExampleFromFeaturesMd() {
+        // FEATURES.md: an envelope holding 30 with a target of 90, in both cases
+        val env = listOf(F.envelope("g", target = 90_00))
+        val moves = listOf(F.move(null, "g", 30_00))
+        val noClose = Payday.plan(budget(30_00 + 500_00, env, moves), today, closesMonth = false)
+        assertTrue("nothing is swept when no month closes", noClose.sweeps.isEmpty())
+        assertEquals(listOf(Payday.PlannedMove(null, "g", 60_00)), noClose.fills)
+
+        val closes = Payday.plan(budget(30_00 + 500_00, env, moves), today, closesMonth = true)
+        assertEquals("the 30 is swept to Rollover first", listOf(Payday.PlannedMove("g", "roll", 30_00)), closes.sweeps)
+        assertEquals("then the envelope fills from 0 to 90", listOf(Payday.PlannedMove(null, "g", 90_00)), closes.fills)
+    }
+
     @Test fun closingTheMonthSweepsFillToTargetLeftoversOnly() {
         val b = budget(
             30_00 + 20_00 + 10_00 + 1000_00,
