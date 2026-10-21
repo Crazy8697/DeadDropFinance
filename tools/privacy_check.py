@@ -50,7 +50,8 @@ PRIVATE_PREFIX = "docs/mockups/"
 PUBLIC_FINGERPRINTS = {"a93e9aa12b807633335bf28800b4d987fd1ad47c1a078ef095c2ac7feaf45ce0"}
 # e-mail domains and addresses that may appear (a published darkrelay.net contact address would go here)
 EMAIL_ALLOW_DOMAINS = ["users.noreply.github.com", "example.com", "example.org"]
-EMAIL_ALLOW_ADDRESSES = []
+# (git@github.com is GitHub's SSH remote address, used by tools/release.ps1, not a mailbox)
+EMAIL_ALLOW_ADDRESSES = ["git@github.com"]
 
 USER_PATH = ("a personal user path",
              re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b|<|%|\$|\{)[A-Za-z0-9_.-]+"

@@ -61,6 +61,14 @@ val appVersionCode = run {
     major * 10000 + minor * 100 + patch
 }
 
+val realUpdateUrl = "https://api.github.com/repos/Crazy8697/DeadDropFinance/releases/latest"
+val debugUpdateUrl = providers.gradleProperty("ddf.updateUrl").orNull?.also {
+    require(Regex("""^https?://[A-Za-z0-9.:/_-]+$""").matches(it)) { "ddf.updateUrl: not a plain URL" }
+} ?: realUpdateUrl
+val debugFakeVersion = providers.gradleProperty("ddf.fakeVersion").orNull?.also {
+    require(Regex("""^\d+\.\d+\.\d+$""").matches(it)) { "ddf.fakeVersion must look like 1.2.3" }
+} ?: ""
+
 android {
     namespace = "net.darkrelay.deaddropfinance"
     compileSdk {
@@ -98,7 +106,16 @@ android {
     }
 
     buildTypes {
+        // The update check's URL and the installed version it compares against. A release build always uses the
+        // real GitHub URL and the real versionName. Only a debug build can be pointed elsewhere for testing, with
+        // -Pddf.updateUrl=<https url> and -Pddf.fakeVersion=<x.y.z>.
+        debug {
+            buildConfigField("String", "UPDATE_URL", "\"$debugUpdateUrl\"")
+            buildConfigField("String", "VERSION_OVERRIDE", "\"$debugFakeVersion\"")
+        }
         release {
+            buildConfigField("String", "UPDATE_URL", "\"$realUpdateUrl\"")
+            buildConfigField("String", "VERSION_OVERRIDE", "\"\"")
             // null when the key is missing; checkReleaseSigning below then stops the build before packaging
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
@@ -234,4 +251,11 @@ dependencies {
 
     // test only, never packaged into the app
     testImplementation("junit:junit:4.13.2")
+    // the real org.json for the update tests (the one in android.jar is a stub off-device)
+    testImplementation("org.json:json:20260814")
+}
+
+// The live check against the real GitHub release runs only when asked for: -Pddf.liveCheck=true
+tasks.withType<Test>().configureEach {
+    systemProperty("ddf.liveCheck", providers.gradleProperty("ddf.liveCheck").getOrElse("false"))
 }

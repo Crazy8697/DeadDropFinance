@@ -7,7 +7,11 @@ telemetry.
 
 ## Status
 
-In development. There is no release yet.
+Early development builds are on the [Releases](https://github.com/Crazy8697/DeadDropFinance/releases) page. They
+don't do anything useful yet.
+
+To install one, open the Releases page on your phone and download `DeadDropFinance.apk`. When Android asks, allow
+your browser to install unknown apps.
 
 ## Requirements
 
@@ -16,8 +20,8 @@ Android 13 or newer.
 ## Privacy
 
 Your budget stays in the app's private storage on your phone, encrypted. Bank connections go through your own
-SimpleFIN or Teller account, never through DarkRelay. Backups go only where you choose. The app sends nothing about
-you anywhere.
+SimpleFIN or Teller account, never through DarkRelay. Backups go only where you choose. The only network connection
+is an optional check for updates on GitHub, with nothing about you sent.
 
 ## How it works
 

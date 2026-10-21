@@ -2,4 +2,16 @@
 <resources>
     <string name="app_name">Dead Drop Finance</string>
     <string name="version_label">Version %1$s</string>
+
+    <string name="update_available">Version %1$s is available</string>
+    <string name="update_notes">Release notes</string>
+    <string name="update_download">Download</string>
+    <string name="update_skip">Skip this version</string>
+    <string name="update_later">Later</string>
+    <string name="update_at_startup">Check for updates at startup</string>
+    <string name="update_check_now">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_latest">You\'re on the latest version</string>
+    <string name="update_failed">Couldn\'t check for updates. Try again later.</string>
+    <string name="update_open_with">Open with</string>
 </resources>
