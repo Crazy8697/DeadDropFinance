@@ -31,5 +31,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3)
+    /** 3 to 4 (0.7.3): the date a provider's balance was true. One nullable column on this phone's own table. */
+    val V3_V4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `linked_account` ADD COLUMN `provider_balance_date` INTEGER")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4)
 }

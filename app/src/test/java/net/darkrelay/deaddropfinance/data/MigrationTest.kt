@@ -93,6 +93,25 @@ class MigrationTest {
         }
     }
 
+    @Test fun threeToFourAddsTheBankBalanceDate() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-3.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 3)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL("INSERT INTO connection (id, provider, name, status, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 1)")
+        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, set_start_balance) VALUES ('l1', 'c1', 'ACT', 'Sample', '', 'a1', -4107, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val l = db.syncDao().linkedNow().single()
+            assertEquals(-4107L, l.providerBalance)
+            assertEquals(null, l.providerBalanceDate)
+            assertEquals("Sample Account", db.dao().account("a1")!!.name)
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun everyVersionHasAnExportedSchemaAndAMigration() {
         val versions = schemas.listFiles()!!.mapNotNull { it.name.removeSuffix(".json").toIntOrNull() }.sorted()
         assertEquals((1..versions.last()).toList(), versions)

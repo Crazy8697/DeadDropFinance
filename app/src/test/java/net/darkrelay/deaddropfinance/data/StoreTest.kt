@@ -162,7 +162,8 @@ class StoreTest {
     }
 
     @Test fun csvImportLandsInToSortAndPostsPending() = runBlocking<Unit> {
-        val acct = a.saveAccount(null, "Test Bank", AccountType.BANK, 0, d)
+        // the account starts before the file's dates (rows dated before its start are history, see BalanceBugTest)
+        val acct = a.saveAccount(null, "Test Bank", AccountType.BANK, 0, LocalDate.of(2029, 12, 1))
         val pending = a.saveTransaction(null, TransactionDraft(acct, LocalDate.of(2030, 1, 5), "fuel", "", -35_20, listOf(LineDraft(null, -35_20)), pending = true))
         val text = javaClass.classLoader!!.getResource("csv/signed_iso.csv")!!.readText()
         val read = CsvImport.read(text, CsvImport.detect(text))

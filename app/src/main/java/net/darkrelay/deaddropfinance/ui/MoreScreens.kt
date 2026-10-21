@@ -55,6 +55,7 @@ fun MoreScreen(
     onBankSync: () -> Unit = {},
     onSetup: () -> Unit = {},
     syncLine: String? = null,
+    onErase: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
@@ -85,6 +86,12 @@ fun MoreScreen(
         OutlinedButton(onClick = onCheckNow, enabled = !s.checking) { Text(if (s.checking) "Checking..." else "Check for updates") }
         if (s.updateMessage != null) Text(s.updateMessage, modifier = Modifier.padding(vertical = 6.dp))
         ListRow(onSetup) { Column { Text("Setup"); Text("Run the setup wizard again. Nothing you have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        ListRow(onErase) {
+            Column {
+                Text("Erase everything and start over", color = DdfColors.Error)
+                Text("Deletes all your data from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         SectionTitle("About")
         Text("Dead Drop Finance, version ${s.version}", color = DdfColors.Muted)
         Gap(24)
@@ -133,6 +140,9 @@ fun AccountEditScreen(
     existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (AccountForm) -> Unit, onArchive: (Boolean) -> Unit,
     syncSection: (@Composable () -> Unit)? = null,
     budget: Budget? = null,
+    /** Deleting this account takes [deleteCount] transactions with it. Null hides the button. */
+    onDelete: (() -> Unit)? = null,
+    deleteCount: Int = 0,
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var type by remember { mutableStateOf(existing?.type ?: AccountType.BANK) }
@@ -141,6 +151,7 @@ fun AccountEditScreen(
     var trackOnly by remember { mutableStateOf(existing?.trackOnly ?: false) }
     var held by remember { mutableStateOf(existing?.heldAmount?.takeIf { it > 0 }?.let { Money.plain(it) } ?: "") }
     var confirmArchive by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val balance = existing?.let { budget?.accountBalance(it.id) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New account" else "Edit account", onBack)
@@ -199,7 +210,26 @@ fun AccountEditScreen(
             OutlinedButton(onClick = { confirmArchive = true }) { Text(if (existing.archived) "Unarchive" else "Archive") }
         }
         syncSection?.invoke()
+        if (existing != null && onDelete != null) {
+            Gap(16)
+            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete account", color = DdfColors.Error) }
+        }
         Gap(24)
+    }
+    if (confirmDelete && existing != null && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete ${existing.name}?") },
+            text = {
+                Text(
+                    "This deletes the account and its " + (if (deleteCount == 1) "1 transaction" else "$deleteCount transactions") +
+                        " for good. Envelope balances and Ready to Assign change to match. A transfer with another account stays there as an " +
+                        "entry to sort. Any bank link for this account is removed. This can't be undone.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete for good", color = DdfColors.Error) } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
     if (confirmArchive && existing != null) {
         val amount = balance?.let { Money.format(it) }

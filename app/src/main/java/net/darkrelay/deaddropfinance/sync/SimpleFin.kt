@@ -163,6 +163,7 @@ class SimpleFinSource(
                 val a = accounts.optJSONObject(i) ?: continue
                 val id = a.optString("id").ifEmpty { throw SyncError.BadData("SimpleFIN sent an account without an id.") }
                 val balance = Cents.parse(a.optString("balance", ""))
+                val balanceDate = a.optLong("balance-date", 0).takeIf { it > 0 }
                 val label = sanitize(a.optString("name")).ifEmpty { "Account" }
                 val bank = connNames[a.optString("conn_id")].orEmpty()
                 val name = if (bank.isNotEmpty() && !label.contains(bank, true)) "$bank $label" else label
@@ -179,7 +180,7 @@ class SimpleFinSource(
                         txns += ProviderTxn(tid, Instant.ofEpochSecond(epoch).atZone(zone).toLocalDate(), amount, sanitize(t.optString("description")), pending)
                     }
                 }
-                rows += Row(ProviderAccount(id, name, mask = "", balance = balance), txns, complete = id !in failedAccounts)
+                rows += Row(ProviderAccount(id, name, mask = "", balance = balance, balanceDate = balanceDate), txns, complete = id !in failedAccounts)
             }
             return rows to messages
         }

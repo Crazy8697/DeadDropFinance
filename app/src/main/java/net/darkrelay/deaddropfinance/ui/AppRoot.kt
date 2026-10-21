@@ -63,6 +63,7 @@ sealed interface Nav {
     data object Accounts : Nav
     data class AccountEdit(val id: String?) : Nav
     data object Import : Nav
+    data object Erase : Nav
     data object BankSync : Nav
     /** The SimpleFIN connect screen; [fixId] repairs that connection with a new token instead of adding one. */
     data class SyncConnect(val fixId: String? = null) : Nav
@@ -75,6 +76,8 @@ interface Platform {
     fun pickCsv(onPicked: (name: String, text: String?) -> Unit)
     /** Puts the background sync job in line with the settings. */
     fun scheduleSync(hasConnections: Boolean)
+    /** Erase everything and start over (the activity shows what's next). */
+    fun eraseEverything()
     val more: MoreState
     fun setLock(on: Boolean)
     fun setTimeout(minutes: Int)
@@ -123,6 +126,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     var linkBusy by remember { mutableStateOf(false) }
     var syncMessage by remember { mutableStateOf<String?>(null) }
     var refreshing by remember { mutableStateOf(false) }
+    var erasing by remember { mutableStateOf(false) }
     var background by remember { mutableStateOf(sync.settings.backgroundEnabled) }
     var interval by remember { mutableStateOf(sync.settings.intervalHours) }
     var setupDone by remember { mutableStateOf(sync.settings.setupDone) }
@@ -226,6 +230,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 },
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
+                onErase = { go(Nav.Erase) },
                 syncLine = if (connections.isEmpty()) null else
                     "${connections.size} connection${if (connections.size == 1) "" else "s"}, last sync ${syncTime(connections.mapNotNull { it.lastSyncAt }.maxOrNull())}" +
                         if (connections.any { it.status == net.darkrelay.deaddropfinance.data.ConnectionStatus.NEEDS_FIX }) ". One needs attention." else "",
@@ -276,6 +281,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
             Nav.Accounts -> AccountsScreen(b, ::back, onAccount = { go(Nav.AccountEdit(it)) }, onAdd = { go(Nav.AccountEdit(null)) })
             is Nav.AccountEdit -> {
                 val a = b.accounts.firstOrNull { it.id == top.id }
+                val deleteCount by produceState(0, top.id, b.transactions.size) { value = top.id?.let { actions.deleteAccountCount(it) } ?: 0 }
                 AccountEditScreen(
                     a, error, ::back,
                     onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount) } },
@@ -284,8 +290,13 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                         { AccountSyncSection(b, a.id, links, connections) { lid, acct, remove -> scope.launch { sync.setLink(lid, acct, remove) } } }
                     },
                     budget = b,
+                    onDelete = if (a == null) null else {
+                        { run(scope) { actions.deleteAccount(a.id); stack.removeAll { it is Nav.AccountEdit } } }
+                    },
+                    deleteCount = deleteCount,
                 )
             }
+            Nav.Erase -> EraseScreen(::back, working = erasing) { erasing = true; platform.eraseEverything() }
             Nav.Import -> ImportScreen(
                 b, importState, ::back,
                 onPick = {

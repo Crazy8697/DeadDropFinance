@@ -49,6 +49,8 @@ data class LinkedAccountEntity(
     /** The provider's balance in cents, signed like the app's balances (money you have is positive). */
     @ColumnInfo(name = "provider_balance") val providerBalance: Long? = null,
     @ColumnInfo(name = "provider_balance_at") val providerBalanceAt: Long? = null,
+    /** When the provider says its balance was true (epoch seconds), so the screens can say how old the bank's data is. */
+    @ColumnInfo(name = "provider_balance_date") val providerBalanceDate: Long? = null,
     /** Where the first sync starts; later syncs go from the last sync with an overlap. */
     @ColumnInfo(name = "history_from") val historyFrom: LocalDate? = null,
     @ColumnInfo(name = "last_synced_date") val lastSyncedDate: LocalDate? = null,

@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private var lockMessage by mutableStateOf<String?>(null)
     private var pickCallback: ((String, String?) -> Unit)? = null
     private var sync by mutableStateOf<SyncService?>(null)
+    private var erased by mutableStateOf(false)
     private val app get() = application as DdfApp
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -72,6 +73,7 @@ class MainActivity : ComponentActivity() {
                         when {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
+                            erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
                             o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(o.store, sync!!, platform, startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true })
                             else -> {}
                         }
@@ -80,6 +82,16 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (locked) promptUnlock()
+    }
+
+    /** After an erase: open a new, empty database, as on a fresh install (the setup wizard comes up). */
+    private fun startOver() {
+        erased = false
+        applyHide()
+        lifecycleScope.launch {
+            opened = withContext(Dispatchers.IO) { app.open() }
+            sync = withContext(Dispatchers.IO) { app.syncService() }
+        }
     }
 
     private fun applyHide() {
@@ -125,6 +137,15 @@ class MainActivity : ComponentActivity() {
         override fun pickCsv(onPicked: (String, String?) -> Unit) {
             pickCallback = onPicked
             picker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel"))
+        }
+
+        override fun eraseEverything() {
+            lifecycleScope.launch {
+                sync = null
+                opened = null
+                withContext(Dispatchers.IO) { app.eraseEverything() }
+                erased = true
+            }
         }
 
         override fun scheduleSync(hasConnections: Boolean) {

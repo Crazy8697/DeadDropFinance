@@ -177,7 +177,7 @@ class ScreenshotTest {
     @Test fun wizardOldSchool() = shot("37-wizard-old-school") { WizardFrame(WizardPage.CONNECT, "Old School", {}, null) { OldSchoolDoor(false, {}, {}, {}) } }
     @Test @Config(qualifiers = TALL) fun wizardLink() = shot("38-wizard-link") {
         WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(links.filter { it.connectionId == "c1" }.map { it.copy(accountId = null) }, budget.accounts, mapOf("l1" to LinkPick("chk")), { _, _ -> }, false, null, null)
+            LinkPanel(links.filter { it.connectionId == "c1" }.map { it.copy(accountId = null) }, budget.accounts, mapOf("l1" to LinkPick("chk")), { _, _ -> }, false, null, today, null)
         }
     }
     @Test @Config(qualifiers = TALL) fun wizardStarter() = shot("39-wizard-starter") {
@@ -193,13 +193,13 @@ class ScreenshotTest {
         BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {})
     }
     @Test fun syncLinksFromBankSync() = shot("43-bank-sync-accounts") {
-        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null) {} }
+        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null, today) {} }
     }
     @Test @Config(qualifiers = TALL) fun accountSyncMismatch() = shot("44-account-balance-check") {
-        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", links, conns) { _, _, _ -> } }, budget = budget)
+        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", links, conns, today) { _, _, _ -> } }, budget = budget)
     }
     @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
-        AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns) { _, _, _ -> } }, budget = budget)
+        AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns, today) { _, _, _ -> } }, budget = budget)
     }
     @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}) }
     @Test fun fixDialog() = shot("47-fix-dialog") {
@@ -221,7 +221,7 @@ class ScreenshotTest {
             LinkedAccountEntity("o2", "c1", "ACT-S", "Sample Membership Share", "", null, 5_00, at),
         )
         WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, null)
+            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, today, null)
         }
     }
     @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}); UnlinkDialog("Everyday Checking", {}, {}) }
@@ -238,4 +238,42 @@ class ScreenshotTest {
         AccountsScreen(Budget(budget2.accounts + acct("old", "Old Savings", AccountType.BANK, 80_00).copy(archived = true), budget.envelopes, budget.transactions, budget.lines, budget.moves), {}, {}, {})
     }
     @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}) }
+
+    // ---- 0.7.3 ---------------------------------------------------------------------------------------------------
+    private fun epochOf(d: java.time.LocalDate) = d.atTime(9, 0).toEpochSecond(java.time.ZoneOffset.UTC)
+    @Test @Config(qualifiers = TALL) fun linkStaleBankData() = shot("60-link-bank-data-as-of") {
+        val ls = listOf(
+            LinkedAccountEntity("s1", "c1", "ACT-1", "Sample Checking", "", "chk", -41_07, at, epochOf(today.minusDays(12))),
+            LinkedAccountEntity("s2", "c1", "ACT-2", "Sample Savings", "", null, 5_00, at, epochOf(today)),
+        )
+        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) { LinkPanel(ls, budget.accounts, emptyMap(), { _, _ -> }, false, null, today, null) }
+    }
+    @Test @Config(qualifiers = TALL) fun accountBalanceCheckStale() = shot("61-account-balance-check-stale") {
+        val ls = listOf(LinkedAccountEntity("s1", "c1", "ACT-1", "Sample Checking", "", "chk", -41_07, at, epochOf(today.minusDays(12))))
+        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", ls, conns, today) { _, _, _ -> } }, budget = budget, onDelete = {}, deleteCount = 7)
+    }
+    @Test fun deleteAccountDialog() = shot("62-delete-account") {
+        Box {
+            AccountEditScreen(budget.accounts[1], null, {}, {}, {}, budget = budget, onDelete = {}, deleteCount = 1)
+            AlertDialogPreview("Delete Pay App?", "This deletes the account and its 1 transaction for good. Envelope balances and Ready to Assign change to match. A transfer with another account stays there as an entry to sort. Any bank link for this account is removed. This can't be undone.", "Delete for good")
+        }
+    }
+    @Test @Config(qualifiers = TALL) fun eraseScreen() = shot("63-erase-everything") { EraseScreen({}, false) {} }
+    @Test fun erasedScreen() = shot("64-erased") { ErasedScreen({}, {}) }
+    @Test @Config(qualifiers = TALL) fun moreWithErase() = shot("65-more-erase-row") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, null, {}) }
+    @Test fun transactionBeforeStart() = shot("66-transaction-before-start") {
+        val old = tx("old", "chk", "Sample Old Charge", -9_99, 60)
+        val b = Budget(budget.accounts, budget.envelopes, budget.transactions + old, budget.lines + line("old", -9_99), budget.moves)
+        TransactionDetailScreen(old, b, emptyList(), null, {}, {}, {}, {}, {}, {})
+    }
+}
+
+/** A plain dialog look-alike for screenshots of a confirmation (the real ones are AlertDialogs). */
+@Composable
+private fun AlertDialogPreview(title: String, text: String, confirm: String) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = {}, title = { androidx.compose.material3.Text(title) }, text = { androidx.compose.material3.Text(text) },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = {}) { androidx.compose.material3.Text(confirm, color = DdfColors.Error) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = {}) { androidx.compose.material3.Text("Cancel") } },
+    )
 }

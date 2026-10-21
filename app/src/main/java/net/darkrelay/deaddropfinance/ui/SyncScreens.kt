@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import net.darkrelay.deaddropfinance.data.AccountEntity
@@ -119,6 +120,7 @@ data class LinkPick(val target: String, val history: SyncService.History = SyncS
 fun defaultPick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick {
     val open = accounts.filter { !it.archived }
     l.accountId?.let { id -> if (open.any { it.id == id }) return LinkPick(id) }
+    if (l.historyFrom != null || l.lastSyncedDate != null) return LinkPick("ignore")
     open.firstOrNull { it.name.equals(l.providerName, ignoreCase = true) }?.let { return LinkPick(it.id) }
     return LinkPick(if (open.isEmpty()) "new" else "ignore")
 }
@@ -130,6 +132,25 @@ fun historyName(h: SyncService.History) = when (h) {
     SyncService.History.YEAR -> "Last year"
 }
 
+/** The bank's balance date as text, and whether the data is old enough to say so. */
+fun balanceAge(epochSeconds: Long?, today: LocalDate, zone: ZoneId = ZoneId.systemDefault()): Pair<String, Boolean>? {
+    val d = epochSeconds?.let { Instant.ofEpochSecond(it).atZone(zone).toLocalDate() } ?: return null
+    val days = java.time.temporal.ChronoUnit.DAYS.between(d, today)
+    return d.format(DateTimeFormatter.ofPattern("MMM d")) to (days > STALE_DAYS)
+}
+
+/** Bank data older than this many days gets a warning: the provider may have stopped updating the account. */
+const val STALE_DAYS = 3L
+
+@Composable
+fun StaleBankData(asOf: String) {
+    Text(
+        "SimpleFIN's data for this account is from $asOf. The bank may have changed since; check this connection on the " +
+            "SimpleFIN Bridge site, it may need you to log in to the bank again there.",
+        color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall,
+    )
+}
+
 @Composable
 fun LinkPanel(
     links: List<LinkedAccountEntity>,
@@ -138,6 +159,7 @@ fun LinkPanel(
     onPick: (String, LinkPick) -> Unit,
     busy: Boolean,
     error: String?,
+    today: LocalDate = LocalDate.now(),
     onApply: (() -> Unit)?,
 ) {
     if (links.isEmpty()) {
@@ -164,7 +186,9 @@ fun LinkPanel(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Bank balance ", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                         MoneyText(it, small = true)
+                        balanceAge(l.providerBalanceDate, today)?.let { (d, _) -> Text(", as of $d", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
                     }
+                    balanceAge(l.providerBalanceDate, today)?.let { (d, stale) -> if (stale) StaleBankData(d) }
                 }
                 Picker("Goes to", targets, p.target, { t ->
                     onPick(l.id, p.copy(target = t))
@@ -334,20 +358,6 @@ fun FixDialog(prompt: SyncService.FixPrompt, onFix: () -> Unit, onLater: () -> U
     )
 }
 
-/** Posted balance of an app account: pending rows left out, since the bank's balance leaves them out too. */
-fun postedBalance(b: Budget, accountId: String): Long {
-    val a = b.accounts.firstOrNull { it.id == accountId } ?: return 0
-    var bal = a.startingBalance
-    for (t in b.transactions) {
-        when {
-            t.kind == TransactionKind.TRANSFER && t.accountId == accountId -> bal -= t.amount
-            t.kind == TransactionKind.TRANSFER && t.transferAccountId == accountId -> bal += t.amount
-            t.kind == TransactionKind.NORMAL && t.accountId == accountId && !t.pending -> bal += t.amount
-        }
-    }
-    return bal
-}
-
 /** On the account screen: what feeds this account, when it last synced, and the balance check. */
 @Composable
 fun AccountSyncSection(
@@ -355,6 +365,7 @@ fun AccountSyncSection(
     accountId: String,
     links: List<LinkedAccountEntity>,
     connections: List<ConnectionEntity>,
+    today: LocalDate = LocalDate.now(),
     onChangeLink: (linkedId: String, accountId: String?, removeFromBudget: Boolean) -> Unit,
 ) {
     var asking by remember { mutableStateOf<String?>(null) }
@@ -368,17 +379,19 @@ fun AccountSyncSection(
         val c = connections.firstOrNull { it.id == l.connectionId }
         Text("Synced from ${l.providerName}${if (l.mask.isNotEmpty()) " (...${l.mask})" else ""} through ${c?.name ?: "a connection"}")
         Text("Last sync: ${syncTime(c?.lastSyncAt)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        val age = balanceAge(l.providerBalanceDate, today)
         val bank = l.providerBalance
         if (bank != null) {
-            val app = postedBalance(budget, accountId)
+            val app = budget.postedBalance(accountId)
             val diff = app - bank
+            age?.let { (d, stale) -> if (stale) StaleBankData(d) else Text("The bank's balance is as of $d.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
             if (diff == 0L) {
                 Text("Balance check: matches the bank (${money(bank)}).", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
             } else {
                 Text("Balance check: the bank says ${money(bank)}, the app says ${money(app)}. Off by ${money(kotlin.math.abs(diff))}.", color = DdfColors.Warning)
                 Text(
-                    "Pending transactions aren't counted on either side. A difference usually means a transaction from before the first sync, one entered " +
-                        "by hand that the bank shows differently, or a starting balance that's off. Nothing is adjusted for you.",
+                    "Pending transactions aren't counted on either side. A difference usually means SimpleFIN's data is old (see the date above), a " +
+                        "transaction entered by hand that the bank shows differently, or a starting balance that's off. Nothing is adjusted for you.",
                     color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
                 )
             }

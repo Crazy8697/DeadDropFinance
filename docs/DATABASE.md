@@ -21,6 +21,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   every row survived.
 - Version 3 (0.7.2): adds `track_only` and `held_amount` to `account`, both with a default of 0, so every existing
   account stays in the budget with nothing held. `MigrationTest` checks 2 to 3 as well.
+- Version 4 (0.7.3): adds `provider_balance_date` to `linked_account` (when the bank's balance was true). One
+  nullable column on this phone's own table.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
@@ -43,6 +45,7 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Screens show only a masked hint (the last four characters), never a value.
 - Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
 - Disconnecting deletes that connection's credentials.
+- Erase everything deletes the database files, the keys folder, both Keystore keys and every settings file.
 - `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see
   `RemovedProviderCleanup`), so the app never reads a provider it no longer knows.
 

@@ -5,6 +5,7 @@ import java.io.File
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.darkrelay.deaddropfinance.data.DatabaseOpener
+import net.darkrelay.deaddropfinance.data.Eraser
 import net.darkrelay.deaddropfinance.data.KeystoreWrapper
 import net.darkrelay.deaddropfinance.data.SecretStore
 import net.darkrelay.deaddropfinance.lock.AppLock
@@ -48,6 +49,27 @@ class DdfApp : Application() {
                 SyncService(o.store, secrets, settings).also { service = it }
             }
         }
+    }
+
+    /**
+     * Erase everything and start over: stops sync, closes the database, then removes the database, the keys folder,
+     * both Keystore keys, every settings file and scheduled work. The next open is a fresh install's. Returns what
+     * couldn't be removed (empty when all went).
+     */
+    suspend fun eraseEverything(): List<String> = openLock.withLock {
+        service?.shutdown()
+        service = null
+        (opened as? DatabaseOpener.Opened.Ok)?.store?.db?.close()
+        opened = null
+        val left = Eraser(
+            databaseFile = getDatabasePath(net.darkrelay.deaddropfinance.data.AppDatabase.NAME),
+            keysDir = File(filesDir, "keys"),
+            keystoreAliases = listOf(KeystoreWrapper.ALIAS, SECRETS_KEY_ALIAS),
+            deleteKeystoreKey = { alias -> java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias) },
+            settings = listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
+            cancelScheduledWork = { androidx.work.WorkManager.getInstance(this).cancelAllWork() },
+        ).erase()
+        left
     }
 
     companion object {

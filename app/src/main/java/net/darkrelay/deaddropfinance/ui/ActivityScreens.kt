@@ -84,6 +84,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
     val sub = when {
         t.kind == TransactionKind.TRANSFER -> "Transfer to ${accounts[t.transferAccountId]?.name ?: "?"}"
         t.isWash -> "Wash (pass-through)"
+        budget.beforeStart(t) -> "Before the starting balance"
         else -> {
             val ls = budget.lines.filter { it.transactionId == t.id }
             if (ls.size > 1) "Split, ${ls.size} parts" else when (ls.firstOrNull()?.bucket) {
@@ -260,6 +261,13 @@ fun TransactionDetailScreen(
                 Text("${t.date}, ${accounts[t.accountId]?.name ?: ""}" + (if (t.kind == TransactionKind.TRANSFER) " to ${accounts[t.transferAccountId]?.name ?: ""}" else ""), color = DdfColors.Muted)
                 if (t.memo.isNotBlank()) Text(t.memo)
                 if (t.pending) Text("Pending: when the bank's version is imported, it takes this one's place.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                if (budget.beforeStart(t)) {
+                    Text(
+                        "This is dated before the account's starting balance date, so it's already part of that balance. It's kept as history " +
+                            "and doesn't change the balance or the budget.",
+                        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (t.fee) Text("Tagged as an ATM fee.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                 if (t.feeRebate) Text("Tagged as a fee rebate.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
@@ -268,7 +276,7 @@ fun TransactionDetailScreen(
             SectionTitle("Where it went")
             budget.lines.filter { it.transactionId == t.id }.sortedBy { it.sortOrder }.forEach { l ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort"; LineBucket.OFF_BUDGET -> "Outside the budget (track only)" }, Modifier.weight(1f))
+                    Text(if (budget.beforeStart(t)) "History, not counted" else when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort"; LineBucket.OFF_BUDGET -> "Outside the budget (track only)" }, Modifier.weight(1f))
                     MoneyText(l.amount)
                 }
             }

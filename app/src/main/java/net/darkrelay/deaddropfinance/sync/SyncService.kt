@@ -47,6 +47,9 @@ class SyncService(
      */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val running = HashMap<String, Deferred<Result>>()
+
+    /** Stops every sync (Erase everything closes the database right after). */
+    fun shutdown() = scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
     private val runningLock = Mutex()
     private val engine = SyncEngine(store)
     private val lock = Mutex()
@@ -105,8 +108,14 @@ class SyncService(
             val a = d.account
             val old = existing[a.id]
             store.sync.upsertLinked(
-                old?.copy(providerName = a.name, mask = a.mask, providerBalance = a.balance ?: old.providerBalance, providerBalanceAt = clock())
-                    ?: LinkedAccountEntity(connectionId = connectionId, providerAccountId = a.id, providerName = a.name, mask = a.mask, providerBalance = a.balance, providerBalanceAt = clock()),
+                old?.copy(
+                    providerName = a.name, mask = a.mask, providerBalance = a.balance ?: old.providerBalance, providerBalanceAt = clock(),
+                    providerBalanceDate = a.balanceDate ?: old.providerBalanceDate,
+                )
+                    ?: LinkedAccountEntity(
+                        connectionId = connectionId, providerAccountId = a.id, providerName = a.name, mask = a.mask, providerBalance = a.balance,
+                        providerBalanceAt = clock(), providerBalanceDate = a.balanceDate,
+                    ),
             )
         }
         store.sync.upsertConnection(conn.copy(providerMessages = r.messages.joinToString("\n").ifEmpty { null }))
@@ -236,7 +245,10 @@ class SyncService(
                         val account = store.dao.account(acct)
                         if (account == null || account.deleted) continue
                         total += engine.apply(conn.provider, l.providerAccountId, acct, d, from, windowEnd, offBudget = !account.onBudget)
-                        val nl = l.copy(providerName = d.account.name, providerBalance = d.account.balance ?: l.providerBalance, providerBalanceAt = clock(), lastSyncedDate = windowEnd)
+                        val nl = l.copy(
+                            providerName = d.account.name, providerBalance = d.account.balance ?: l.providerBalance, providerBalanceAt = clock(),
+                            providerBalanceDate = d.account.balanceDate ?: l.providerBalanceDate, lastSyncedDate = windowEnd,
+                        )
                         store.sync.upsertLinked(nl)
                         latest[d.account.id] = nl
                     }
@@ -266,13 +278,18 @@ class SyncService(
     }
 
     /** A new account's starting balance makes its posted balance equal the provider's balance after the first sync. */
-    private suspend fun setStartingBalance(accountId: String, providerBalance: Long) = store.write {
-        val a = store.dao.account(accountId) ?: return@write
-        val posted = store.sync.transactionsOf(accountId).filter { it.kind == TransactionKind.NORMAL && !it.pending }.sumOf { it.amount }
-        val transfers = store.dao.transactionsNow().filter { it.kind == TransactionKind.TRANSFER }
-            .sumOf { t -> (if (t.transferAccountId == accountId) t.amount else 0L) - (if (t.accountId == accountId) t.amount else 0L) }
-        put(a, a.copy(startingBalance = providerBalance - posted - transfers, updatedAt = now))
+    private suspend fun setStartingBalance(accountId: String, providerBalance: Long) {
+        val b = snapshot()
+        store.write {
+            val a = store.dao.account(accountId) ?: return@write
+            val moved = b.postedBalance(accountId) - a.startingBalance       // what the counted transactions add up to
+            put(a, a.copy(startingBalance = providerBalance - moved, updatedAt = now))
+        }
     }
+
+    private suspend fun snapshot() = net.darkrelay.deaddropfinance.domain.Budget(
+        store.dao.accountsNow(), store.dao.envelopesNow(), store.dao.transactionsNow(), store.dao.linesNow(), store.dao.movesNow(),
+    )
 
     private fun summary(o: SyncEngine.Outcome): String {
         val parts = mutableListOf<String>()
@@ -371,19 +388,8 @@ class SyncService(
 
     // ---- balance check ------------------------------------------------------------------------------------------
 
-    /** Posted balance of an app account (pending rows left out, since the provider's balance leaves them out too). */
-    suspend fun postedBalance(accountId: String): Long {
-        val a = store.dao.account(accountId) ?: return 0
-        var b = a.startingBalance
-        for (t in store.dao.transactionsNow()) {
-            when {
-                t.kind == TransactionKind.TRANSFER && t.accountId == accountId -> b -= t.amount
-                t.kind == TransactionKind.TRANSFER && t.transferAccountId == accountId -> b += t.amount
-                t.kind == TransactionKind.NORMAL && t.accountId == accountId && !t.pending -> b += t.amount
-            }
-        }
-        return b
-    }
+    /** Posted balance of an app account (pending rows and history before its starting balance left out). */
+    suspend fun postedBalance(accountId: String): Long = snapshot().postedBalance(accountId)
 
     companion object {
         const val LOG_KEEP_MS = 30L * 24 * 60 * 60 * 1000

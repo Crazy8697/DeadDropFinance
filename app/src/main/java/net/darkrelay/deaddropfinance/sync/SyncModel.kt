@@ -3,8 +3,11 @@ package net.darkrelay.deaddropfinance.sync
 import java.time.LocalDate
 import net.darkrelay.deaddropfinance.data.Provider
 
-/** An account as a provider describes it. [balance] is in cents, signed like the app's balances. */
-data class ProviderAccount(val id: String, val name: String, val mask: String = "", val balance: Long? = null)
+/**
+ * An account as a provider describes it. [balance] is in cents, signed like the app's balances (an overdrawn account
+ * is negative). [balanceDate] is when the provider's balance was true (epoch seconds), so old data can be spotted.
+ */
+data class ProviderAccount(val id: String, val name: String, val mask: String = "", val balance: Long? = null, val balanceDate: Long? = null)
 
 /** A transaction as a provider describes it. [amount] is in cents, negative is money out. */
 data class ProviderTxn(val id: String, val date: LocalDate, val amount: Long, val description: String, val pending: Boolean)

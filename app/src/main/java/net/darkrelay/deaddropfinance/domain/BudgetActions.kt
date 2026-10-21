@@ -162,6 +162,63 @@ class BudgetActions(private val store: BudgetStore) {
         existing.drop(drafts.size).forEach { w.put(it, it.copy(deleted = true, updatedAt = w.now)) }
     }
 
+    /** How many transactions deleting this account takes with it (its own, plus transfers to or from it). */
+    suspend fun deleteAccountCount(id: String): Int = dao.transactionsNow().count { it.accountId == id || it.transferAccountId == id }
+
+    /**
+     * Deletes an account for good: the account and its transactions become tombstones (the change log carries them,
+     * as every delete), so envelope balances and Ready to Assign drop what they brought. A transfer to or from
+     * another account keeps that account's side: it becomes an ordinary entry there, in To sort. Any bank link for
+     * the account is removed too.
+     */
+    suspend fun deleteAccount(id: String) {
+        store.write {
+            val a = dao.account(id) ?: return@write
+            val all = dao.transactionsNow()
+            for (t in all) {
+                val touches = t.accountId == id || t.transferAccountId == id
+                if (!touches) continue
+                val other = when {
+                    t.kind != TransactionKind.TRANSFER -> null
+                    t.accountId == id -> t.transferAccountId
+                    else -> t.accountId
+                }
+                if (other == null || other == id) {
+                    put(t, t.copy(deleted = true, updatedAt = now))
+                    dao.linesOf(t.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+                    (dao.movesOfPayday(t.id) + dao.movesLinkedTo(t.id)).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+                    t.washGroupId?.let { g ->
+                        all.filter { it.washGroupId == g && it.id != t.id && !(it.accountId == id) }.forEach { put(it, it.copy(washGroupId = null, updatedAt = now)) }
+                    }
+                } else {
+                    // the other account's side stays: money in if the deleted account sent it, money out if it received it
+                    val signed = if (t.accountId == id) t.amount else -t.amount
+                    val otherAccount = dao.account(other)
+                    dao.movesLinkedTo(t.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+                    put(
+                        t,
+                        t.copy(
+                            accountId = other, kind = TransactionKind.NORMAL, transferAccountId = null, amount = signed,
+                            payee = if (signed > 0) "Transfer from ${a.name}" else "Transfer to ${a.name}", updatedAt = now,
+                        ),
+                    )
+                    put(
+                        null,
+                        TransactionLineEntity(
+                            transactionId = t.id, bucket = if (otherAccount?.onBudget == false) LineBucket.OFF_BUDGET else LineBucket.UNSORTED,
+                            amount = signed, createdAt = now, updatedAt = now,
+                        ),
+                    )
+                }
+            }
+            put(a, a.copy(deleted = true, updatedAt = now))
+        }
+        // this phone's bank link for it (not change-logged)
+        store.sync.linkedNow().filter { it.accountId == id }.forEach {
+            store.sync.upsertLinked(it.copy(accountId = null, historyFrom = null, lastSyncedDate = null, setStartBalance = false))
+        }
+    }
+
     /** Soft delete: the transaction, its lines, and moves made for it (payday, ATM) become tombstones. */
     suspend fun deleteTransaction(id: String) = store.write {
         val old = dao.transaction(id) ?: return@write

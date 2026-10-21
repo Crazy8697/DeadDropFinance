@@ -18,7 +18,7 @@ SETUP AND SHIPPING
 
 FEATURES
  6  Base: encrypted database, change log for future sync, accounts (bank, payment app, cash) and transfers, transactions (splits, pass-through, partial payments), envelopes (fill to target, add every payday, goal, seasonal, debt, Cash, payday auto-fill in list order, Rollover), app lock, hide screen toggle, Old School CSV import; SQLCipher's BSD notice and any new libraries get added to the notices when they arrive
- 7  First-run setup wizard: Easy (SimpleFIN), Old School (CSV), SimpleFIN bank sync working, track-only accounts and held amounts
+ 7  First-run setup wizard: Easy (SimpleFIN), Old School (CSV), SimpleFIN bank sync working, track-only accounts and held amounts, Delete account, Erase everything
  8  Auto-categorize rules + approve flow + live spend alerts from notifications + returns
  9  Receipt scanning (multi-photo capture, stitching, gallery pick, on-device text recognition, subtotal check, learned item rules, split to envelopes, match to bank charge, scan on every store charge, gas station holds, photos deleted after Apply split, trip detail screen, return item matching)
 10  Recurring bills, paydays, reminders (off by default, per bill), Payday checklist, autopay warnings, subscriptions screen, balance forecast

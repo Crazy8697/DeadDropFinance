@@ -22,6 +22,10 @@ import net.darkrelay.deaddropfinance.data.TransactionLineEntity
  *
  * Accounts outside the budget (archived, or track only) don't count at all: as if they were never there. Money
  * moved between a budget account and one outside it comes out of (or goes into) Ready to Assign.
+ *
+ * An account's starting balance is its balance as of its start date, so it already holds everything before that
+ * date. A transaction dated before its account's start date (imported history, say) is shown but counts nowhere:
+ * not in the balance and not in the budget. Counting it again was the bug behind a synced account's wrong balance.
  */
 class Budget(
     val accounts: List<AccountEntity>,
@@ -39,20 +43,35 @@ class Budget(
 
     fun isOnBudget(accountId: String) = accountId !in offBudgetIds
 
-    /** Lines that count for the budget: of live transactions in budget accounts, not washes. */
-    private val budgetLines = lines.filter { l -> txById[l.transactionId]?.let { !it.isWash && isOnBudget(it.accountId) } == true }
+    private val startOf: Map<String, LocalDate> = accounts.associate { it.id to it.startDate }
 
-    val accountBalances: Map<String, Long> = accounts.associate { a ->
+    /** A transaction on [date] counts for [accountId]: it isn't before the account's starting balance date. */
+    fun countsFor(accountId: String, date: LocalDate): Boolean = startOf[accountId]?.let { !date.isBefore(it) } ?: true
+
+    /** History before the account's starting balance: shown, but already inside the starting balance. */
+    fun beforeStart(t: TransactionEntity): Boolean = t.kind == TransactionKind.NORMAL && !countsFor(t.accountId, t.date)
+
+    /** Lines that count for the budget: of live transactions in budget accounts, not washes, not history. */
+    private val budgetLines = lines.filter { l ->
+        txById[l.transactionId]?.let { !it.isWash && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) } == true
+    }
+
+    private fun balanceOf(a: net.darkrelay.deaddropfinance.data.AccountEntity, postedOnly: Boolean): Long {
         var b = a.startingBalance
         for (t in transactions) {
             when {
-                t.kind == TransactionKind.TRANSFER && t.accountId == a.id -> b -= t.amount
-                t.kind == TransactionKind.TRANSFER && t.transferAccountId == a.id -> b += t.amount
-                t.kind == TransactionKind.NORMAL && t.accountId == a.id -> b += t.amount
+                t.kind == TransactionKind.TRANSFER && t.accountId == a.id && countsFor(a.id, t.date) -> b -= t.amount
+                t.kind == TransactionKind.TRANSFER && t.transferAccountId == a.id && countsFor(a.id, t.date) -> b += t.amount
+                t.kind == TransactionKind.NORMAL && t.accountId == a.id && countsFor(a.id, t.date) && !(postedOnly && t.pending) -> b += t.amount
             }
         }
-        a.id to b
+        return b
     }
+
+    val accountBalances: Map<String, Long> = accounts.associate { a -> a.id to balanceOf(a, postedOnly = false) }
+
+    /** The balance with pending rows left out: what a bank's own balance is compared with. */
+    fun postedBalance(accountId: String): Long = accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true) } ?: 0L
 
     val envelopeBalances: Map<String, Long> = envelopes.associate { e ->
         var b = 0L
@@ -93,10 +112,11 @@ class Budget(
         }
         for (t in transactions) {
             if (t.kind != TransactionKind.TRANSFER) continue
-            val fromIn = isOnBudget(t.accountId)
-            val toIn = t.transferAccountId?.let { isOnBudget(it) } ?: false
-            if (fromIn && !toIn) r -= t.amount
-            if (!fromIn && toIn) r += t.amount
+            // each side counts when its account is in the budget and the transfer isn't before its starting balance
+            val from = isOnBudget(t.accountId) && countsFor(t.accountId, t.date)
+            val to = t.transferAccountId?.let { isOnBudget(it) && countsFor(it, t.date) } ?: false
+            if (from && !to) r -= t.amount
+            if (!from && to) r += t.amount
         }
         r - held.values.sum()
     }
@@ -113,7 +133,7 @@ class Budget(
     /** sum(budget accounts) - (RTA + envelopes + To sort + held): always 0 (washes net to zero in pairs). */
     val sortedCheck: Long
         get() = accountBalances.filterKeys { isOnBudget(it) }.values.sum() - (readyToAssign + envelopeBalances.values.sum() + toSortTotal + heldTotal) -
-            transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) }.sumOf { it.amount }
+            transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
     fun accountBalance(id: String) = accountBalances[id] ?: 0L
