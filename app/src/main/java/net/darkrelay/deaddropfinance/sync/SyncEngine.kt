@@ -28,8 +28,12 @@ import net.darkrelay.deaddropfinance.domain.Money
  */
 class SyncEngine(private val store: BudgetStore) {
 
-    data class Outcome(val added: Int = 0, val linked: Int = 0, val updated: Int = 0, val removed: Int = 0, val notes: List<String> = emptyList()) {
-        operator fun plus(o: Outcome) = Outcome(added + o.added, linked + o.linked, updated + o.updated, removed + o.removed, notes + o.notes)
+    /** [newIds]: the transactions this sync added, for auto-approve and spend alerts. */
+    data class Outcome(
+        val added: Int = 0, val linked: Int = 0, val updated: Int = 0, val removed: Int = 0, val notes: List<String> = emptyList(),
+        val newIds: List<String> = emptyList(),
+    ) {
+        operator fun plus(o: Outcome) = Outcome(added + o.added, linked + o.linked, updated + o.updated, removed + o.removed, notes + o.notes, newIds + o.newIds)
     }
 
     /**
@@ -111,7 +115,8 @@ class SyncEngine(private val store: BudgetStore) {
             }
         }
 
-        // 5. new rows: To sort, uncategorized (the approve flow is a later stage)
+        // 5. new rows: To sort, unsorted (suggestions come from rules and history; auto-approve is the caller's)
+        val newIds = mutableListOf<String>()
         for (f in unmatched) {
             val tx = put(
                 null,
@@ -123,12 +128,16 @@ class SyncEngine(private val store: BudgetStore) {
                 ),
             )
             put(null, TransactionLineEntity(transactionId = tx.id, bucket = if (offBudget) LineBucket.OFF_BUDGET else LineBucket.UNSORTED, amount = f.amount, createdAt = now, updatedAt = now))
+            newIds += tx.id
             added++
         }
-        Outcome(added, linked, updated, removed, notes)
+        Outcome(added, linked, updated, removed, notes, newIds)
     }
 
-    /** Updates a synced row from the provider. Keeps the user's payee, envelope and split. True if anything changed. */
+    /**
+     * Updates a synced row from the provider. Keeps the user's payee, envelope and split, and how they were set, so a
+     * pending row approved before it posted stays approved. True if anything changed.
+     */
     private suspend fun BudgetStore.Writer.updateFrom(old: TransactionEntity, f: ProviderTxn, now: Long): Boolean {
         val pending = old.pending && f.pending                     // posted never goes back to pending
         val date = if (old.pending || old.date == f.date) f.date else old.date

@@ -149,7 +149,7 @@ fun SetupWizardHost(
             val mine = links.filter { it.connectionId == id }
             WizardFrame(page, "Link accounts", { onPage(WizardPage.CONNECT) }, if (id == null) null else "Link and sync" to { onApplyLinks(id) }, nextEnabled = !linkBusy) {
                 connections.firstOrNull { it.id == id }?.let { Text("Connected: ${it.name}", color = DdfColors.Cyan) }
-                LinkPanel(mine, budget.accounts, picks, onPick, linkBusy, null, onApply = null)
+                LinkPanel(mine, budget.accounts, picks, onPick, linkBusy, null, onApply = null, budget = budget)
                 syncMessage?.let { Text(it) }
             }
         }

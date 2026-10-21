@@ -32,6 +32,7 @@ import net.darkrelay.deaddropfinance.data.ConnectionStatus
 import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
 import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.TransactionKind
+import net.darkrelay.deaddropfinance.domain.BalanceCheck
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.sync.FixCode
 import net.darkrelay.deaddropfinance.sync.SyncService
@@ -139,6 +140,9 @@ fun balanceAge(epochSeconds: Long?, today: LocalDate, zone: ZoneId = ZoneId.syst
     return d.format(DateTimeFormatter.ofPattern("MMM d")) to (days > STALE_DAYS)
 }
 
+/** The day the provider's balance was true, in the phone's time zone. */
+fun asOfDate(epochSeconds: Long?, zone: ZoneId = ZoneId.systemDefault()): LocalDate? = epochSeconds?.let { Instant.ofEpochSecond(it).atZone(zone).toLocalDate() }
+
 /** Bank data older than this many days gets a warning: the provider may have stopped updating the account. */
 const val STALE_DAYS = 3L
 
@@ -161,6 +165,8 @@ fun LinkPanel(
     error: String?,
     today: LocalDate = LocalDate.now(),
     onApply: (() -> Unit)?,
+    /** For the balance check of a provider account linked into an account that's already here. */
+    budget: Budget? = null,
 ) {
     if (links.isEmpty()) {
         EmptyState("No accounts came back from the provider yet. Try Sync now from More, Bank sync.")
@@ -189,6 +195,14 @@ fun LinkPanel(
                         balanceAge(l.providerBalanceDate, today)?.let { (d, _) -> Text(", as of $d", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
                     }
                     balanceAge(l.providerBalanceDate, today)?.let { (d, stale) -> if (stale) StaleBankData(d) }
+                    // linking into an account that's already here: the same balance check as the account screen
+                    val into = accounts.firstOrNull { a -> a.id == p.target && !a.trackOnly }
+                    if (budget != null && into != null) {
+                        BalanceCheckView(BalanceCheck.check(budget, into.id, it, asOfDate(l.providerBalanceDate)), into.name, onAdjust = null)
+                        if (l.lastSyncedDate == null) {
+                            Text("Checked before this account's first sync: what the sync brings in can close a gap.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
                 Picker("Goes to", targets, p.target, { t ->
                     onPick(l.id, p.copy(target = t))
@@ -366,6 +380,8 @@ fun AccountSyncSection(
     links: List<LinkedAccountEntity>,
     connections: List<ConnectionEntity>,
     today: LocalDate = LocalDate.now(),
+    /** The balance check's Add an adjustment, after the user confirms the amount. */
+    onAdjust: ((amount: Long, date: LocalDate) -> Unit)? = null,
     onChangeLink: (linkedId: String, accountId: String?, removeFromBudget: Boolean) -> Unit,
 ) {
     var asking by remember { mutableStateOf<String?>(null) }
@@ -382,19 +398,9 @@ fun AccountSyncSection(
         val age = balanceAge(l.providerBalanceDate, today)
         val bank = l.providerBalance
         if (bank != null) {
-            val app = budget.postedBalance(accountId)
-            val diff = app - bank
-            age?.let { (d, stale) -> if (stale) StaleBankData(d) else Text("The bank's balance is as of $d.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
-            if (diff == 0L) {
-                Text("Balance check: matches the bank (${money(bank)}).", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text("Balance check: the bank says ${money(bank)}, the app says ${money(app)}. Off by ${money(kotlin.math.abs(diff))}.", color = DdfColors.Warning)
-                Text(
-                    "Pending transactions aren't counted on either side. A difference usually means SimpleFIN's data is old (see the date above), a " +
-                        "transaction entered by hand that the bank shows differently, or a starting balance that's off. Nothing is adjusted for you.",
-                    color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-                )
-            }
+            age?.let { (d, stale) -> if (stale) StaleBankData(d) }
+            val name = budget.accounts.firstOrNull { it.id == accountId }?.name ?: "this account"
+            BalanceCheckView(BalanceCheck.check(budget, accountId, bank, asOfDate(l.providerBalanceDate)), name, onAdjust)
         }
         val targets = listOf<Pair<String?, String>>(null to "Stop syncing this account") + budget.accounts.filter { !it.archived }.map { it.id to "Into ${it.name}" }
         Picker("Link", targets, l.accountId, { if (it == null) asking = l.id else onChangeLink(l.id, it, false) })

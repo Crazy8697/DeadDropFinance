@@ -70,6 +70,11 @@ class MigrationTest {
             // the new tables work
             db.syncDao().upsertConnection(ConnectionEntity(provider = Provider.SIMPLEFIN, name = "Sample", createdAt = 1))
             assertEquals(1, db.syncDao().connectionsNow().size)
+            // and every later version's columns arrived with their safe defaults (latest: schema 5)
+            assertNull(t.sortedBy)
+            assertNull(t.returnOf)
+            assertTrue(d.rulesNow().isEmpty())
+            assertEquals(false, d.account("a1")!!.trackOnly)
         } finally {
             db.close()
         }
@@ -107,6 +112,43 @@ class MigrationTest {
             assertEquals(-4107L, l.providerBalance)
             assertEquals(null, l.providerBalanceDate)
             assertEquals("Sample Account", db.dao().account("a1")!!.name)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun fourToFiveAddsRulesAndSortingWithEverythingKept() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-4.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 4)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        // a 0.7.x budget: an envelope, a second transaction already sorted into it, a bank link with its balance date
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, created_at, updated_at, deleted) VALUES ('e1', 'Sample Envelope', 'FILL_TO_TARGET', 0, 1, 1, 1, 0)")
+        raw.execSQL(
+            "INSERT INTO txn (id, account_id, kind, transfer_account_id, date, payee, memo, amount, pending, wash_group_id, is_payday, fee, fee_rebate, source, import_description, external_id, created_at, updated_at, deleted) " +
+                "VALUES ('t2','a1','NORMAL',NULL,'2030-01-03','Sample Shop','',-560,1,NULL,0,0,0,'SYNC','SAMPLE SHOP','simplefin:ACT:T2',1,1,0)",
+        )
+        raw.execSQL("INSERT INTO txn_line (id, transaction_id, bucket, envelope_id, amount, sort_order, created_at, updated_at, deleted) VALUES ('l2','t2','ENVELOPE','e1',-560,0,1,1,0)")
+        raw.execSQL("INSERT INTO connection (id, provider, name, status, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 1)")
+        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, provider_balance_date, set_start_balance) VALUES ('l1', 'c1', 'ACT', 'Sample', '', 'a1', 9440, 1900000000, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            val t1 = d.transaction("t1")!!
+            val t2 = d.transaction("t2")!!
+            assertNull(t1.sortedBy); assertNull(t1.sortedAt); assertNull(t1.ruleId); assertNull(t1.returnOf)
+            assertNull(t2.sortedBy)
+            assertEquals(true, t2.pending)
+            assertEquals("e1", d.linesOf("t2").single().envelopeId)
+            assertEquals(false, d.envelope("e1")!!.everyday)
+            assertEquals(1900000000L, db.syncDao().linkedNow().single().providerBalanceDate)
+            assertEquals(1, d.changes().size)
+            // the rule table works, through the store (with its change log row)
+            val store = BudgetStore(db)
+            store.write { put(null, RuleEntity(matchText = "sample shop", splits = "e1:1", createdAt = now, updatedAt = now)) }
+            assertEquals("sample shop", d.rulesNow().single().matchText)
+            assertTrue(d.changes().any { it.entityType == "rule" && it.operation == ChangeOperation.INSERT })
         } finally {
             db.close()
         }

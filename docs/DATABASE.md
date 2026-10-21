@@ -23,6 +23,9 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   account stays in the budget with nothing held. `MigrationTest` checks 2 to 3 as well.
 - Version 4 (0.7.3): adds `provider_balance_date` to `linked_account` (when the bank's balance was true). One
   nullable column on this phone's own table.
+- Version 5 (0.8.0): adds the `rule` table (auto-categorize rules, change-logged like the budget tables), four
+  nullable columns on `txn` (`sorted_by`, `sorted_at`, `rule_id`, `return_of`) and `everyday` on `envelope`
+  (default 0). No existing value changes.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a

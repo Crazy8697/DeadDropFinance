@@ -30,6 +30,15 @@ interface BudgetDao {
     @Query("SELECT * FROM bill_payment WHERE deleted = 0")
     fun billPayments(): Flow<List<BillPaymentEntity>>
 
+    @Query("SELECT * FROM rule WHERE deleted = 0 ORDER BY priority, created_at")
+    fun rules(): Flow<List<RuleEntity>>
+
+    @Query("SELECT * FROM rule WHERE deleted = 0 ORDER BY priority, created_at")
+    suspend fun rulesNow(): List<RuleEntity>
+
+    @Query("SELECT * FROM rule WHERE id = :id")
+    suspend fun rule(id: String): RuleEntity?
+
     @Query("SELECT * FROM account WHERE deleted = 0")
     suspend fun accountsNow(): List<AccountEntity>
 
@@ -89,6 +98,7 @@ interface BudgetDao {
     @Upsert suspend fun upsertMove(e: MoveEntity)
     @Upsert suspend fun upsertBill(e: BillEntity)
     @Upsert suspend fun upsertBillPayment(e: BillPaymentEntity)
+    @Upsert suspend fun upsertRule(e: RuleEntity)
 
     // ---- change log and meta ----------------------------------------------------------------------------------
     @Insert suspend fun insertChange(e: ChangeLogEntity)

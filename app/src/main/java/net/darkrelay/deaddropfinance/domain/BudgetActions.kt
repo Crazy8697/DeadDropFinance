@@ -9,6 +9,7 @@ import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.MoveEntity
 import net.darkrelay.deaddropfinance.data.MoveKind
+import net.darkrelay.deaddropfinance.data.SortedBy
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionKind
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
@@ -71,6 +72,8 @@ class BudgetActions(private val store: BudgetStore) {
         val debtOwed: Long? = null,
         val requiredPayment: Long? = null,
         val dueDate: LocalDate? = null,
+        /** Everyday spending (counts in Safe to Spend); null keeps what the envelope has. */
+        val everyday: Boolean? = null,
     )
 
     suspend fun saveEnvelope(id: String?, d: EnvelopeDraft, today: LocalDate = LocalDate.now()): String {
@@ -84,7 +87,7 @@ class BudgetActions(private val store: BudgetStore) {
             val old = id?.let { dao.envelope(it) }
             if (old != null && old.isSystem) {
                 // Rollover and Cash keep their mode; only the name can change
-                return@write put(old, old.copy(name = d.name.trim(), updatedAt = now)).id
+                return@write put(old, old.copy(name = d.name.trim(), everyday = d.everyday ?: old.everyday, updatedAt = now)).id
             }
             val owedSince = when {
                 d.debtOwed == null -> null
@@ -98,7 +101,7 @@ class BudgetActions(private val store: BudgetStore) {
             val new = base.copy(
                 name = d.name.trim(), mode = d.mode, target = d.target, perPayday = d.perPayday, goalAmount = d.goalAmount,
                 goalDate = d.goalDate, debtOwed = d.debtOwed, debtOwedSince = owedSince, requiredPayment = d.requiredPayment,
-                dueDate = d.dueDate, updatedAt = now,
+                dueDate = d.dueDate, everyday = d.everyday ?: base.everyday, updatedAt = now,
             )
             put(old, new).id
         }
@@ -120,8 +123,11 @@ class BudgetActions(private val store: BudgetStore) {
 
     // ---- transactions ----------------------------------------------------------------------------------------
 
-    /** Where part of a transaction goes. A null envelope with [toReadyToAssign] false means To sort. */
-    data class LineDraft(val envelopeId: String?, val amount: Long, val toReadyToAssign: Boolean = false)
+    /**
+     * Where part of a transaction goes. A null envelope with [toReadyToAssign] and [transfer] false means To sort.
+     * [transfer]: money between the user's own accounts, neither spending nor income.
+     */
+    data class LineDraft(val envelopeId: String?, val amount: Long, val toReadyToAssign: Boolean = false, val transfer: Boolean = false)
 
     data class TransactionDraft(
         val accountId: String,
@@ -133,27 +139,85 @@ class BudgetActions(private val store: BudgetStore) {
         val pending: Boolean = false,
     )
 
+    /** Saves a transaction from the edit screen. Changing where its money goes counts as sorting it by hand. */
     suspend fun saveTransaction(id: String?, d: TransactionDraft): String {
         checkLines(d)
         return store.write {
             val old = id?.let { dao.transaction(it) }
             if (old != null && old.kind != TransactionKind.NORMAL) throw BudgetRuleException("That's a transfer.")
-            val tx = (old ?: TransactionEntity(accountId = d.accountId, date = d.date, amount = d.amount, createdAt = now, updatedAt = now))
+            val linesChanged = old == null || dao.linesOf(old.id).map { Triple(it.bucket, it.envelopeId, it.amount) } != d.lines.map { Triple(bucketOf(it), it.envelopeId, it.amount) }
+            val sorted = d.lines.any { bucketOf(it) != LineBucket.UNSORTED }
+            var tx = (old ?: TransactionEntity(accountId = d.accountId, date = d.date, amount = d.amount, createdAt = now, updatedAt = now))
                 .copy(accountId = d.accountId, date = d.date, payee = d.payee.trim(), memo = d.memo.trim(), amount = d.amount, pending = d.pending, updatedAt = now)
+            if (linesChanged) {
+                tx = tx.copy(
+                    sortedBy = if (sorted) SortedBy.HAND else null, sortedAt = if (sorted) now else null, ruleId = null,
+                    returnOf = tx.returnOf.takeIf { sorted && d.amount > 0 },
+                )
+            }
             put(old, tx)
             replaceLines(this, tx.id, d.lines)
             tx.id
         }
     }
 
+    /**
+     * Sets where an existing transaction's money goes, and how that was decided (by hand, an approved suggestion, a
+     * rule as it arrived, or a confirmed return). The lines must add up to the amount, as always.
+     */
+    suspend fun setLines(txId: String, lines: List<LineDraft>, sortedBy: SortedBy, ruleId: String? = null, returnOf: String? = null) {
+        val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
+        if (tx.kind != TransactionKind.NORMAL) throw BudgetRuleException("That's a transfer.")
+        checkLines(TransactionDraft(tx.accountId, tx.date, tx.payee, tx.memo, tx.amount, lines, tx.pending))
+        store.write {
+            val old = dao.transaction(txId)!!
+            put(old, old.copy(sortedBy = sortedBy, sortedAt = now, ruleId = ruleId, returnOf = returnOf, updatedAt = now))
+            replaceLines(this, txId, lines)
+        }
+    }
+
+    /** Puts a sorted transaction back in To sort (a return undone, say). */
+    suspend fun unsort(txId: String) {
+        val tx = dao.transaction(txId) ?: return
+        if (tx.kind != TransactionKind.NORMAL) return
+        store.write {
+            put(tx, tx.copy(sortedBy = null, sortedAt = null, ruleId = null, returnOf = null, updatedAt = now))
+            replaceLines(this, txId, listOf(LineDraft(null, tx.amount)))
+        }
+    }
+
+    /**
+     * The balance check's fix, only ever when the user confirms it: a transaction that brings the account to the
+     * bank's balance. Its money comes out of (or goes into) Ready to Assign, since it was never in an envelope.
+     */
+    suspend fun addAdjustment(accountId: String, amount: Long, date: LocalDate): String {
+        if (amount == 0L) throw BudgetRuleException("Nothing to adjust.")
+        val a = dao.account(accountId) ?: throw BudgetRuleException("That account is gone.")
+        val day = maxOf(date, a.startDate)
+        return store.write {
+            val tx = put(
+                null,
+                TransactionEntity(
+                    accountId = accountId, date = day, payee = "Balance adjustment", memo = "Added to match the bank's balance", amount = amount,
+                    sortedBy = SortedBy.HAND, sortedAt = now, createdAt = now, updatedAt = now,
+                ),
+            )
+            put(null, TransactionLineEntity(transactionId = tx.id, bucket = LineBucket.READY_TO_ASSIGN, amount = amount, createdAt = now, updatedAt = now))
+            tx.id
+        }
+    }
+
+    private fun bucketOf(ld: LineDraft) = when {
+        ld.envelopeId != null -> LineBucket.ENVELOPE
+        ld.transfer -> LineBucket.TRANSFER
+        ld.toReadyToAssign -> LineBucket.READY_TO_ASSIGN
+        else -> LineBucket.UNSORTED
+    }
+
     private suspend fun replaceLines(w: BudgetStore.Writer, txId: String, drafts: List<LineDraft>) {
         val existing = dao.linesOf(txId)
         drafts.forEachIndexed { i, ld ->
-            val bucket = when {
-                ld.envelopeId != null -> LineBucket.ENVELOPE
-                ld.toReadyToAssign -> LineBucket.READY_TO_ASSIGN
-                else -> LineBucket.UNSORTED
-            }
+            val bucket = bucketOf(ld)
             val old = existing.getOrNull(i)
             val new = (old ?: TransactionLineEntity(transactionId = txId, bucket = bucket, amount = ld.amount, createdAt = w.now, updatedAt = w.now))
                 .copy(bucket = bucket, envelopeId = ld.envelopeId, amount = ld.amount, sortOrder = i, updatedAt = w.now)
@@ -230,10 +294,10 @@ class BudgetActions(private val store: BudgetStore) {
         }
     }
 
-    /** Sorts a To sort transaction into one envelope (or Ready to Assign, for income). */
-    suspend fun sortInto(txId: String, envelopeId: String?, toReadyToAssign: Boolean = false) {
+    /** Sorts a To sort transaction into one envelope (or Ready to Assign, for income, or as a transfer), by hand. */
+    suspend fun sortInto(txId: String, envelopeId: String?, toReadyToAssign: Boolean = false, transfer: Boolean = false) {
         val tx = dao.transaction(txId) ?: return
-        saveTransaction(txId, TransactionDraft(tx.accountId, tx.date, tx.payee, tx.memo, tx.amount, listOf(LineDraft(envelopeId, tx.amount, toReadyToAssign)), tx.pending))
+        setLines(txId, listOf(LineDraft(envelopeId, tx.amount, toReadyToAssign, transfer)), SortedBy.HAND)
     }
 
     // ---- transfers and ATM withdrawals ----------------------------------------------------------------------
@@ -309,8 +373,9 @@ class BudgetActions(private val store: BudgetStore) {
         val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
         if (tx.kind != TransactionKind.NORMAL || tx.amount <= 0 || tx.isWash) throw BudgetRuleException("Only a deposit can be a payday.")
         if (tx.isPayday) throw BudgetRuleException("That's already marked as payday.")
+        if (tx.returnOf != null) throw BudgetRuleException("A return isn't income, so it can't be a payday.")
         return store.write {
-            put(tx, tx.copy(isPayday = true, updatedAt = now))
+            put(tx, tx.copy(isPayday = true, sortedBy = SortedBy.HAND, sortedAt = now, ruleId = null, updatedAt = now))
             // the deposit itself lands in Ready to Assign
             replaceLines(this, tx.id, listOf(LineDraft(null, tx.amount, toReadyToAssign = true)))
             val b = snapshot()
@@ -336,7 +401,7 @@ class BudgetActions(private val store: BudgetStore) {
 
     // ---- CSV import ------------------------------------------------------------------------------------------
 
-    data class ImportResult(val imported: Int, val posted: Int, val skipped: Int, val bad: Int, val skippedByUser: Int = 0)
+    data class ImportResult(val imported: Int, val posted: Int, val skipped: Int, val bad: Int, val skippedByUser: Int = 0, val newIds: List<String> = emptyList())
 
     /**
      * Writes a planned import in one go: new rows land in To sort (uncategorized), ATM fees and rebates tagged;
@@ -345,6 +410,7 @@ class BudgetActions(private val store: BudgetStore) {
     suspend fun importCsv(accountId: String, plan: CsvImport.Plan): ImportResult = store.write {
         // an account outside the budget records imported rows as handled instead of putting them in To sort
         val bucket = if (dao.account(accountId)?.onBudget == false) LineBucket.OFF_BUDGET else LineBucket.UNSORTED
+        val newIds = mutableListOf<String>()
         for (r in plan.toImport) {
             val tx = put(
                 null,
@@ -356,12 +422,13 @@ class BudgetActions(private val store: BudgetStore) {
                 ),
             )
             put(null, TransactionLineEntity(transactionId = tx.id, bucket = bucket, amount = r.amount, createdAt = now, updatedAt = now))
+            newIds += tx.id
         }
         for ((r, p) in plan.matchedPending) {
             val old = dao.transaction(p.id) ?: continue
             put(old, old.copy(pending = false, date = r.date, importDescription = r.description, updatedAt = now))
         }
-        ImportResult(plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size, plan.skippedByUser.size)
+        ImportResult(plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size, plan.skippedByUser.size, newIds)
     }
 
     // ---- pass-through (wash) ---------------------------------------------------------------------------------
@@ -406,7 +473,7 @@ class BudgetActions(private val store: BudgetStore) {
             if (d.lines.any { it.amount == 0L || (it.amount > 0) != (d.amount > 0) }) {
                 throw BudgetRuleException("Every split line needs an amount with the same sign as the transaction.")
             }
-            if (d.amount < 0 && d.lines.any { it.toReadyToAssign }) {
+            if (d.amount < 0 && d.lines.any { it.toReadyToAssign && !it.transfer && it.envelopeId == null }) {
                 throw BudgetRuleException("Spending can't go to Ready to Assign. Choose an envelope.")
             }
         }

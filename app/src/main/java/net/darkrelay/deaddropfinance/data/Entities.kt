@@ -84,6 +84,8 @@ data class EnvelopeEntity(
     val archived: Boolean = false,
     /** The fill order: payday auto-fill and the Assign screen go through envelopes in this order. */
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    /** Everyday spending (groceries, gas): counts in Safe to Spend. */
+    @ColumnInfo(name = "everyday", defaultValue = "0") val everyday: Boolean = false,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -94,13 +96,19 @@ data class EnvelopeEntity(
         "name" to name, "mode" to mode.name, "target" to target, "per_payday" to perPayday,
         "goal_amount" to goalAmount, "goal_date" to goalDate?.toString(), "debt_owed" to debtOwed,
         "debt_owed_since" to debtOwedSince?.toString(), "required_payment" to requiredPayment,
-        "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "deleted" to deleted,
+        "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "deleted" to deleted,
     )
 }
 
 enum class TransactionKind { NORMAL, TRANSFER }
 
 enum class TransactionSource { MANUAL, CSV, SYNC }
+
+/**
+ * How a transaction's envelopes were set. HAND: picked or edited by the user. APPROVED: the user approved a
+ * suggestion. AUTO: a rule sorted it as it arrived (auto-approve on). RETURN: confirmed as a return of a purchase.
+ */
+enum class SortedBy { HAND, APPROVED, AUTO, RETURN }
 
 /**
  * One money movement on one account. [amount] is signed: negative is money out, positive is money in. A TRANSFER
@@ -131,6 +139,13 @@ data class TransactionEntity(
     @ColumnInfo(name = "import_description") val importDescription: String? = null,
     /** The provider's id for this transaction (bank sync), "provider:account:id". Null for hand entry and CSV. */
     @ColumnInfo(name = "external_id") val externalId: String? = null,
+    /** How its envelopes were set; null while it waits in To sort (and for rows sorted before 0.8.0). */
+    @ColumnInfo(name = "sorted_by") val sortedBy: SortedBy? = null,
+    @ColumnInfo(name = "sorted_at") val sortedAt: Long? = null,
+    /** The rule that sorted it or whose suggestion was approved. */
+    @ColumnInfo(name = "rule_id") val ruleId: String? = null,
+    /** A return: the purchase it gives money back to. */
+    @ColumnInfo(name = "return_of") val returnOf: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -141,15 +156,18 @@ data class TransactionEntity(
         "account_id" to accountId, "kind" to kind.name, "transfer_account_id" to transferAccountId,
         "date" to date.toString(), "payee" to payee, "memo" to memo, "amount" to amount, "pending" to pending,
         "wash_group_id" to washGroupId, "is_payday" to isPayday, "fee" to fee, "fee_rebate" to feeRebate,
-        "source" to source.name, "import_description" to importDescription, "external_id" to externalId, "deleted" to deleted,
+        "source" to source.name, "import_description" to importDescription, "external_id" to externalId,
+        "sorted_by" to sortedBy?.name, "sorted_at" to sortedAt, "rule_id" to ruleId, "return_of" to returnOf, "deleted" to deleted,
     )
 }
 
 /**
  * Where a line's money sits: an envelope, Ready to Assign (income only), not sorted yet (To sort), or OFF_BUDGET:
  * recorded as already handled in an account outside the budget (it joins Ready to Assign if the account joins).
+ * TRANSFER: money between the user's own accounts, neither spending nor income; it goes out of or into Ready to
+ * Assign, so the two sides of a transfer between budget accounts cancel out.
  */
-enum class LineBucket { ENVELOPE, READY_TO_ASSIGN, UNSORTED, OFF_BUDGET }
+enum class LineBucket { ENVELOPE, READY_TO_ASSIGN, UNSORTED, OFF_BUDGET, TRANSFER }
 
 @Entity(tableName = "txn_line", indices = [Index("transaction_id"), Index("envelope_id")])
 data class TransactionLineEntity(
@@ -239,6 +257,51 @@ data class BillPaymentEntity(
     override fun fields() = mapOf(
         "bill_id" to billId, "transaction_id" to transactionId, "amount" to amount, "date" to date.toString(),
         "deleted" to deleted,
+    )
+}
+
+/** What a rule does with a match: put it in envelopes (one, or a split), or mark it a transfer between own accounts. */
+enum class RuleAction { ENVELOPE, TRANSFER }
+
+/** Made by the user, or learned from repeated identical choices (shown once so it can be undone). */
+enum class RuleOrigin { USER, LEARNED }
+
+/**
+ * An auto-categorize rule. It matches a transaction's cleaned payee (Payees.clean) and, optionally, its account, its
+ * direction and an amount range. Rules are tried in [priority] order, lowest first; the first match wins. A rule only
+ * ever suggests, unless auto-approve is on; it never touches a transaction already sorted.
+ */
+@Entity(tableName = "rule")
+data class RuleEntity(
+    @PrimaryKey override val id: String = newId(),
+    /** Cleaned words the payee must contain, in order (Payees.clean of what the user typed). */
+    @ColumnInfo(name = "match_text") val matchText: String,
+    @ColumnInfo(name = "account_id") val accountId: String? = null,
+    /** -1 money out, 1 money in, 0 either. */
+    val direction: Int = -1,
+    /** An optional range for the amount, in positive cents, both ends included. */
+    @ColumnInfo(name = "min_amount") val minAmount: Long? = null,
+    @ColumnInfo(name = "max_amount") val maxAmount: Long? = null,
+    val action: RuleAction = RuleAction.ENVELOPE,
+    /**
+     * ENVELOPE: where the money goes, as "envelopeId:weight" pairs joined by ";" ("rta" for Ready to Assign). One pair
+     * is one envelope; several split the amount in proportion to the weights (cents of the example amount).
+     */
+    val splits: String = "",
+    /** Never auto-approved, even with auto-approve on (stores that sell everything). */
+    @ColumnInfo(name = "always_ask") val alwaysAsk: Boolean = false,
+    val priority: Int = 0,
+    val origin: RuleOrigin = RuleOrigin.USER,
+    /** A learned rule's notice ("made a rule from your choices") was seen. */
+    val acknowledged: Boolean = true,
+    @ColumnInfo(name = "created_at") override val createdAt: Long,
+    @ColumnInfo(name = "updated_at") override val updatedAt: Long,
+    override val deleted: Boolean = false,
+) : Synced {
+    override fun fields() = mapOf(
+        "match_text" to matchText, "account_id" to accountId, "direction" to direction, "min_amount" to minAmount,
+        "max_amount" to maxAmount, "action" to action.name, "splits" to splits, "always_ask" to alwaysAsk,
+        "priority" to priority, "origin" to origin.name, "acknowledged" to acknowledged, "deleted" to deleted,
     )
 }
 

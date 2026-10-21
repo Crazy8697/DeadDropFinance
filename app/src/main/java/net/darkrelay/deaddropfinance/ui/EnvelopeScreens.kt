@@ -198,6 +198,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
     var owed by remember { mutableStateOf(existing?.debtOwed?.let { Money.plain(it) } ?: "") }
     var required by remember { mutableStateOf(existing?.requiredPayment?.let { Money.plain(it) } ?: "") }
     var due by remember { mutableStateOf(existing?.dueDate?.toString() ?: "") }
+    var everyday by remember { mutableStateOf(existing?.everyday ?: false) }
     val system = existing?.isSystem == true
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New envelope" else "Edit envelope", onBack)
@@ -227,6 +228,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                 }
                 else -> {}
             }
+            SettingRow("Everyday spending", "Counts in Safe to Spend, like groceries and gas. Alerts warn when Safe to Spend would go negative.", everyday, true, { everyday = it })
         }
         ErrorLine(error)
         Gap()
@@ -243,6 +245,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                         debtOwed = if (mode == EnvelopeMode.DEBT) amt(owed) else null,
                         requiredPayment = if (mode == EnvelopeMode.DEBT) amt(required) else null,
                         dueDate = if (mode == EnvelopeMode.DEBT) parseDateOrNull(due) else null,
+                        everyday = if (system) null else everyday,
                     ),
                 )
             },

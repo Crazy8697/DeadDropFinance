@@ -56,9 +56,10 @@ class Budget(
         txById[l.transactionId]?.let { !it.isWash && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) } == true
     }
 
-    private fun balanceOf(a: net.darkrelay.deaddropfinance.data.AccountEntity, postedOnly: Boolean): Long {
+    private fun balanceOf(a: net.darkrelay.deaddropfinance.data.AccountEntity, postedOnly: Boolean, through: LocalDate? = null): Long {
         var b = a.startingBalance
         for (t in transactions) {
+            if (through != null && t.date.isAfter(through)) continue
             when {
                 t.kind == TransactionKind.TRANSFER && t.accountId == a.id && countsFor(a.id, t.date) -> b -= t.amount
                 t.kind == TransactionKind.TRANSFER && t.transferAccountId == a.id && countsFor(a.id, t.date) -> b += t.amount
@@ -72,6 +73,10 @@ class Budget(
 
     /** The balance with pending rows left out: what a bank's own balance is compared with. */
     fun postedBalance(accountId: String): Long = accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true) } ?: 0L
+
+    /** The posted balance at the end of [date]: what a bank's balance as of that date is compared with. */
+    fun postedBalanceOn(accountId: String, date: LocalDate): Long =
+        accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true, through = date) } ?: 0L
 
     val envelopeBalances: Map<String, Long> = envelopes.associate { e ->
         var b = 0L
@@ -101,11 +106,13 @@ class Budget(
 
     /**
      * Money not in any envelope yet: budget accounts' starting balances and income lines, minus what was assigned
-     * out of it, minus transfers out of the budget (plus transfers into it), minus held amounts.
+     * out of it, minus transfers out of the budget (plus transfers into it), minus held amounts. A line marked as a
+     * transfer between the user's own accounts (TRANSFER) goes out of or into it too: its other side, synced into
+     * another budget account, puts it back.
      */
     val readyToAssign: Long = run {
         var r = accounts.filter { it.onBudget }.sumOf { it.startingBalance }
-        for (l in budgetLines) if (l.bucket == LineBucket.READY_TO_ASSIGN || l.bucket == LineBucket.OFF_BUDGET) r += l.amount
+        for (l in budgetLines) if (l.bucket == LineBucket.READY_TO_ASSIGN || l.bucket == LineBucket.OFF_BUDGET || l.bucket == LineBucket.TRANSFER) r += l.amount
         for (m in moves) {
             if (m.fromEnvelopeId == null) r -= m.amount
             if (m.toEnvelopeId == null) r += m.amount
@@ -136,6 +143,12 @@ class Budget(
             transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
+
+    /** What's left in the everyday envelopes (Safe to Spend), or null when no envelope is marked everyday. */
+    val safeToSpend: Long? get() = envelopes.filter { it.everyday && !it.archived }.takeIf { it.isNotEmpty() }?.sumOf { envelopeBalance(it.id) }
+
+    /** Money given back to a purchase by the returns confirmed against it (positive cents). */
+    fun returnedOf(purchaseId: String): Long = transactions.filter { it.returnOf == purchaseId }.sumOf { it.amount }
     fun accountBalance(id: String) = accountBalances[id] ?: 0L
 
     val rollover: EnvelopeEntity? get() = envelopes.firstOrNull { it.mode == EnvelopeMode.ROLLOVER }

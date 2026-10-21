@@ -41,6 +41,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "0.7.2") assertEquals(702, BuildConfig.VERSION_CODE)
         // 0.7.3 (balance fix, Delete account, Erase everything) -> 0 * 10000 + 7 * 100 + 3
         if (BuildConfig.VERSION_NAME == "0.7.3") assertEquals(703, BuildConfig.VERSION_CODE)
+        // 0.8.0 (Stage 8: auto-categorize, approve flow, spend alerts, returns, balance check) -> 0 * 10000 + 8 * 100 + 0
+        if (BuildConfig.VERSION_NAME == "0.8.0") assertEquals(800, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

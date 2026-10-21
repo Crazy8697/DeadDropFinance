@@ -255,6 +255,10 @@ class SyncService(
                 }
                 windowStart = windowEnd.plusDays(1)
             }
+            // auto-approve (off by default): rule matches among the new rows are sorted as they arrive
+            if (settings.autoApprove && total.newIds.isNotEmpty()) {
+                runCatching { net.darkrelay.deaddropfinance.domain.Sorting(store).autoApprove(total.newIds) }
+            }
             // a new account's starting balance is set once the whole history is in
             for (l in latest.values) {
                 val acct = l.accountId ?: continue

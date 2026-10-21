@@ -1,5 +1,6 @@
 package net.darkrelay.deaddropfinance
 
+import android.content.Intent
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
 import android.net.Uri
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -44,7 +46,18 @@ class MainActivity : ComponentActivity() {
     private var pickCallback: ((String, String?) -> Unit)? = null
     private var sync by mutableStateOf<SyncService?>(null)
     private var erased by mutableStateOf(false)
+    /** Rises each time a spend alert opens the app, so it goes to Activity (To sort). */
+    private var openActivity by mutableIntStateOf(0)
+    private var permissionDone: ((Boolean) -> Unit)? = null
     private val app get() = application as DdfApp
+
+    private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val done = permissionDone ?: return@registerForActivityResult
+        permissionDone = null
+        if (!ok && !shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS)) openNotificationSettings()
+        done(ok && alerts.allowed())
+    }
+    private val alerts by lazy { net.darkrelay.deaddropfinance.alerts.SpendAlerts(this) }
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         val cb = pickCallback ?: return@registerForActivityResult
@@ -59,6 +72,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyHide()
+        if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
         locked = app.lock.locked
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
         lifecycleScope.launch {
@@ -74,7 +88,11 @@ class MainActivity : ComponentActivity() {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
                             erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
-                            o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(o.store, sync!!, platform, startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true })
+                            o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(
+                                o.store, sync!!, platform,
+                                startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
+                                openActivity = openActivity,
+                            )
                             else -> {}
                         }
                     }
@@ -82,6 +100,27 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (locked) promptUnlock()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!app.lock.locked) clearAlerts()
+    }
+
+    /** The app is open and unlocked: the spend alerts showing have been seen. */
+    private fun clearAlerts() {
+        sync?.let { alerts.clear(it.settings) }
+    }
+
+    private fun openNotificationSettings() {
+        runCatching {
+            startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
+        }
     }
 
     /** After an erase: open a new, empty database, as on a fresh install (the setup wizard comes up). */
@@ -111,6 +150,7 @@ class MainActivity : ComponentActivity() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                         app.lock.unlocked()
                         locked = false
+                        clearAlerts()
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
@@ -166,6 +206,20 @@ class MainActivity : ComponentActivity() {
         override fun setCheckAtStartup(on: Boolean) = Updates.setCheckAtStartup(this@MainActivity, on)
         override fun skipVersion(version: String) = Updates.skip(this@MainActivity, version)
 
+        override fun notificationsAllowed() = alerts.allowed()
+
+        override fun requestNotifications(done: (Boolean) -> Unit) {
+            if (alerts.allowed()) { done(true); return }
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                // allowed, but notifications are switched off for the app in Android's settings
+                openNotificationSettings()
+                done(false)
+                return
+            }
+            permissionDone = done
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         override fun checkForUpdates(manual: Boolean, done: (UpdateCheck.Release?, String?) -> Unit) {
             Updates.check { r ->
                 when (r) {
@@ -182,6 +236,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Bank exports are small; anything bigger than this isn't one. */
         const val MAX_CSV = 8 * 1024 * 1024
+        /** A spend alert opens the app here. */
+        const val EXTRA_OPEN = "open"
+        const val OPEN_ACTIVITY = "activity"
     }
 }
 

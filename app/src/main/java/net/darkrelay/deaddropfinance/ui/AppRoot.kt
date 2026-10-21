@@ -24,7 +24,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -47,6 +49,8 @@ import net.darkrelay.deaddropfinance.domain.BudgetRuleException
 import net.darkrelay.deaddropfinance.domain.CsvImport
 import net.darkrelay.deaddropfinance.domain.Money
 import net.darkrelay.deaddropfinance.domain.Payday
+import net.darkrelay.deaddropfinance.domain.Sorting
+import net.darkrelay.deaddropfinance.domain.Suggest
 
 /** Where the user is. The four tabs are roots; everything else stacks on top. */
 sealed interface Nav {
@@ -68,6 +72,9 @@ sealed interface Nav {
     /** The SimpleFIN connect screen; [fixId] repairs that connection with a new token instead of adding one. */
     data class SyncConnect(val fixId: String? = null) : Nav
     data class SyncLink(val connectionId: String) : Nav
+    data object Rules : Nav
+    /** A rule to edit, or a new one ([id] null), optionally started from a transaction. */
+    data class RuleEdit(val id: String?, val fromTx: String? = null) : Nav
 }
 
 /** The phone-side hooks the screens need but can't do in Compose (browser, file picker, settings). */
@@ -86,6 +93,10 @@ interface Platform {
     /** Runs the update check; [done] gets an available release or null, and a message for a manual check. */
     fun checkForUpdates(manual: Boolean, done: (UpdateCheck.Release?, String?) -> Unit)
     fun skipVersion(version: String)
+    /** Spend alerts can be shown (the notification permission is granted and notifications are on). */
+    fun notificationsAllowed(): Boolean
+    /** Asks for the notification permission; when Android won't ask again, opens the app's notification settings. */
+    fun requestNotifications(done: (Boolean) -> Unit)
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -101,8 +112,15 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean) {
+fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openActivity: Int = 0) {
     val actions = remember(store) { BudgetActions(store) }
+    val sorting = remember(store) { Sorting(store, actions) }
+    val rules by remember(store) { store.dao.rules() }.collectAsState(initial = emptyList())
+    var offer by remember { mutableStateOf<Sorting.Learned.Offer?>(null) }
+    var autoApprove by remember { mutableStateOf(sync.settings.autoApprove) }
+    // bumped when an alert setting or the permission changes; the settings themselves aren't Compose state
+    var alertTick by remember { mutableIntStateOf(0) }
+    var alertsAsked by remember { mutableStateOf(sync.settings.alertsAsked) }
     val budget by remember(store) { budgetFlow(store) }.collectAsState(initial = null)
     val connections by remember(store) { store.sync.connections() }.collectAsState(initial = emptyList())
     val links by remember(store) { store.sync.linkedAccounts() }.collectAsState(initial = emptyList())
@@ -128,7 +146,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     var refreshing by remember { mutableStateOf(false) }
     var erasing by remember { mutableStateOf(false) }
     var background by remember { mutableStateOf(sync.settings.backgroundEnabled) }
-    var interval by remember { mutableStateOf(sync.settings.intervalHours) }
+    var interval by remember { mutableIntStateOf(sync.settings.intervalHours) }
     var setupDone by remember { mutableStateOf(sync.settings.setupDone) }
     var cardDismissed by remember { mutableStateOf(sync.settings.setupCardDismissed) }
     var wizard by remember { mutableStateOf<WizardPage?>(null) }
@@ -173,6 +191,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
         }
     }
+    LaunchedEffect(openActivity) { if (openActivity > 0) tab(Nav.Activity) }
     BackHandler(enabled = stack.size > 1) { back() }
     BackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
         wizard = WizardPage.entries[wizard!!.ordinal - 1].let { if (it == WizardPage.LINK && wizardConn == null) WizardPage.CONNECT else it }
@@ -181,16 +200,29 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     val b = budget ?: return
     val top = stack.last()
     val hasAccounts = b.accounts.any { !it.archived }
+    val suggestions = remember(b, rules) { Suggest.all(b, rules) }
+    fun askNotifications() = platform.requestNotifications { _ ->
+        alertTick++
+        sync.settings.alertsAsked = true
+        alertsAsked = true
+    }
+    /** Sorting by hand from To sort, then what learning says (an offer, or a rule made: that one shows from the rules). */
+    fun handSort(id: String, env: String?, rta: Boolean, transfer: Boolean = false) = run(scope) {
+        offer = sorting.sortByHand(id, env, rta, transfer) as? Sorting.Learned.Offer
+    }
     @Composable
     fun screen(top: Nav) {
         when (top) {
             Nav.Home -> {
                 val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true, hasConnections = connections.isNotEmpty()) == SetupMode.CARD
+                // alerts are offered once bank sync is set up, never at first launch
+                val showAlerts = !showCard && connections.isNotEmpty() && !alertsAsked && key(alertTick) { !platform.notificationsAllowed() }
                 val r = release
-                val head: (@Composable () -> Unit)? = if (!showCard && r == null) null else {
+                val head: (@Composable () -> Unit)? = if (!showCard && r == null && !showAlerts) null else {
                     {
                         Column {
                             if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { sync.settings.setupCardDismissed = true; cardDismissed = true })
+                            if (showAlerts) AlertsCard(onTurnOn = { askNotifications() }, onNotNow = { sync.settings.alertsAsked = true; alertsAsked = true })
                             if (r != null) UpdateBar(
                                 r, onNotes = { platform.openUrl(r.notesUrl) }, onDownload = { platform.openUrl(UpdateCheck.DOWNLOAD_URL) },
                                 onSkip = { platform.skipVersion(r.version); release = null }, onLater = { release = null },
@@ -213,8 +245,21 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
                 ActivityScreen(
                     b, onAdd = { go(Nav.TxEdit(null)) }, onTransaction = { go(Nav.TxDetail(it)) },
-                    onSort = { id, env, rta -> run(scope) { actions.sortInto(id, env, rta) } }, onSplit = { go(Nav.TxEdit(it, split = true)) },
+                    onSort = { id, env, rta -> handSort(id, env, rta) }, onSplit = { go(Nav.TxEdit(it, split = true)) },
                     syncNotes = syncLog.filter { it.removed > 0 && it.at > weekAgo }.map { it.message },
+                    sorting = SortingUi(
+                        suggestions = suggestions,
+                        onApprove = { id -> run(scope) { sorting.approve(id) } },
+                        onApproveAll = { run(scope) { sorting.approveAll() } },
+                        onTransfer = { id -> handSort(id, null, rta = false, transfer = true) },
+                        offer = offer,
+                        onOffer = { yes -> val o = offer; offer = null; if (o != null) run(scope) { if (yes) sorting.acceptOffer(o) else sorting.declineOffer(o) } },
+                        learned = rules.filter { it.origin == net.darkrelay.deaddropfinance.data.RuleOrigin.LEARNED && !it.acknowledged },
+                        onLearned = { id, undo -> run(scope) { if (undo) sorting.undoLearned(id) else sorting.acknowledge(id) } },
+                        recentlySorted = b.transactions.filter { it.sortedBy == net.darkrelay.deaddropfinance.data.SortedBy.AUTO && (it.sortedAt ?: 0L) > weekAgo }
+                            .sortedByDescending { it.sortedAt }.take(20),
+                        rules = rules,
+                    ),
                 )
             }
             Nav.More -> MoreScreen(
@@ -231,6 +276,29 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
+                sortAlerts = {
+                    val st = sync.settings
+                    val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
+                    SortingAndAlertsSection(
+                        SortAlertState(
+                            rules.size, autoApprove, st.alertSpending, st.alertLowOrOverspent, st.alertSafeToSpend, st.alertAmountsOnLockScreen,
+                            notificationsAllowed, background && connections.isNotEmpty(), interval,
+                        ),
+                        onRules = { go(Nav.Rules) },
+                        onAutoApprove = { st.autoApprove = it; autoApprove = it },
+                        onAlert = { key, on ->
+                            when (key) {
+                                ALERT_SPENDING -> st.alertSpending = on
+                                ALERT_LOW -> st.alertLowOrOverspent = on
+                                ALERT_SAFE -> st.alertSafeToSpend = on
+                                ALERT_LOCK_AMOUNTS -> st.alertAmountsOnLockScreen = on
+                            }
+                            alertTick++
+                            if (on && key != ALERT_LOCK_AMOUNTS && !notificationsAllowed) askNotifications()
+                        },
+                        onAllowNotifications = { askNotifications() },
+                    )
+                },
                 syncLine = if (connections.isEmpty()) null else
                     "${connections.size} connection${if (connections.size == 1) "" else "s"}, last sync ${syncTime(connections.mapNotNull { it.lastSyncAt }.maxOrNull())}" +
                         if (connections.any { it.status == net.darkrelay.deaddropfinance.data.ConnectionStatus.NEEDS_FIX }) ". One needs attention." else "",
@@ -256,7 +324,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
             )
             is Nav.TxEdit -> TransactionEditScreen(
                 b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back,
-                onSave = { d -> run(scope, popAfter = true) { actions.saveTransaction(top.id, d) } },
+                onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
             )
             is Nav.TxDetail -> {
@@ -276,6 +344,35 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                         }
                     },
                     onWash = { other -> run(scope) { actions.markWash(t.id, other) } }, onUnwash = { run(scope) { actions.unmarkWash(t.id) } },
+                    returnCandidates = remember(b, t.id) { Suggest.returnCandidates(b, t) },
+                    onReturn = { p -> run(scope) { sorting.confirmReturn(t.id, p) } },
+                    onNotReturn = { run(scope) { sorting.notAReturn(t.id) } },
+                    onMakeRule = { go(Nav.RuleEdit(null, fromTx = t.id)) },
+                )
+            }
+            Nav.Rules -> RulesScreen(
+                rules, b, ::back, onRule = { go(Nav.RuleEdit(it)) }, onAdd = { go(Nav.RuleEdit(null)) },
+                onMove = { id, up -> run(scope) { sorting.moveRule(id, up) } },
+            )
+            is Nav.RuleEdit -> {
+                val r = top.id?.let { id -> rules.firstOrNull { it.id == id } }
+                val from = top.fromTx?.let { id -> b.transactions.firstOrNull { it.id == id } }
+                val prefill = from?.let { t ->
+                    val ls = b.lines.filter { it.transactionId == t.id }
+                    val target = ls.singleOrNull()?.let { l ->
+                        when (l.bucket) {
+                            net.darkrelay.deaddropfinance.data.LineBucket.ENVELOPE -> l.envelopeId
+                            net.darkrelay.deaddropfinance.data.LineBucket.READY_TO_ASSIGN -> net.darkrelay.deaddropfinance.domain.Rules.RTA
+                            net.darkrelay.deaddropfinance.data.LineBucket.TRANSFER -> Sorting.TRANSFER
+                            else -> null
+                        }
+                    } ?: suggestions[t.id]?.lines?.singleOrNull()?.envelopeId
+                    RulePrefill(net.darkrelay.deaddropfinance.domain.Payees.key(t), if (t.amount < 0) -1 else 1, null, target)
+                }
+                if (top.id != null && r == null) back() else RuleEditScreen(
+                    r, prefill, b, rules, error, ::back,
+                    onSave = { d -> run(scope, popAfter = true) { sorting.saveRule(top.id, d) } },
+                    onDelete = if (r == null) null else { { run(scope, popAfter = true) { sorting.deleteRule(r.id) } } },
                 )
             }
             Nav.Accounts -> AccountsScreen(b, ::back, onAccount = { go(Nav.AccountEdit(it)) }, onAdd = { go(Nav.AccountEdit(null)) })
@@ -287,7 +384,11 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount) } },
                     onArchive = { v -> run(scope, popAfter = true) { actions.setAccountArchived(a!!.id, v) } },
                     syncSection = if (a == null) null else {
-                        { AccountSyncSection(b, a.id, links, connections) { lid, acct, remove -> scope.launch { sync.setLink(lid, acct, remove) } } }
+                        {
+                            AccountSyncSection(b, a.id, links, connections, onAdjust = { amount, date -> run(scope) { actions.addAdjustment(a.id, amount, date) } }) { lid, acct, remove ->
+                                scope.launch { sync.setLink(lid, acct, remove) }
+                            }
+                        }
                     },
                     budget = b,
                     onDelete = if (a == null) null else {
@@ -310,7 +411,11 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 onToggleSkip = { n -> importState = importState.copy(skippedRows = importState.skippedRows.let { if (n in it) it - n else it + n }) },
                 onImport = { plan ->
                     val acct = importState.accountId ?: return@ImportScreen
-                    scope.launch { importState = ImportState(result = actions.importCsv(acct, plan)) }
+                    scope.launch {
+                        val res = actions.importCsv(acct, plan)
+                        if (sync.settings.autoApprove) sorting.autoApprove(res.newIds)
+                        importState = ImportState(result = res)
+                    }
                 },
             )
             Nav.BankSync -> {
@@ -346,7 +451,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
             is Nav.SyncLink -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                 ScreenTitle("Link accounts", ::back) { TextButton(onClick = { scope.launch { runCatching { sync.refreshAccounts(top.connectionId) } } }) { Text("Refresh list") } }
                 LinkPanel(
-                    links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { id, p -> picks[id] = p }, linkBusy, null,
+                    links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { id, p -> picks[id] = p }, linkBusy, null, budget = b,
                     onApply = {
                         ctl.applyLinks(top.connectionId, links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { linkBusy = it }) { msg ->
                             syncMessage = msg
@@ -382,7 +487,8 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 val have = b.envelopes.map { it.name.lowercase() }.toSet()
                 val chosen = starters.filter { it.lowercase() !in have }
                 scope.launch {
-                    for (n in chosen) actions.saveEnvelope(null, BudgetActions.EnvelopeDraft(n, EnvelopeMode.FILL_TO_TARGET))
+                    // groceries and gas are everyday spending (Safe to Spend) from the start
+                    for (n in chosen) actions.saveEnvelope(null, BudgetActions.EnvelopeDraft(n, EnvelopeMode.FILL_TO_TARGET, everyday = n in EVERYDAY_STARTERS))
                     starters = emptySet()
                     wizard = WizardPage.FINISH
                 }
@@ -434,6 +540,9 @@ private fun Refreshable(enabled: Boolean, refreshing: Boolean, onRefresh: () -> 
     if (!enabled) { content(); return }
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) { content() }
 }
+
+/** Starter envelopes that count in Safe to Spend when the wizard makes them. */
+val EVERYDAY_STARTERS = setOf("Groceries", "Gas")
 
 /** A plain money line for messages. */
 fun money(c: Long) = Money.format(c)

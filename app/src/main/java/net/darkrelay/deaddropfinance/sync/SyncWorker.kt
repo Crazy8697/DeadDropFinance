@@ -12,14 +12,22 @@ import java.util.concurrent.TimeUnit
 import net.darkrelay.deaddropfinance.DdfApp
 
 /**
- * Background bank sync. It never shows the app or any of its data: no notification, no activity, nothing logged.
- * It only writes to the encrypted database, the same way a sync from the screen does.
+ * Background bank sync. It writes to the encrypted database the same way a sync from the screen does, and nothing is
+ * logged. The only thing it shows is a spend alert, when the user allows them: new spending and envelope warnings
+ * (SpendAlerts), with no amounts on the lock screen unless the user turns that on.
  */
 class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val app = applicationContext as? DdfApp ?: return Result.success()
         val service = app.syncService() ?: return Result.success()
-        service.syncAll(SyncService.Trigger.BACKGROUND)
+        val results = service.syncAll(SyncService.Trigger.BACKGROUND)
+        val newIds = results.flatMap { it.outcome.newIds }
+        if (newIds.isNotEmpty()) {
+            runCatching {
+                val o = app.open() as? net.darkrelay.deaddropfinance.data.DatabaseOpener.Opened.Ok
+                if (o != null) net.darkrelay.deaddropfinance.alerts.SpendAlerts(app).afterSync(o.store, service.settings, newIds)
+            }
+        }
         return Result.success()
     }
 }

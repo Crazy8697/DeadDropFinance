@@ -1,6 +1,7 @@
 package net.darkrelay.deaddropfinance.data
 
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import java.io.File
 
 /**
@@ -29,7 +30,7 @@ class Eraser(
         for (alias in keystoreAliases) {
             try { deleteKeystoreKey(alias) } catch (t: Throwable) { left += alias }
         }
-        for (p in settings) p.edit().clear().commit()
+        for (p in settings) p.edit(commit = true) { clear() }
         return left
     }
 }

@@ -25,6 +25,13 @@ import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.CsvImport
 import net.darkrelay.deaddropfinance.domain.Payday
+import net.darkrelay.deaddropfinance.domain.BalanceCheck
+import net.darkrelay.deaddropfinance.domain.Sorting
+import net.darkrelay.deaddropfinance.domain.Suggest
+import net.darkrelay.deaddropfinance.data.RuleAction
+import net.darkrelay.deaddropfinance.data.RuleEntity
+import net.darkrelay.deaddropfinance.data.RuleOrigin
+import net.darkrelay.deaddropfinance.data.SortedBy
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -193,7 +200,7 @@ class ScreenshotTest {
         BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {})
     }
     @Test fun syncLinksFromBankSync() = shot("43-bank-sync-accounts") {
-        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null, today) {} }
+        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null, today, onApply = {}) }
     }
     @Test @Config(qualifiers = TALL) fun accountSyncMismatch() = shot("44-account-balance-check") {
         AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", links, conns, today) { _, _, _ -> } }, budget = budget)
@@ -266,6 +273,98 @@ class ScreenshotTest {
         val b = Budget(budget.accounts, budget.envelopes, budget.transactions + old, budget.lines + line("old", -9_99), budget.moves)
         TransactionDetailScreen(old, b, emptyList(), null, {}, {}, {}, {}, {}, {})
     }
+
+    // ---- 0.8.0: auto-categorize, approve flow, alerts, returns, balance check -------------------------------------
+    private fun rule(id: String, text: String, splits: String, priority: Int, ask: Boolean = false, origin: RuleOrigin = RuleOrigin.USER,
+                     action: RuleAction = RuleAction.ENVELOPE, direction: Int = -1, min: Long? = null, max: Long? = null) =
+        RuleEntity(id = id, matchText = text, splits = splits, priority = priority, alwaysAsk = ask, origin = origin, acknowledged = origin == RuleOrigin.USER,
+            action = action, direction = direction, minAmount = min, maxAmount = max, createdAt = priority.toLong(), updatedAt = 0)
+    private val rules8 = listOf(
+        rule("r1", "sample market", "food:1", 0),
+        rule("r2", "sample supercenter", "food:1", 1, ask = true),
+        rule("r3", "sample car wash", "fuel:1", 2, min = 5_00, max = 20_00),
+        rule("r4", "sample phone co", "save:6000;debt:4000", 3),
+        rule("r5", "sample savings", "", 4, action = RuleAction.TRANSFER, direction = 0),
+        rule("r6", "sample bakery", "food:1", 5, origin = RuleOrigin.LEARNED),
+    )
+    private fun bankTx(id: String, desc: String, amount: Long, days: Long, sortedBy: SortedBy? = null, pending: Boolean = false) =
+        tx(id, "chk", desc, amount, days, pending = pending).copy(importDescription = desc, sortedBy = sortedBy, sortedAt = if (sortedBy != null) 1 else null)
+    private val budget8 = Budget(
+        budget.accounts, budget.envelopes,
+        budget.transactions + listOf(
+            bankTx("s1", "POS SAMPLE MARKET #0412", -23_40, 0, pending = true),
+            bankTx("s2", "QUICK FUEL STOP 0091", -31_75, 1),
+            bankTx("s3", "CORNER GROCER REFUND", 12_00, 1),
+            bankTx("s4", "SAMPLE SUPERCENTER 2231", -64_10, 1),
+            bankTx("w1", "SAMPLE CAR WASH 17", -9_00, 1, sortedBy = SortedBy.AUTO),
+        ),
+        budget.lines + listOf(line("s1", -23_40), line("s2", -31_75), line("s3", 12_00), line("s4", -64_10), line("w1", -9_00, "fuel")),
+        budget.moves,
+    )
+    private val sug8 = Suggest.all(budget8, rules8)
+    private fun sortingUi() = SortingUi(
+        suggestions = sug8, offer = Sorting.Learned.Offer("sample deli", "food", -1),
+        learned = rules8.filter { it.origin == RuleOrigin.LEARNED }, recentlySorted = budget8.transactions.filter { it.id == "w1" }, rules = rules8,
+    )
+
+    @Test @Config(qualifiers = TALL) fun activitySuggestions() = shot("67-activity-to-sort-suggestions") {
+        ActivityScreen(budget8, {}, {}, { _, _, _ -> }, {}, sorting = sortingUi())
+    }
+    @Test fun approveAllDialog() = shot("68-approve-all") {
+        Box {
+            ActivityScreen(budget8, {}, {}, { _, _, _ -> }, {}, sorting = sortingUi().copy(offer = null, learned = emptyList()))
+            AlertDialogPreview(
+                "Approve 4 suggested?",
+                "4 of the 5 in To sort have a suggestion. Each goes where its suggestion says, splits and returns included. You can change any of them afterwards.",
+                "Approve 4",
+            )
+        }
+    }
+    @Test @Config(qualifiers = TALL) fun rulesList() = shot("69-rules") { RulesScreen(rules8, budget8, {}, {}, {}, { _, _ -> }) }
+    @Test @Config(qualifiers = TALL) fun ruleEditPreview() = shot("70-rule-edit-preview") { RuleEditScreen(rules8[0], null, budget8, rules8, null, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun ruleEditSplit() = shot("71-rule-edit-split") { RuleEditScreen(rules8[3], null, budget8, rules8, null, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun ruleFromTransaction() = shot("72-rule-new-from-transaction") {
+        RuleEditScreen(null, RulePrefill("quick fuel stop", -1, null, "fuel"), budget8, rules8, null, {}, {}, null)
+    }
+    @Test @Config(qualifiers = TALL) fun moreSortingAlerts() = shot("73-more-sorting-alerts") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, sortAlerts = {
+            SortingAndAlertsSection(SortAlertState(6, false, true, true, true, false, false, true, 6), {}, {}, { _, _ -> }, {})
+        })
+    }
+    @Test @Config(qualifiers = TALL) fun returnPicker() = shot("74-this-is-a-return") {
+        val credit = budget8.transactions.first { it.id == "s3" }
+        TransactionDetailScreen(credit, budget8, emptyList(), null, {}, {}, {}, {}, {}, {}, returnCandidates = Suggest.returnCandidates(budget8, credit), onMakeRule = {}, pickingReturn = true)
+    }
+    @Test fun returnConfirmed() = shot("75-return-confirmed") {
+        val credit = budget8.transactions.first { it.id == "s3" }.copy(returnOf = "shop", sortedBy = SortedBy.RETURN)
+        val lines = budget8.lines.filter { it.transactionId != "s3" } + listOf(line("s3", 8_77, "food"), line("s3", 3_23, "save"))
+        val b = Budget(budget8.accounts, budget8.envelopes, budget8.transactions.map { if (it.id == "s3") credit else it }, lines, budget8.moves)
+        TransactionDetailScreen(credit, b, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {})
+    }
+    private fun checkLink(bank: Long) = listOf(LinkedAccountEntity(id = "s1", connectionId = "c1", providerAccountId = "ACT-1", providerName = "Sample Checking", accountId = "chk",
+        providerBalance = bank, providerBalanceAt = at, providerBalanceDate = epochOf(today)))
+    private val appBalance get() = budget8.postedBalanceOn("chk", today)
+    @Test @Config(qualifiers = TALL) fun balanceMismatch() = shot("76-balance-check-mismatch") {
+        AccountEditScreen(budget8.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget8, "chk", checkLink(appBalance + 25_00), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = budget8)
+    }
+    @Test fun balanceAdjustDialog() = shot("77-balance-check-adjustment") {
+        Page { BalanceCheckView(BalanceCheck.check(budget8, "chk", appBalance + 25_00, today), "Everyday Checking", { _, _ -> }, confirming = true) }
+    }
+    @Test @Config(qualifiers = TALL) fun balanceFlipped() = shot("78-balance-check-flipped-sign") {
+        val over = Budget(budget8.accounts, budget8.envelopes, budget8.transactions + tx("big", "chk", "Sample Rent Co", -2500_00, 3), budget8.lines + line("big", -2500_00), budget8.moves)
+        val app = over.postedBalanceOn("chk", today)
+        AccountEditScreen(over.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(over, "chk", checkLink(-app), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = over)
+    }
+    @Test @Config(qualifiers = TALL) fun balanceMatch() = shot("79-balance-check-match") {
+        AccountEditScreen(budget8.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget8, "chk", checkLink(appBalance), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = budget8)
+    }
+    @Test @Config(qualifiers = TALL) fun linkBalanceCheck() = shot("80-link-balance-check") {
+        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
+            LinkPanel(checkLink(appBalance + 25_00).map { it.copy(accountId = null) }, budget8.accounts, mapOf("s1" to LinkPick("chk")), { _, _ -> }, false, null, today, null, budget = budget8)
+        }
+    }
+    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
 }
 
 /** A plain dialog look-alike for screenshots of a confirmation (the real ones are AlertDialogs). */

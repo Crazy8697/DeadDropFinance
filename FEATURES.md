@@ -95,17 +95,27 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - It is off by default because it also blacks out screen mirroring tools the user may rely on.
 
 ## Matching and approval (Stage 8)
-- Rules match on payee and amount. A rule can say "any transfer to this payee counts toward this bill, whatever the amount".
+- Every new transaction from bank sync or a CSV gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
+- Payees are compared after cleaning: card numbers, store numbers, dates, times, reference codes and words like "POS PURCHASE" are stripped, so every charge from the same merchant looks the same.
+- A suggestion comes from, in order: a likely return (see Returns), the first rule that matches, or the user's own last choices for that payee when they agree.
+- Rules match the cleaned payee, and optionally the account, money in or out, and an amount range. A rule puts the money in one envelope, splits it across several (in the same proportions for any amount), or marks it a transfer between the user's own accounts (not spending or income). Linking a rule to a bill comes with bills in Stage 10.
+- Rules screen (More, Rules): list, add, edit, delete, and Up and Down to set which is tried first. The editor shows what the rule matches before it's saved: what in To sort would get its suggestion, and how many earlier transactions it matches (those never change).
+- Learning: the first time the user sorts a payee by hand, the app offers once, in the list, to always do that (Make a rule or No thanks). Three identical choices in a row for a payee make the rule by themselves, shown in the list so it can be undone. No thanks or Undo means that payee is never learned. Transactions entered by hand are never learned from.
+- Rules never touch history before an account's starting balance date, archived or track-only accounts, or anything already sorted.
+- To sort shows each transaction with its suggestion. One tap approves it; picking an envelope sorts it there instead; Split opens the split. Approve all suggested says how many first. A pending transaction can be approved, and the approval stays when it posts.
+- A rule can be set to Always ask: it suggests, but never sorts by itself (stores that sell everything).
+- Approve rule matches automatically (More, off by default): rule matches are sorted as they arrive and listed under Recently sorted, where tapping one opens it to change. History suggestions, returns and Always ask rules still wait for a tap.
 - Rules live only on the user's phone, never in code or test data.
-- Stores that sell everything (supercenters, convenience stores that sell gas and groceries) always ask instead of auto-sorting.
 - Transfers to payment apps that do not match a rule go to the approve list.
 
 ## Live spend alerts (Stage 8)
-- With the user's permission (Android notification access), the app reads notifications from apps the user picks, such as a bank app or a wallet app.
-- A spend notification logs the purchase right away as pending and pings the user. When bank sync brings the real record, the two are matched.
-- A deposit notification triggers payday auto-fill as soon as the money lands.
-- Bank sync fills in anything the notifications miss and double checks them.
+- When background sync brings new spending, a notification shows the payee, the amount, the suggested envelope and what would be left in it, with Approve and Change. Several new charges make one notification, not one each.
+- Warnings, in a second notification: an envelope going low (under 15% of its target or payday amount) or overspent, and Safe to Spend going negative.
+- The notification permission (Android 13 and up) is asked for from a Home card once bank sync is set up, or when an alert is turned on. Never at first launch.
+- More, Alerts: a switch for each kind, and Show amounts on the lock screen (off by default: the lock screen shows only how many came in, no payees, envelopes or amounts). Approve from a notification needs the phone unlocked.
+- Alerts are only as live as sync: background sync every 6, 12 or 24 hours, and SimpleFIN's own data updates about once a day. The settings say so.
 - Everything stays on the phone.
+- Not built: reading other apps' notifications (a bank or wallet app) to log a purchase before sync brings it, and a deposit notification starting payday auto-fill.
 
 ## Subscriptions screen (Stage 10)
 - Handles monthly, quarterly, semiannual and annual intervals.
@@ -115,6 +125,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A newly detected subscription is marked "New".
 
 ## Safe to Spend (Stage 11)
+- From 0.8.0, an envelope can be marked Everyday spending (envelope edit screen); the setup wizard marks the Groceries and Gas starters. Alerts already use it; the Home card comes in Stage 11.
 - Safe to Spend counts only the envelopes marked as everyday spending. The default is groceries and gas. The user can change which envelopes count.
 - It is what is left in those envelopes. Bills due before the next payday and set-asides live in their own envelopes, so they are already out of it.
 - Rollover is excluded. It is not shown on the home screen.
@@ -148,6 +159,14 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - The default suggestion is back to the envelope the original charge at that store went to. The options are that envelope or Ready to Assign.
 - If the original trip has a scanned receipt (Stage 9), "Match items" lists that receipt's items. The user picks what went back. Each item's tax share is included for taxed items only. The selected total has to equal the refund before it applies, and the money goes back to each item's own envelope.
 - Refunds aren't income and never trigger the payday sweep.
+- Stage 8: money in from a merchant with an earlier purchase (within 90 days, at or under what's left to return on it) is suggested as "Return of <purchase>". One tap confirms it and the money goes back to the purchase's envelopes, in proportion for a split purchase. Partial returns add up, never past the purchase.
+- Any money in can be marked "This is a return" on its own screen, with a list of likely purchases (the same merchant first). "Not a return" puts it back in To sort.
+
+## Balance check (Stage 8)
+- For each linked account, the bank's balance at its as-of date is compared with the app's posted balance at the end of that date (pending transactions and anything dated later aren't counted). A transaction dated on the as-of day itself may not be in the bank's figure yet, so the day before also counts as a match.
+- A match is shown quietly. A difference is shown plainly, with Add an adjustment: it shows the amount and date first and adds a Balance adjustment transaction only when the user confirms. Its money comes out of or goes into Ready to Assign. Nothing is ever changed by itself.
+- When the bank's balance is the app's with the sign flipped, the app says the bank's balance looks to have the wrong sign and trusts its own math (some banks send an overdrawn balance as positive through SimpleFIN).
+- The account screen and the link screen (linking into an account that's already here) show the same check.
 
 ## Balance forecast (Stage 10)
 - A projected bank balance for each day from today to the day before the next payday.

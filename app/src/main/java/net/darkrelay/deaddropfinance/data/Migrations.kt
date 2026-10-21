@@ -5,7 +5,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Every schema change is a real migration with a test (MigrationTest). Nothing here ever drops or rewrites budget
- * data: version 2 adds a nullable column and the bank sync tables, version 3 two account columns with defaults.
+ * data: version 2 adds a nullable column and the bank sync tables, version 3 two account columns with defaults,
+ * version 5 the rule table and nullable or defaulted columns.
  */
 object Migrations {
 
@@ -38,5 +39,20 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4)
+    /**
+     * 4 to 5 (0.8.0): auto-categorize rules, how each transaction was sorted, returns, everyday envelopes. A new
+     * table and nullable or defaulted columns; no existing value changes, so every transaction stays as it was.
+     */
+    val V4_V5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `rule` (`id` TEXT NOT NULL, `match_text` TEXT NOT NULL, `account_id` TEXT, `direction` INTEGER NOT NULL, `min_amount` INTEGER, `max_amount` INTEGER, `action` TEXT NOT NULL, `splits` TEXT NOT NULL, `always_ask` INTEGER NOT NULL, `priority` INTEGER NOT NULL, `origin` TEXT NOT NULL, `acknowledged` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("ALTER TABLE `txn` ADD COLUMN `sorted_by` TEXT")
+            db.execSQL("ALTER TABLE `txn` ADD COLUMN `sorted_at` INTEGER")
+            db.execSQL("ALTER TABLE `txn` ADD COLUMN `rule_id` TEXT")
+            db.execSQL("ALTER TABLE `txn` ADD COLUMN `return_of` TEXT")
+            db.execSQL("ALTER TABLE `envelope` ADD COLUMN `everyday` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5)
 }
