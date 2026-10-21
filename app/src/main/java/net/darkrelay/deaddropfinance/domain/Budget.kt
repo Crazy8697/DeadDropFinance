@@ -207,10 +207,32 @@ class Budget(
         val billIds = bills.filter { it.envelopeId == e.id }.map { it.id }.toSet()
         if (billIds.isEmpty()) return null
         val since = today.minusDays(365)
-        val paid = billPayments.filter { it.billId in billIds && it.date.isAfter(since) }
+        // what the bills really cost: a rest moved to a Debt envelope isn't a payment
+        val paid = billPayments.filter { it.billId in billIds && it.date.isAfter(since) && it.method != net.darkrelay.deaddropfinance.data.PaymentMethod.DEBT }
         if (paid.isEmpty() || paid.minOf { it.date }.isAfter(today.minusDays(330))) return null
         val paydaysPerYear = maxOf(1, 365 / paydayIntervalDays())
         return paid.sumOf { it.amount } / paydaysPerYear
+    }
+
+    /**
+     * A Fill to target envelope with no target that bills feed: each payday adds a little toward every bill's next
+     * due date, so a yearly or irregular bill's money is there when it's due. The rate is the least that gets each
+     * bill's money in by its date (bills taken in due-date order, what's in the envelope counted first).
+     */
+    fun billFillPerPayday(e: EnvelopeEntity, balance: Long, today: LocalDate): Long {
+        val mine = bills.filter { it.envelopeId == e.id && !it.deleted }
+        if (mine.isEmpty()) return 0
+        val next = mine.mapNotNull { Bills.openCycle(it, billPayments, today) }.filter { it.remaining > 0 }.sortedBy { it.due }
+        val interval = paydayIntervalDays()
+        var need = 0L
+        var rate = 0L
+        for (c in next) {
+            need += c.remaining
+            val days = ChronoUnit.DAYS.between(today, c.due)
+            val paydays = if (days <= 0) 1 else maxOf(1, days / interval + if (days % interval == 0L) 0 else 1)
+            rate = maxOf(rate, ceilDiv(maxOf(0, need - balance), paydays))
+        }
+        return rate
     }
 
     /** Goal: the amount to add per payday to reach the goal by its date. */

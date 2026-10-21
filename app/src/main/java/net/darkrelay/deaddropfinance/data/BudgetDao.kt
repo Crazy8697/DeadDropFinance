@@ -63,6 +63,29 @@ interface BudgetDao {
     @Query("SELECT * FROM item_return WHERE deleted = 0")
     suspend fun itemReturnsNow(): List<ItemReturnEntity>
 
+    @Query("SELECT * FROM subscription WHERE deleted = 0")
+    fun subscriptions(): Flow<List<SubscriptionEntity>>
+
+    @Query("SELECT * FROM subscription WHERE deleted = 0")
+    suspend fun subscriptionsNow(): List<SubscriptionEntity>
+
+    @Query("SELECT * FROM subscription WHERE id = :id")
+    suspend fun subscription(id: String): SubscriptionEntity?
+
+    @Query("SELECT * FROM notif_app ORDER BY label")
+    fun notifApps(): Flow<List<NotifAppEntity>>
+
+    @Query("SELECT * FROM notif_app ORDER BY label")
+    suspend fun notifAppsNow(): List<NotifAppEntity>
+
+    @Query("SELECT * FROM notif_app WHERE package_name = :pkg")
+    suspend fun notifApp(pkg: String): NotifAppEntity?
+
+    @Upsert suspend fun upsertNotifApp(e: NotifAppEntity)
+
+    @Query("DELETE FROM notif_app WHERE package_name = :pkg")
+    suspend fun deleteNotifApp(pkg: String)
+
     @Query("SELECT * FROM account WHERE deleted = 0")
     suspend fun accountsNow(): List<AccountEntity>
 
@@ -126,6 +149,7 @@ interface BudgetDao {
     @Upsert suspend fun upsertReceipt(e: ReceiptEntity)
     @Upsert suspend fun upsertReceiptItem(e: ReceiptItemEntity)
     @Upsert suspend fun upsertItemReturn(e: ItemReturnEntity)
+    @Upsert suspend fun upsertSubscription(e: SubscriptionEntity)
 
     // ---- change log and meta ----------------------------------------------------------------------------------
     @Insert suspend fun insertChange(e: ChangeLogEntity)

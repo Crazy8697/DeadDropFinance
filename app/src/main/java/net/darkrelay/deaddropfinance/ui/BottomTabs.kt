@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * The tab icons, drawn here as simple 24 by 24 shapes (the app ships no icon library). Home is a house, Envelopes an
- * envelope, Activity a list, More three dots, as in the reference mockup's bottom bar.
+ * envelope, Activity a list, Bills a calendar, More three dots, as in the reference mockup's bottom bar.
  */
 object TabIcons {
     private fun icon(name: String, block: ImageVector.Builder.() -> Unit) =
@@ -43,6 +43,13 @@ object TabIcons {
         }
     }
 
+    val Calendar = icon("calendar") {
+        line { moveTo(4f, 6f); lineTo(20f, 6f); lineTo(20f, 20f); lineTo(4f, 20f); close() }
+        line { moveTo(4f, 10.5f); lineTo(20f, 10.5f) }
+        line { moveTo(8.5f, 3.5f); lineTo(8.5f, 7.5f) }
+        line { moveTo(15.5f, 3.5f); lineTo(15.5f, 7.5f) }
+    }
+
     val More = icon("more") {
         for (x in listOf(5f, 12f, 19f)) {
             path(fill = SolidColor(Color.Black)) {
@@ -55,13 +62,14 @@ object TabIcons {
     }
 }
 
-/** The four tabs, each with its icon and its name. The selected one is cyan, the others muted, as in the mockup. */
+/** The five tabs, each with its icon and its name. The selected one is cyan, the others muted, as in the mockup. */
 @Composable
 fun BottomTabs(selected: Nav, onTab: (Nav) -> Unit) {
     val tabs = listOf(
         Triple(Nav.Home, "Home", TabIcons.Home),
         Triple(Nav.Envelopes, "Envelopes", TabIcons.Envelope),
         Triple(Nav.Activity, "Activity", TabIcons.List),
+        Triple(Nav.Bills, "Bills", TabIcons.Calendar),
         Triple(Nav.More, "More", TabIcons.More),
     )
     NavigationBar(containerColor = DdfColors.Background) {

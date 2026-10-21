@@ -47,8 +47,8 @@ class MainActivity : ComponentActivity() {
     private var pickCallback: ((String, String?) -> Unit)? = null
     private var sync by mutableStateOf<SyncService?>(null)
     private var erased by mutableStateOf(false)
-    /** Rises each time a spend alert opens the app, so it goes to Activity (To sort). */
-    private var openActivity by mutableIntStateOf(0)
+    /** Where a notification opened the app (To sort, Bills, Home, reading setup); [OpenTo.n] rises each time. */
+    private var openTo by mutableStateOf<net.darkrelay.deaddropfinance.ui.OpenTo?>(null)
     private var permissionDone: ((Boolean) -> Unit)? = null
     /** Images shared to the app, to scan as a receipt. */
     private var shared by mutableStateOf<net.darkrelay.deaddropfinance.ui.SharedReceipt?>(null)
@@ -96,8 +96,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyHide()
-        if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
+        takeOpen(intent)
         takeShared(intent)
+        net.darkrelay.deaddropfinance.alerts.BillReminderWorker.schedule(this)
         locked = app.lock.locked
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
         lifecycleScope.launch {
@@ -116,7 +117,7 @@ class MainActivity : ComponentActivity() {
                             o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(
                                 o.store, sync!!, platform,
                                 startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
-                                openActivity = openActivity,
+                                openTo = openTo,
                                 shared = shared,
                             )
                             else -> {}
@@ -130,8 +131,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
+        takeOpen(intent)
         takeShared(intent)
+    }
+
+    private fun takeOpen(intent: Intent?) {
+        val where = intent?.getStringExtra(EXTRA_OPEN) ?: return
+        openTo = net.darkrelay.deaddropfinance.ui.OpenTo(where, (openTo?.n ?: 0) + 1)
     }
 
     /** A photo or PDF shared from another app: scanned as a receipt once the app is open and unlocked. */
@@ -279,6 +285,42 @@ class MainActivity : ComponentActivity() {
 
         override val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles get() = app.receiptImages
 
+        override fun notifAccessGranted() = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.accessGranted(this@MainActivity)
+
+        override fun setNotifReading(on: Boolean) {
+            val st = net.darkrelay.deaddropfinance.sync.SyncSettings(this@MainActivity)
+            st.notifReading = on
+            net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this@MainActivity, on)
+        }
+
+        override fun openNotifAccess() {
+            val c = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.component(this@MainActivity)
+            val detail = Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, c.flattenToString())
+            runCatching { startActivity(detail) }.onFailure { runCatching { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } }
+        }
+
+        override fun openAppInfo() {
+            runCatching {
+                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
+            }
+        }
+
+        override fun launcherApps(): List<Pair<String, String>> {
+            val pm = packageManager
+            val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            return pm.queryIntentActivities(launch, android.content.pm.PackageManager.ResolveInfoFlags.of(0))
+                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
+                .filter { it.first != packageName }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
+        }
+
+        override fun notifPending(): Map<String, String> {
+            val inbox = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.Inbox
+            return inbox.packages().associateWith { inbox.get(it) ?: "" }.filterValues { it.isNotEmpty() }
+        }
+
+        override fun clearNotifPending(pkg: String) = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.Inbox.clear(pkg)
+
         override fun sweepReceiptFiles(keep: Set<String>) {
             runCatching { app.receiptImages.sweep(keep) }
             runCatching { app.captureDir().listFiles()?.forEach { it.delete() } }
@@ -315,6 +357,9 @@ class MainActivity : ComponentActivity() {
         /** A spend alert opens the app here. */
         const val EXTRA_OPEN = "open"
         const val OPEN_ACTIVITY = "activity"
+        const val OPEN_BILLS = "bills"
+        const val OPEN_HOME = "home"
+        const val OPEN_READING = "reading"
     }
 }
 

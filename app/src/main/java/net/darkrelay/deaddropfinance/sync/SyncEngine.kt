@@ -97,6 +97,27 @@ class SyncEngine(private val store: BudgetStore) {
             linked++
         }
 
+        // 3b. a row logged from a bank notification: the bank's record can differ a little (a tip, a final amount, a
+        // deposit that isn't quite what the notification said). Same direction, within 5 days, within 20% and the same
+        // payee (or no payee read): it's the same money, updated to what the bank says, never a second row.
+        val it3b = unmatched.iterator()
+        while (it3b.hasNext()) {
+            val f = it3b.next()
+            val match = held.filter {
+                it.pending && it.id !in consumed && it.source == TransactionSource.NOTIFICATION && (it.amount > 0) == (f.amount > 0) &&
+                    days(it.date, f.date) <= PENDING_MATCH_DAYS && abs(it.amount - f.amount) * 5 <= abs(it.amount) &&
+                    (it.importDescription.isNullOrBlank() || net.darkrelay.deaddropfinance.domain.Paydays.samePayer(
+                        net.darkrelay.deaddropfinance.domain.Payees.clean(it.importDescription!!), net.darkrelay.deaddropfinance.domain.Payees.clean(f.description),
+                    ))
+            }.minByOrNull { days(it.date, f.date) } ?: continue
+            consumed += match.id
+            it3b.remove()
+            seen += prefix + f.id
+            put(match, match.copy(externalId = prefix + f.id, pending = f.pending, date = f.date, amount = f.amount, importDescription = f.description, updatedAt = now))
+            if (f.amount != match.amount) adjustLines(match.id, match.amount, f.amount, now)
+            linked++
+        }
+
         // 4 and 5. synced pending rows the provider no longer lists (only when its list is complete for the window)
         if (data.complete) {
             val vanished = synced.filter { it.pending && it.externalId !in seen && !it.date.isBefore(windowStart) && !it.date.isAfter(windowEnd) }

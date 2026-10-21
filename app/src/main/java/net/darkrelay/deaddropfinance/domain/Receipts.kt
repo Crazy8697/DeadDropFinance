@@ -118,10 +118,7 @@ class Receipts(
 
     // ---- split by items -------------------------------------------------------------------------------------------
 
-    /**
-     * Splits the receipt's transaction by its items: [pick] is item id to envelope id. Applying the split deletes the
-     * receipt's photos (FEATURES.md, decided): the store, items, prices and tax stay as text.
-     */
+    /** Splits the receipt's transaction by its items: [pick] is item id to envelope id. The photos stay. */
     suspend fun splitByItems(receiptId: String, pick: Map<String, String?>) {
         val r = dao.receipt(receiptId) ?: throw BudgetRuleException("That receipt is gone.")
         val txId = r.transactionId ?: throw BudgetRuleException("Match the receipt to its transaction first.")
@@ -134,10 +131,7 @@ class Receipts(
                 val e = pick[i.id]
                 if (e != i.envelopeId) put(i, i.copy(envelopeId = e, updatedAt = now))
             }
-            val now0 = dao.receipt(receiptId)!!
-            if (now0.pages > 0) put(now0, now0.copy(pages = 0, updatedAt = now))
         }
-        files?.delete(receiptId)
     }
 
     // ---- returning items ------------------------------------------------------------------------------------------

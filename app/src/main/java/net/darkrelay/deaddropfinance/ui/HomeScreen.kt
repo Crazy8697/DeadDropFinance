@@ -55,6 +55,8 @@ fun HomeScreen(
     onToSort: () -> Unit,
     onEnvelope: (String) -> Unit,
     onAddEnvelope: () -> Unit,
+    /** Under Ready to Assign: the payday checklist. */
+    belowReady: (@Composable () -> Unit)? = null,
 ) {
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
         item { update?.invoke() }
@@ -71,6 +73,7 @@ fun HomeScreen(
                 Button(onClick = onAssign) { Text("Assign") }
             }
         }
+        if (belowReady != null) item { belowReady() }
         if (budget.toSort.isNotEmpty()) item {
             ListRow(onClick = onToSort) {
                 Row { Text("${budget.toSort.size} to sort", modifier = Modifier.weight(1f), color = DdfColors.Cyan); Text("Open") }

@@ -7,7 +7,7 @@ import androidx.room.TypeConverters
 import java.time.LocalDate
 
 /**
- * The budget database, schema version 6 (receipts, their items, and items returned). Every version's schema is exported to app/schemas. From 0.6.0 on the
+ * The budget database, schema version 7 (bills in full, subscriptions, debt reminders, bank notification reading). Every version's schema is exported to app/schemas. From 0.6.0 on the
  * app may hold real data, so a version bump always comes with a real Migration and a migration test; a
  * destructive fallback is never configured (docs/DATABASE.md, enforced by DatabaseRulesTest).
  */
@@ -17,8 +17,9 @@ import java.time.LocalDate
         MoveEntity::class, BillEntity::class, BillPaymentEntity::class, ChangeLogEntity::class, MetaEntity::class,
         ConnectionEntity::class, LinkedAccountEntity::class, SyncLogEntity::class, RuleEntity::class,
         ReceiptEntity::class, ReceiptItemEntity::class, ItemReturnEntity::class,
+        SubscriptionEntity::class, NotifAppEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

@@ -80,6 +80,7 @@ fun RuleEditScreen(
     existing: RuleEntity?, prefill: RulePrefill?, budget: Budget, rules: List<RuleEntity>, error: String?,
     onBack: () -> Unit, onSave: (Sorting.RuleDraft) -> Unit, onDelete: (() -> Unit)?,
 ) {
+    var billId by remember { mutableStateOf(existing?.billId) }
     val firstSplits = existing?.let { Rules.splits(it) } ?: listOfNotNull(prefill?.target?.takeIf { it != Sorting.TRANSFER }?.let { Rules.Split(it, 1) })
     var text by remember { mutableStateOf(existing?.matchText ?: prefill?.matchText ?: "") }
     var direction by remember { mutableIntStateOf(existing?.direction ?: prefill?.direction ?: -1) }
@@ -116,6 +117,7 @@ fun RuleEditScreen(
             else -> emptyList()
         },
         alwaysAsk = alwaysAsk,
+        billId = billId,
     )
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New rule" else "Edit rule", onBack)
@@ -156,6 +158,10 @@ fun RuleEditScreen(
             )
         }
         SettingRow("Always ask", "Suggests, but never sorts by itself, even with auto-approve on. For stores that sell everything.", alwaysAsk, true, { alwaysAsk = it })
+        if (budget.bills.isNotEmpty()) {
+            Picker("Counts toward bill", listOf<Pair<String?, String>>(null to "No bill") + budget.bills.filter { !it.deleted }.map { it.id to it.name }, billId, { billId = it })
+            Text("A match counts as a payment toward the bill, whatever the amount (unless the rule has an amount range).", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        }
 
         // preview, before saving
         SectionTitle("What it matches")
@@ -214,12 +220,16 @@ data class SortAlertState(
     val notificationsAllowed: Boolean,
     val backgroundSync: Boolean,
     val intervalHours: Int,
+    val bills: Boolean = true,
+    val autopay: Boolean = true,
+    val reading: Boolean = false,
 )
 
 /** More's Sorting and Alerts sections. */
 @Composable
 fun SortingAndAlertsSection(
     s: SortAlertState, onRules: () -> Unit, onAutoApprove: (Boolean) -> Unit, onAlert: (key: String, on: Boolean) -> Unit, onAllowNotifications: () -> Unit,
+    onReading: () -> Unit = {},
 ) {
     SectionTitle("Sorting")
     ListRow(onRules) {
@@ -253,12 +263,25 @@ fun SortingAndAlertsSection(
     SettingRow("Envelope low or overspent", "When new spending takes an envelope under ${net.darkrelay.deaddropfinance.domain.Alerts.LOW_PERCENT}% of its target, or below zero.", s.lowOrOverspent, true) { onAlert(ALERT_LOW, it) }
     SettingRow("Safe to Spend going negative", "Counts the envelopes marked Everyday spending.", s.safeToSpend, true) { onAlert(ALERT_SAFE, it) }
     SettingRow("Show amounts on the lock screen", "Off: the lock screen shows only how many came in, no payees, envelopes or amounts.", s.amountsOnLockScreen, true) { onAlert(ALERT_LOCK_AMOUNTS, it) }
+    SettingRow("Bill reminders", "For the bills (and debt payments) you turn a reminder on for. Each bill's reminder is off until you do.", s.bills, true) { onAlert(ALERT_BILLS, it) }
+    SettingRow("Autopay warnings", "When an autopay is due before payday and its envelope is short.", s.autopay, true) { onAlert(ALERT_AUTOPAY, it) }
+    ListRow(onReading) {
+        Column {
+            Text("Read bank notifications")
+            Text(
+                if (s.reading) "On: spending shows up as soon as your bank app notifies you" else "Off. Faster than sync: logs spending from your bank app's notifications",
+                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
 }
 
 const val ALERT_SPENDING = "spending"
 const val ALERT_LOW = "low"
 const val ALERT_SAFE = "safe"
 const val ALERT_LOCK_AMOUNTS = "lock_amounts"
+const val ALERT_BILLS = "bills"
+const val ALERT_AUTOPAY = "autopay"
 
 /** Home card, shown once after bank sync is set up: alerts need the notification permission. */
 @Composable

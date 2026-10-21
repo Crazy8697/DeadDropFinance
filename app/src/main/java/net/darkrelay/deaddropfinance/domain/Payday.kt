@@ -59,7 +59,8 @@ object Payday {
 
     /** How much an envelope wants this payday, by its mode. */
     fun amountFor(e: EnvelopeEntity, balance: Long, budget: Budget, today: LocalDate): Long = when (e.mode) {
-        EnvelopeMode.FILL_TO_TARGET -> e.target?.let { maxOf(0, it - balance) } ?: 0
+        // no target, but bills feed it: a little each payday toward each bill's next due date
+        EnvelopeMode.FILL_TO_TARGET -> e.target?.let { maxOf(0, it - balance) } ?: budget.billFillPerPayday(e, balance, today)
         EnvelopeMode.ADD_EVERY_PAYDAY -> e.perPayday ?: 0
         EnvelopeMode.GOAL -> budget.goalPerPayday(e, today)
         EnvelopeMode.SEASONAL -> budget.seasonalPerPayday(e, today) ?: e.perPayday ?: 0

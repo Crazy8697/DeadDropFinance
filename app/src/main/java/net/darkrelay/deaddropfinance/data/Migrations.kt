@@ -6,7 +6,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Every schema change is a real migration with a test (MigrationTest). Nothing here ever drops or rewrites budget
  * data: version 2 adds a nullable column and the bank sync tables, version 3 two account columns with defaults,
- * version 5 the rule table and nullable or defaulted columns, version 6 the receipt tables.
+ * version 5 the rule table and nullable or defaulted columns, version 6 the receipt tables, version 7 bill columns
+ * with defaults and the subscription and notification app tables.
  */
 object Migrations {
 
@@ -67,5 +68,26 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6)
+    /**
+     * 6 to 7 (0.10.0): bills in full (reminder lead time, payment matching, changing amounts, which cycle a payment
+     * counts toward and how it was paid), debt reminders, rules that count toward a bill, subscriptions, and the bank
+     * apps whose notifications are read. New columns all have defaults or are nullable; nothing existing changes.
+     */
+    val V6_V7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `bill` ADD COLUMN `reminder_days` INTEGER NOT NULL DEFAULT 2")
+            db.execSQL("ALTER TABLE `bill` ADD COLUMN `match_text` TEXT")
+            db.execSQL("ALTER TABLE `bill` ADD COLUMN `any_amount` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `bill` ADD COLUMN `varies` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `bill_payment` ADD COLUMN `period_due` TEXT")
+            db.execSQL("ALTER TABLE `bill_payment` ADD COLUMN `method` TEXT NOT NULL DEFAULT 'BANK'")
+            db.execSQL("ALTER TABLE `envelope` ADD COLUMN `reminder` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `envelope` ADD COLUMN `reminder_days` INTEGER NOT NULL DEFAULT 2")
+            db.execSQL("ALTER TABLE `rule` ADD COLUMN `bill_id` TEXT")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `subscription` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `match_key` TEXT NOT NULL, `status` TEXT NOT NULL, `bill_id` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `notif_app` (`package_name` TEXT NOT NULL, `label` TEXT NOT NULL, `account_id` TEXT, `enabled` INTEGER NOT NULL, `templates` TEXT NOT NULL, `last_amount` INTEGER, `last_payee` TEXT, `last_deposit` INTEGER NOT NULL, `last_at` INTEGER, PRIMARY KEY(`package_name`))")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7)
 }

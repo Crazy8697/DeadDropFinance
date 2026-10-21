@@ -86,6 +86,9 @@ data class EnvelopeEntity(
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     /** Everyday spending (groceries, gas): counts in Safe to Spend. */
     @ColumnInfo(name = "everyday", defaultValue = "0") val everyday: Boolean = false,
+    /** Debt with a required payment and due date: remind like a bill ([reminderDays] ahead). Off by default. */
+    @ColumnInfo(name = "reminder", defaultValue = "0") val reminder: Boolean = false,
+    @ColumnInfo(name = "reminder_days", defaultValue = "2") val reminderDays: Int = 2,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -96,13 +99,15 @@ data class EnvelopeEntity(
         "name" to name, "mode" to mode.name, "target" to target, "per_payday" to perPayday,
         "goal_amount" to goalAmount, "goal_date" to goalDate?.toString(), "debt_owed" to debtOwed,
         "debt_owed_since" to debtOwedSince?.toString(), "required_payment" to requiredPayment,
-        "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "deleted" to deleted,
+        "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "reminder" to reminder,
+        "reminder_days" to reminderDays, "deleted" to deleted,
     )
 }
 
 enum class TransactionKind { NORMAL, TRANSFER }
 
-enum class TransactionSource { MANUAL, CSV, SYNC }
+/** NOTIFICATION: logged from a bank or wallet app's notification (pending until bank sync brings the real record). */
+enum class TransactionSource { MANUAL, CSV, SYNC, NOTIFICATION }
 
 /**
  * How a transaction's envelopes were set. HAND: picked or edited by the user. APPROVED: the user approved a
@@ -218,9 +223,16 @@ data class MoveEntity(
     )
 }
 
-enum class BillRecurrence { NONE, MONTHLY, YEARLY, IRREGULAR }
+/**
+ * How often a bill repeats. NONE is irregular or one-off: one due date, set again by hand when there's a next one.
+ * IRREGULAR is kept for rows made before 0.10.0 and means the same.
+ */
+enum class BillRecurrence(val months: Int?) { NONE(null), MONTHLY(1), QUARTERLY(3), SEMIANNUAL(6), YEARLY(12), IRREGULAR(null) }
 
-/** Bills (FEATURES.md: Stage 6 data model; screens and reminders come in Stage 10). Many bills can feed one envelope. */
+/**
+ * A bill (FEATURES.md, Bills). Many bills can feed one envelope. [dueDate] is the first due date; a repeating bill's
+ * later due dates follow from it ([BillRecurrence.months]), and each due date is one cycle that payments count toward.
+ */
 @Entity(tableName = "bill", indices = [Index("envelope_id")])
 data class BillEntity(
     @PrimaryKey override val id: String = newId(),
@@ -232,17 +244,32 @@ data class BillEntity(
     val autopay: Boolean = false,
     /** Reminders are off by default and turned on per bill. */
     val reminder: Boolean = false,
+    /** How many days before the due date the reminder comes. */
+    @ColumnInfo(name = "reminder_days", defaultValue = "2") val reminderDays: Int = 2,
+    /** Payee words a payment's description must have (Payees.clean); null: only rules linked to the bill match. */
+    @ColumnInfo(name = "match_text") val matchText: String? = null,
+    /** Any payment to that payee counts toward the bill, whatever the amount (transfers paid in parts, say). */
+    @ColumnInfo(name = "any_amount", defaultValue = "0") val anyAmount: Boolean = false,
+    /** The amount changes (utilities): the latest charge is the expected amount. */
+    @ColumnInfo(name = "varies", defaultValue = "0") val varies: Boolean = false,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
     override fun fields() = mapOf(
         "name" to name, "envelope_id" to envelopeId, "amount_due" to amountDue, "due_date" to dueDate?.toString(),
-        "recurrence" to recurrence.name, "autopay" to autopay, "reminder" to reminder, "deleted" to deleted,
+        "recurrence" to recurrence.name, "autopay" to autopay, "reminder" to reminder, "reminder_days" to reminderDays,
+        "match_text" to matchText, "any_amount" to anyAmount, "varies" to varies, "deleted" to deleted,
     )
 }
 
-/** One payment toward a bill; a bill counts as paid only when its payments reach the amount due. */
+/** How a bill payment was made: a matched bank transaction, ticked by hand, cash, or the rest moved to a Debt envelope. */
+enum class PaymentMethod { BANK, HAND, CASH, DEBT }
+
+/**
+ * One payment toward a bill; a bill's cycle counts as paid only when its payments reach the amount due. [periodDue] is
+ * the due date of the cycle it counts toward (null on rows from before 0.10.0: the nearest cycle by date).
+ */
 @Entity(tableName = "bill_payment", indices = [Index("bill_id")])
 data class BillPaymentEntity(
     @PrimaryKey override val id: String = newId(),
@@ -250,15 +277,60 @@ data class BillPaymentEntity(
     @ColumnInfo(name = "transaction_id") val transactionId: String?,
     val amount: Long,
     val date: LocalDate,
+    @ColumnInfo(name = "period_due") val periodDue: LocalDate? = null,
+    @ColumnInfo(name = "method", defaultValue = "BANK") val method: PaymentMethod = PaymentMethod.BANK,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
     override fun fields() = mapOf(
         "bill_id" to billId, "transaction_id" to transactionId, "amount" to amount, "date" to date.toString(),
-        "deleted" to deleted,
+        "period_due" to periodDue?.toString(), "method" to method.name, "deleted" to deleted,
     )
 }
+
+/** What the user made of a detected recurring charge: still new, confirmed as a subscription, or not one. */
+enum class SubscriptionStatus { NEW, CONFIRMED, DISMISSED }
+
+/**
+ * A recurring charge the app found (Recurring.detect), as the user left it: renamed, merged with another (several
+ * payee keys), confirmed, dismissed, or made into a bill. The charges themselves are the transactions.
+ */
+@Entity(tableName = "subscription")
+data class SubscriptionEntity(
+    @PrimaryKey override val id: String = newId(),
+    /** The user's name for it; empty: the latest charge's payee. */
+    val name: String = "",
+    /** Cleaned payee keys (Payees.key) joined by ";": one, or several merged. */
+    @ColumnInfo(name = "match_key") val matchKey: String,
+    val status: SubscriptionStatus = SubscriptionStatus.NEW,
+    @ColumnInfo(name = "bill_id") val billId: String? = null,
+    @ColumnInfo(name = "created_at") override val createdAt: Long,
+    @ColumnInfo(name = "updated_at") override val updatedAt: Long,
+    override val deleted: Boolean = false,
+) : Synced {
+    val keys get() = matchKey.split(';').filter { it.isNotBlank() }
+    override fun fields() = mapOf("name" to name, "match_key" to matchKey, "status" to status.name, "bill_id" to billId, "deleted" to deleted)
+}
+
+/**
+ * A bank or wallet app whose notifications the user lets the app read (this phone's own, not change-logged). Only
+ * the parsed result is kept ([lastAmount], [lastPayee]); the notification text never is.
+ */
+@Entity(tableName = "notif_app")
+data class NotifAppEntity(
+    @PrimaryKey @ColumnInfo(name = "package_name") val packageName: String,
+    val label: String,
+    /** The account its spending and deposits are logged in. */
+    @ColumnInfo(name = "account_id") val accountId: String? = null,
+    val enabled: Boolean = true,
+    /** How this app's notifications map to an amount and a payee, learned when the user confirmed one (NotifParse). */
+    val templates: String = "",
+    @ColumnInfo(name = "last_amount") val lastAmount: Long? = null,
+    @ColumnInfo(name = "last_payee") val lastPayee: String? = null,
+    @ColumnInfo(name = "last_deposit") val lastDeposit: Boolean = false,
+    @ColumnInfo(name = "last_at") val lastAt: Long? = null,
+)
 
 /** What a rule does with a match: put it in envelopes (one, or a split), or mark it a transfer between own accounts. */
 enum class RuleAction { ENVELOPE, TRANSFER }
@@ -294,6 +366,8 @@ data class RuleEntity(
     val origin: RuleOrigin = RuleOrigin.USER,
     /** A learned rule's notice ("made a rule from your choices") was seen. */
     val acknowledged: Boolean = true,
+    /** A match counts as a payment toward this bill (whatever the amount, unless the rule has an amount range). */
+    @ColumnInfo(name = "bill_id") val billId: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -301,7 +375,7 @@ data class RuleEntity(
     override fun fields() = mapOf(
         "match_text" to matchText, "account_id" to accountId, "direction" to direction, "min_amount" to minAmount,
         "max_amount" to maxAmount, "action" to action.name, "splits" to splits, "always_ask" to alwaysAsk,
-        "priority" to priority, "origin" to origin.name, "acknowledged" to acknowledged, "deleted" to deleted,
+        "priority" to priority, "origin" to origin.name, "acknowledged" to acknowledged, "bill_id" to billId, "deleted" to deleted,
     )
 }
 

@@ -63,6 +63,38 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getStringSet("alert_ids", emptySet())!!.toSet()
         set(v) = prefs.edit { putStringSet("alert_ids", v) }
 
+    /** Bill reminders (each bill's own switch decides; this is the whole channel). On by default. */
+    var alertBills: Boolean
+        get() = prefs.getBoolean("alert_bills", true)
+        set(v) = prefs.edit { putBoolean("alert_bills", v) }
+
+    /** Autopay warnings: an autopay due before payday with its envelope short. On by default. */
+    var alertAutopay: Boolean
+        get() = prefs.getBoolean("alert_autopay", true)
+        set(v) = prefs.edit { putBoolean("alert_autopay", v) }
+
+    /** Reminders and warnings already sent (Reminders.Due.key, or "autopay:<bill>:<due>"), so each goes once. */
+    var reminded: Set<String>
+        get() = prefs.getStringSet("reminded", emptySet())!!.toSet()
+        set(v) = prefs.edit { putStringSet("reminded", v) }
+
+    // ---- reading bank notifications ----------------------------------------------------------------------------------
+
+    /** Reading picked apps' notifications is on. Off by default; turning it off stops all reading. */
+    var notifReading: Boolean
+        get() = prefs.getBoolean("notif_reading", false)
+        set(v) = prefs.edit { putBoolean("notif_reading", v) }
+
+    /** The picked apps' package names, so the listener can drop every other notification without opening anything. */
+    var notifPackages: Set<String>
+        get() = prefs.getStringSet("notif_packages", emptySet())!!.toSet()
+        set(v) = prefs.edit { putStringSet("notif_packages", v) }
+
+    /** Deposits the user said aren't payday, so the "looks like payday" card doesn't ask again. */
+    var notPayday: Set<String>
+        get() = prefs.getStringSet("not_payday", emptySet())!!.toSet()
+        set(v) = prefs.edit { putStringSet("not_payday", v) }
+
     fun alertSettings() = net.darkrelay.deaddropfinance.domain.Alerts.Settings(alertSpending, alertLowOrOverspent, alertSafeToSpend, alertAmountsOnLockScreen)
 
     fun lastAttempt(connectionId: String): Long = prefs.getLong("attempt.$connectionId", 0)

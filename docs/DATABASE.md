@@ -29,6 +29,11 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Version 6 (0.9.0): adds `receipt`, `receipt_item` and `item_return` (change-logged like the budget tables). No
   existing table changes. Receipt photos are files, not rows: AES-256-GCM in the app's private `files/receipts`, with
   their own random key kept in the encrypted credentials file (SecretStore), which a Keystore key wraps.
+- Version 7 (0.10.0): bill columns (`reminder_days`, `match_text`, `any_amount`, `varies`), which cycle a payment
+  counts toward and how it was paid (`period_due`, `method` on `bill_payment`), debt reminders (`reminder`,
+  `reminder_days` on `envelope`), `bill_id` on `rule`, the `subscription` table (change-logged) and `notif_app` (the
+  bank apps whose notifications are read: this phone's own, not change-logged, holding only the last parsed amount
+  and payee, never notification text). All new columns have defaults or are nullable.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
@@ -51,7 +56,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Screens show only a masked hint (the last four characters), never a value.
 - Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
 - Stage 12's encrypted backup must include receipts: the three receipt tables and the encrypted photos in
-  `files/receipts` (with the photo key, or re-encrypted under the backup's key).
+  `files/receipts` (with the photo key, or re-encrypted under the backup's key). From 0.10.0 photos are kept after
+  Apply split, so the backup carries them.
 - Disconnecting deletes that connection's credentials.
 - Erase everything deletes the database files, the keys folder, both Keystore keys and every settings file.
 - `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see

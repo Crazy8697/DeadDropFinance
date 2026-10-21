@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -199,6 +200,8 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
     var required by remember { mutableStateOf(existing?.requiredPayment?.let { Money.plain(it) } ?: "") }
     var due by remember { mutableStateOf(existing?.dueDate?.toString() ?: "") }
     var everyday by remember { mutableStateOf(existing?.everyday ?: false) }
+    var reminder by remember { mutableStateOf(existing?.reminder ?: false) }
+    var reminderDays by remember { mutableIntStateOf(existing?.reminderDays ?: 2) }
     val system = existing?.isSystem == true
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New envelope" else "Edit envelope", onBack)
@@ -225,6 +228,8 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                     AmountField("Add each payday", perPayday, { perPayday = it })
                     AmountField("Required payment (optional)", required, { required = it })
                     DateField("Due date (optional)", due, { due = it })
+                    SettingRow("Remind me", "With a required payment and due date, a reminder like a bill's, each month. Off by default.", reminder, true, { reminder = it })
+                    if (reminder) Picker("How early", listOf(0 to "On the day", 1 to "1 day before", 2 to "2 days before", 3 to "3 days before", 7 to "A week before"), reminderDays, { reminderDays = it })
                 }
                 else -> {}
             }
@@ -246,6 +251,8 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                         requiredPayment = if (mode == EnvelopeMode.DEBT) amt(required) else null,
                         dueDate = if (mode == EnvelopeMode.DEBT) parseDateOrNull(due) else null,
                         everyday = if (system) null else everyday,
+                        reminder = if (mode == EnvelopeMode.DEBT) reminder else null,
+                        reminderDays = if (mode == EnvelopeMode.DEBT) reminderDays else null,
                     ),
                 )
             },

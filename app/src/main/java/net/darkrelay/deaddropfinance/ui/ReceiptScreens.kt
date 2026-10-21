@@ -221,7 +221,7 @@ fun ReceiptDetailScreen(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(r.store.ifBlank { "Receipt" }, onBack) { TextButton(onClick = onEdit) { Text("Edit") } }
         ReceiptPhotos(pages)
-        if (r.pages == 0) Text("Receipt scanned, photo deleted after the split. The items and prices are kept.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        if (r.pages == 0) Text("No photo kept for this receipt (0.9.0 deleted photos after a split). The items and prices are here.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Gap()
         Row {
             Text(listOfNotNull(r.date?.toString(), if (r.kind == ReceiptKind.RETURN) "return" else null).joinToString(", "), Modifier.weight(1f), color = DdfColors.Muted)
@@ -314,7 +314,7 @@ fun ItemSplitScreen(
     val options: List<Pair<String?, String>> = budget.fillOrder.map { it.id to it.name }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Split by items", onBack)
-        Text("${r.store}, ${Money.format(tx.amount)}. " + (if (kotlin.math.abs(tx.amount) > (r.total ?: 0)) "Tax and the tip are" else "Tax is") + " shared out by what each envelope's items cost. Applying the split deletes the photo; the items are kept.",
+        Text("${r.store}, ${Money.format(tx.amount)}. " + (if (kotlin.math.abs(tx.amount) > (r.total ?: 0)) "Tax and the tip are" else "Tax is") + " shared out by what each envelope's items cost.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         items.forEach { i ->
             Row(verticalAlignment = Alignment.CenterVertically) {

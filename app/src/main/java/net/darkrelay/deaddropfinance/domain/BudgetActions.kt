@@ -74,6 +74,9 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         val dueDate: LocalDate? = null,
         /** Everyday spending (counts in Safe to Spend); null keeps what the envelope has. */
         val everyday: Boolean? = null,
+        /** Debt: remind like a bill, [reminderDays] ahead; null keeps what the envelope has. */
+        val reminder: Boolean? = null,
+        val reminderDays: Int? = null,
     )
 
     suspend fun saveEnvelope(id: String?, d: EnvelopeDraft, today: LocalDate = LocalDate.now()): String {
@@ -101,7 +104,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             val new = base.copy(
                 name = d.name.trim(), mode = d.mode, target = d.target, perPayday = d.perPayday, goalAmount = d.goalAmount,
                 goalDate = d.goalDate, debtOwed = d.debtOwed, debtOwedSince = owedSince, requiredPayment = d.requiredPayment,
-                dueDate = d.dueDate, everyday = d.everyday ?: base.everyday, updatedAt = now,
+                dueDate = d.dueDate, everyday = d.everyday ?: base.everyday, reminder = d.reminder ?: base.reminder,
+                reminderDays = d.reminderDays ?: base.reminderDays, updatedAt = now,
             )
             put(old, new).id
         }

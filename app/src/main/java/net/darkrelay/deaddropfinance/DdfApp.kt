@@ -75,6 +75,8 @@ class DdfApp : Application() {
     suspend fun eraseEverything(): List<String> = openLock.withLock {
         service?.shutdown()
         service = null
+        // stop reading bank notifications (the listener is switched off, not just its setting)
+        runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         (opened as? DatabaseOpener.Opened.Ok)?.store?.db?.close()
         opened = null
         val left = Eraser(

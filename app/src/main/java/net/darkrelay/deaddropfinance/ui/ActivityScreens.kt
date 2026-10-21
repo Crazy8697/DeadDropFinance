@@ -62,6 +62,10 @@ data class SortingUi(
     /** Receipts still waiting for their charge. */
     val waitingReceipts: Int = 0,
     val onReceipts: () -> Unit = {},
+    /** Logged from a bank notification a week ago and never matched by bank sync. */
+    val stale: List<TransactionEntity> = emptyList(),
+    val onKeepStale: (String) -> Unit = {},
+    val onDeleteStale: (String) -> Unit = {},
 )
 
 /**
@@ -112,6 +116,7 @@ fun ActivityScreen(
         budget.toSort.forEach { t ->
             ToSortRow(t, budget, accounts[t.accountId]?.name ?: "", sorting.suggestions[t.id], envelopes, onTransaction, onSort, onSplit, sorting)
         }
+        StaleNotificationEntries(sorting.stale, sorting.onKeepStale, sorting.onDeleteStale)
         if (sorting.recentlySorted.isNotEmpty()) {
             SectionTitle("Recently sorted by rules")
             Text("Auto-approve sorted these as they arrived. Tap one to change it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -196,6 +201,7 @@ fun suggestionText(s: Suggest.Suggestion, envelopes: Map<String, net.darkrelay.d
 
 fun basisText(s: Suggest.Suggestion): String = when (s.basis) {
     Suggest.Basis.RULE -> "Rule: payee has \"${s.rule?.matchText}\"" + if (s.rule?.alwaysAsk == true) ", always asks" else ""
+    Suggest.Basis.BILL -> "Pays the bill ${s.bill?.name}"
     Suggest.Basis.HISTORY -> "Where you put this payee last time"
     Suggest.Basis.RETURN -> "Money back from a store you bought from lately"
 }

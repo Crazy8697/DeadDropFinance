@@ -171,6 +171,8 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
         val action: RuleAction = RuleAction.ENVELOPE,
         val splits: List<Rules.Split> = emptyList(),
         val alwaysAsk: Boolean = false,
+        /** A match counts as a payment toward this bill. */
+        val billId: String? = null,
     )
 
     /** Checks a rule before it's saved: the same checks the editor shows. */
@@ -210,7 +212,7 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
                 base.copy(
                     matchText = Payees.clean(d.matchText), accountId = d.accountId, direction = d.direction, minAmount = d.minAmount,
                     maxAmount = d.maxAmount, action = d.action, splits = if (d.action == RuleAction.ENVELOPE) Rules.format(d.splits) else "",
-                    alwaysAsk = d.alwaysAsk, priority = priority, updatedAt = now,
+                    alwaysAsk = d.alwaysAsk, priority = priority, billId = d.billId, updatedAt = now,
                 ),
             ).id
         }

@@ -259,6 +259,8 @@ class SyncService(
             if (settings.autoApprove && total.newIds.isNotEmpty()) {
                 runCatching { net.darkrelay.deaddropfinance.domain.Sorting(store).autoApprove(total.newIds) }
             }
+            // bills: payments that came in count toward them (and tick the payday checklist)
+            if (total.newIds.isNotEmpty()) runCatching { net.darkrelay.deaddropfinance.domain.BillActions(store).matchPayments(total.newIds) }
             // receipts waiting for their charge: attached when the match is clear
             if (total.newIds.isNotEmpty()) runCatching { net.darkrelay.deaddropfinance.domain.Receipts(store).matchWaiting() }
             // a new account's starting balance is set once the whole history is in

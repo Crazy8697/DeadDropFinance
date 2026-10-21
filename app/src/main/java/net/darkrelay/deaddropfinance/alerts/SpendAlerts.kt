@@ -49,6 +49,49 @@ class SpendAlerts(private val context: Context) {
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             },
         )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BILLS, "Bill reminders", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A bill due soon, for the bills you turned reminders on for"
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_AUTOPAY, "Autopay warnings", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "An autopay due before payday with its envelope short"
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_READING, "Notification reading", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "Setting up how a bank app's notifications are read"
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            },
+        )
+    }
+
+    /**
+     * A plain notification on [channel] that opens the app at [open] (MainActivity.OPEN_*). The lock screen shows
+     * only [publicText] unless amounts are allowed there.
+     */
+    fun post(channel: String, id: Int, title: String, text: String, publicText: String, showOnLockScreen: Boolean, open: String = MainActivity.OPEN_ACTIVITY) {
+        if (!allowed()) return
+        ensureChannels()
+        val intent = PendingIntent.getActivity(
+            context, id,
+            Intent(context, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, open).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val public = Notification.Builder(context, channel).setSmallIcon(R.drawable.ic_stat_alert).setContentTitle(Alerts.PUBLIC_TITLE).setContentText(publicText).build()
+        nm.notify(
+            id,
+            Notification.Builder(context, channel)
+                .setSmallIcon(R.drawable.ic_stat_alert).setContentTitle(title).setContentText(text)
+                .setStyle(Notification.BigTextStyle().bigText(text))
+                .setContentIntent(intent).setAutoCancel(true)
+                .setVisibility(if (showOnLockScreen) Notification.VISIBILITY_PUBLIC else Notification.VISIBILITY_PRIVATE)
+                .setPublicVersion(public)
+                .build(),
+        )
     }
 
     /** After a background sync that added [newIds]: works out and posts the alerts, if the user allows them. */
@@ -115,6 +158,9 @@ class SpendAlerts(private val context: Context) {
     companion object {
         const val CHANNEL_SPENDING = "spending"
         const val CHANNEL_WARNINGS = "warnings"
+        const val CHANNEL_BILLS = "bills"
+        const val CHANNEL_AUTOPAY = "autopay"
+        const val CHANNEL_READING = "reading"
         const val ID_SPENDING = 8001
         const val ID_WARNINGS = 8002
         const val ACTION_APPROVE = "net.darkrelay.deaddropfinance.APPROVE"

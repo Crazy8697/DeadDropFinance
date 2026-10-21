@@ -21,6 +21,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Any deposit that is not the payday deposit (a transfer from family, a refund, side money) also goes to Ready to Assign. If the transfer carries a note (for example "Water bill"), the Assign screen shows the note as a hint. The hint never assigns anything by itself.
 - Payday auto-fill runs through the envelope list in list order and fills each envelope by its mode. Whatever is left stays in Ready to Assign.
 - If the money runs out before the list does, the app shows which envelopes did not fill and by how much. No advice, no suggestions.
+- Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself still starts only when the deposit lands.
+- A late payday (the date passed, no deposit yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it lands.
+- A synced deposit that looks like the payday deposit (same payer, within 20% of the last one, around the expected date) shows a Home card: "It's payday" runs it in one tap. A deposit read from a bank notification starts payday by itself (see Live spend alerts).
 
 ## Envelopes (Stage 6)
 - One flat list. No groups. The user drags envelopes to set the fill order.
@@ -31,7 +34,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
     - When the payday closes a budget month, the 30 is swept to Rollover first, then the envelope fills from 0 to 90 out of Ready to Assign. It ends at 90 and Rollover holds the 30. Sweep always comes before fill.
   - Add every payday: adds the full amount each payday, for things being saved up for.
   - Goal: an add-every-payday envelope with a goal amount and date ("200 by December 10"). The app works out the per-payday amount and stops filling at the goal.
-  - Seasonal: for bills that swing by season (heating, cooling). Adds the 12-month average of its linked bills every payday, so low months build a cushion and high months spend it down.
+  - Seasonal: for bills that swing by season (heating, cooling). Adds the 12-month average of its linked bills every payday, so low months build a cushion and high months spend it down. (Built: once a year of the linked bills' payments is in; until then it adds its own per-payday amount. A rest moved to a Debt envelope isn't counted as what the bill cost.)
   - Debt: see Debt envelopes.
 - An envelope can start with no target. After a month or two of history the app offers the real average spent as the target. The user accepts or ignores it.
 
@@ -51,7 +54,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Debt envelopes (Stage 6, simple version)
 - For money owed: past-due catch-up on a bill, a loan, anything.
 - Fields: balance owed (optional until known), optional required payment and due date, and an add-every-payday amount.
-- With a required payment and due date it reminds like a bill.
+- With a required payment and due date it reminds like a bill (Stage 10): a Remind me switch on the envelope, off by default, with how many days ahead. Its payment shows in the Bills tab's Coming up and in the forecast.
 - The balance goes down with every payment. Extra payments beyond the required amount are allowed.
 - Interest, payoff plans and projected payoff dates come later (Stage 24).
 
@@ -72,18 +75,25 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - When a synced account stops syncing (set to Don't sync, or its connection is disconnected), the app asks once: Remove from budget (the default: the account is archived, its balance leaves Ready to Assign, its transactions stay as history) or Keep tracking it by hand (the account stays and keeps counting).
 - Removed in 0.7.1: Teller. It has no public signup for independent developers, so users couldn't get the developer accounts the Nerdy door needed. Its connections were removed on update and their transactions kept.
 
-## Bills (Stage 6 data model, Stage 10 reminders and checklist)
+## Bills (Stage 6 data model, Stage 10 in full)
+- A bill has a name, an amount, a due date, how often it repeats (monthly, every 3 months, every 6 months, yearly, or irregular/one-off), the envelope it feeds, and an autopay flag. Each due date is one cycle; payments count toward a cycle.
 - Bills and envelopes are many to one: several bills can feed one envelope (for example three phone lines billed on different days feeding one Phone envelope).
-- One bill can be paid by several payments, by different methods (for example part by one transfer service, the rest by another). The bill counts as paid only when the payments reach the amount due.
-- Partial payments: the bill stays open with the remainder owed. The remainder can be moved into a Debt envelope.
-- Once-a-year or irregular bills (property tax, registrations) fill a little each payday.
-- Autopay flag: the user does nothing, but the app warns ahead of time when an autopay is due before the next deposit and its envelope is not full.
-- Reminders are off by default and are turned on per bill.
+- One bill can be paid by several payments, by different methods (bank, ticked by hand, cash). The cycle counts as paid only when the payments reach the amount due.
+- Partial payments: the cycle stays open with the rest owed ("$X left"). One tap (Rest to debt) moves the rest into the bill's catch-up Debt envelope (made the first time) and settles the cycle.
+- Once-a-year and irregular bills fill a little each payday: a Fill to target envelope with no target that bills feed gets, each payday, the least that has every bill's money in by its due date.
+- Bank sync and CSV import mark bills paid when the payment matches: the bill's "payment's description has" words and an amount that fits (a part payment is fine), "any amount counts" for a bill paid in parts by transfers, or a rule set to count toward the bill (any amount unless the rule has a range). A payment toward a bill in To sort is suggested into the bill's envelope.
+- Bills can be ticked paid by hand, or "Paid in cash" (logs the cash spend from the bill's envelope). When the bank's record of a hand-ticked bill comes in, it takes the place of the tick, never a second payment.
+- The amount changes (utilities): the latest charge is the expected amount next time.
+- Detection: repeating charges are found in the history (see Subscriptions); one becomes a bill only when the user taps Make it a bill. Nothing is created silently.
+- Bills tab (bottom bar: Home, Envelopes, Activity, Bills, More): the next payday, the autopay check, Coming up (sorted by due date, overdue marked, with debt payments), and Subscriptions.
+- Autopay warning: an autopay due before the next payday whose envelope doesn't have enough (all its autopays due by then together) shows the shortfall in the Bills tab, and a notification once per cycle.
+- Reminders are off by default and turned on per bill, with how many days ahead (on the day to a week). They come as notifications from a WorkManager job that runs a few times a day (it survives reboots and needs no exact-alarm permission), once per cycle, while unpaid.
+- Notification channels of their own: Bill reminders and Autopay warnings, each with a switch in More, Alerts. The lock screen shows no amounts unless that's turned on.
 
 ### Payday checklist (Stage 10)
-- When the payday deposit lands, auto-fill runs, and then a "Pay these now" list appears on the home screen with the bills due before the next payday.
-- A bill is ticked off by hand, or automatically when bank sync matches the payment.
-- The list collapses once everything on it is paid.
+- When the payday deposit lands, auto-fill runs, and then a "Pay these now" card appears on Home (under Ready to Assign) with the bills due before the next payday, and anything still overdue.
+- A bill is ticked off by hand (untick undoes a hand tick), or automatically when bank sync matches the payment.
+- The card collapses to "All N payday bills paid" once everything on it is paid.
 
 ## App lock (Stage 6)
 - The app locks with the phone's own fingerprint or PIN, through the system prompt. The app never stores a PIN of its own.
@@ -98,7 +108,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Every new transaction from bank sync or a CSV gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
 - Payees are compared after cleaning: card numbers, store numbers, dates, times, reference codes and words like "POS PURCHASE" are stripped, so every charge from the same merchant looks the same.
 - A suggestion comes from, in order: a likely return (see Returns), the first rule that matches, or the user's own last choices for that payee when they agree.
-- Rules match the cleaned payee, and optionally the account, money in or out, and an amount range. A rule puts the money in one envelope, splits it across several (in the same proportions for any amount), or marks it a transfer between the user's own accounts (not spending or income). Linking a rule to a bill comes with bills in Stage 10.
+- Rules match the cleaned payee, and optionally the account, money in or out, and an amount range. A rule puts the money in one envelope, splits it across several (in the same proportions for any amount), or marks it a transfer between the user's own accounts (not spending or income). A rule can also count toward a bill (Stage 10, set in the rule editor).
 - Rules screen (More, Rules): list, add, edit, delete, and Up and Down to set which is tried first. The editor shows what the rule matches before it's saved: what in To sort would get its suggestion, and how many earlier transactions it matches (those never change).
 - Learning: the first time the user sorts a payee by hand, the app offers once, in the list, to always do that (Make a rule or No thanks). Three identical choices in a row for a payee make the rule by themselves, shown in the list so it can be undone. No thanks or Undo means that payee is never learned. Transactions entered by hand are never learned from.
 - Rules never touch history before an account's starting balance date, archived or track-only accounts, or anything already sorted.
@@ -115,9 +125,18 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - More, Alerts: a switch for each kind, and Show amounts on the lock screen (off by default: the lock screen shows only how many came in, no payees, envelopes or amounts). Approve from a notification needs the phone unlocked.
 - Alerts are only as live as sync: background sync every 6, 12 or 24 hours, and SimpleFIN's own data updates about once a day. The settings say so.
 - Everything stays on the phone.
-- Not built: reading other apps' notifications (a bank or wallet app) to log a purchase before sync brings it, and a deposit notification starting payday auto-fill.
+- Reading bank notifications (Stage 10, More, Alerts, Read bank notifications; off by default): with Android's notification access, the app reads only the apps the user picks (a bank or wallet app), each logging to an account the user picks. Every other app's notification is dropped unread.
+- A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When bank sync brings the real record, the two are matched (the same money within 5 days and 20%, same payee): the entry takes the bank's amount and date, never a second row. An entry sync never brings is flagged in Activity after a week ("Not in bank sync after a week": Keep or Delete).
+- A deposit notification that looks like the payday deposit starts payday as soon as it lands (sweep, auto-fill, checklist). Bank sync confirms it later; if its amount differs a little, the same row takes the bank's amount and nothing is doubled. A repeat of the same notification within 10 minutes is ignored.
+- Reading is learned per app: the first money notification from an app is shown in the app once ("Check how <app> is read": pick the amount, fix the payee, money in or out); after that the app's notifications like it are read by themselves, spending and deposits each learned once. Nothing bank-specific is built in.
+- Privacy: the notification text is read in memory on the phone; only the parsed amount and payee are kept (as the transaction, in the encrypted database). The text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
+- Installed from a download, the app is under Android's restricted settings (Android 13 and up): the reading screen walks through it with buttons to Open notification access and Open app info (three dots, Allow restricted settings).
+- Test: each picked app shows what was last read from it (amount, payee, time).
 
 ## Subscriptions screen (Stage 10)
+- Lists every recurring charge found in the history at any interval: monthly, every 3 months, every 6 months, yearly. A series is one payee's charges at a steady interval (monthly needs three charges, or two of the same amount); a store visited now and then isn't one.
+- Each shows the last date charged and the next expected date, and the monthly total sits on top.
+- The user can confirm one (it stops being New), rename it, merge it with another (the same thing under two payee names), make it a bill, or say it isn't a subscription (it moves to a list at the bottom and can be brought back).
 - Handles monthly, quarterly, semiannual and annual intervals.
 - Each subscription shows the current amount, taken from its latest charge, plus the date of that charge and a monthly equivalent so a quarterly or annual charge does not look small.
 - An average is never shown as the amount, because averages hide price changes.
@@ -141,14 +160,14 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Items are kept as data (store, item text, cleaned name, quantity, unit price, date) for the price history later (Stage 23).
 - Matching: a receipt is matched to its bank transaction by total, date (the charge may post up to 5 days later, or a day before) and store name. One clear match is attached by itself; several possible ones show a short list; with none, the receipt waits in Receipts and is matched when its charge syncs in or is imported. A transaction has one receipt.
 - Restaurants and gas stations: the charge may be up to 30% more than the receipt (a tip, or a pump's final amount), and the app says so.
-- Split by items: each item to an envelope (a rule whose words are in the item's name suggests one; a discount goes with the item above it), tax and any tip shared out by what each envelope's items cost, and the transaction split to match. Applying the split deletes the photo (decided); the items, prices and tax stay as text.
+- Split by items: each item to an envelope (a rule whose words are in the item's name suggests one; a discount goes with the item above it), tax and any tip shared out by what each envelope's items cost, and the transaction split to match. The photos stay after the split (Stage 10; 0.9.0 deleted them, and those can't come back).
 - Tax is shared over all items by price: receipts don't reliably say which items were taxed.
 - Delete a transaction: its receipt goes back to Receipts (waiting for a charge), or is deleted too when the user ticks that. Delete account: receipts on its transactions go with them, photos included. Erase everything: photos, the recognition files and any camera capture are wiped too.
 - Stage 12's encrypted backup must include receipts: the rows and the encrypted photos.
 
 ## Transaction detail screen (Stage 9)
 - Tapping a charge opens its own screen.
-- With a receipt, it shows a Receipt line that opens the receipt: the photo (until the split), the items with their envelopes and anything returned, Split by items, and Not this transaction.
+- With a receipt, it shows a Receipt line that opens the receipt: the photo, the items with their envelopes and anything returned, Split by items, and Not this transaction.
 - Without a receipt, it has Add receipt, along with Edit and Split.
 
 ## Merchant page (Stage 23)
@@ -178,6 +197,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Two lines: Plan (the everyday envelope money spread evenly across the days) and Usual pace (modeled on the timing and size of the user's own spending in recent budget months). With too little history, only Plan shows.
 - It flags the first day the balance would go below zero, with a plain overdraft warning.
 - A home screen card under Safe to Spend. Tapping it opens a full view with a day-by-day list. Marking bills paid updates it.
+- Stage 10 as built: the card sits at the top of Home until Safe to Spend's card arrives (Stage 11) and goes under it. The full view has the chart (Plan solid, Usual pace dashed, the first day below zero marked) and Plan and Usual pace switches. Only budget accounts count (not archived or track-only), and history before an account's starting balance never does.
+- Usual pace spends, for each day, what the user spent on the same day after payday in the last three budget months (bills, subscriptions, transfers and washes left out, since those are counted on their own). It needs two full budget months; until then only Plan shows and the view says why.
+- Plan spreads what's in the envelopes marked Everyday spending evenly over the days; with none marked it says so.
 
 ## Parked buys (Stage 11)
 - Park a non-essential purchase with a name and a price. It waits a set time before the app gives a verdict. Wait options are 1 day, 2 days and 1 week; the default is set in Settings (1 day out of the box).

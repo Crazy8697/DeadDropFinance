@@ -39,6 +39,18 @@ import net.darkrelay.deaddropfinance.data.ReceiptKind
 import net.darkrelay.deaddropfinance.data.ItemReturnEntity
 import net.darkrelay.deaddropfinance.domain.ReceiptMatch
 import net.darkrelay.deaddropfinance.domain.ReceiptParser
+import net.darkrelay.deaddropfinance.data.BillEntity
+import net.darkrelay.deaddropfinance.data.BillPaymentEntity
+import net.darkrelay.deaddropfinance.data.BillRecurrence
+import net.darkrelay.deaddropfinance.data.PaymentMethod
+import net.darkrelay.deaddropfinance.data.NotifAppEntity
+import net.darkrelay.deaddropfinance.data.SubscriptionEntity
+import net.darkrelay.deaddropfinance.data.SubscriptionStatus
+import net.darkrelay.deaddropfinance.domain.Bills
+import net.darkrelay.deaddropfinance.domain.Forecast
+import net.darkrelay.deaddropfinance.domain.NotifParse
+import net.darkrelay.deaddropfinance.domain.Paydays
+import net.darkrelay.deaddropfinance.domain.Recurring
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -437,6 +449,130 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun moreReceiptsRow() = shot("95-more-receipts-row") {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {})
+    }
+
+    // ---- 0.10.0: bills, paydays, subscriptions, forecast, reading bank notifications -------------------------------
+    private fun bill(id: String, name: String, amount: Long, due: java.time.LocalDate, env: String?, rec: BillRecurrence = BillRecurrence.MONTHLY, autopay: Boolean = false, reminder: Boolean = false, varies: Boolean = false) =
+        BillEntity(id = id, name = name, envelopeId = env, amountDue = amount, dueDate = due, recurrence = rec, autopay = autopay, reminder = reminder, varies = varies, matchText = name.lowercase(), createdAt = 0, updatedAt = 0)
+    private fun pay(bill: String, amount: Long, due: java.time.LocalDate, method: PaymentMethod = PaymentMethod.BANK, tx: String? = null) =
+        BillPaymentEntity(billId = bill, transactionId = tx, amount = amount, date = due.minusDays(1), periodDue = due, method = method, createdAt = 0, updatedAt = 0)
+    /** Paydays on the 14th of each month; today (Mar 15) is the day after one. Spending history in each budget month. */
+    private val budget10: Budget = run {
+        val txs = mutableListOf<TransactionEntity>()
+        val lines = mutableListOf<TransactionLineEntity>()
+        var n = 0
+        val paydays = listOf(java.time.LocalDate.of(2029, 12, 14), java.time.LocalDate.of(2030, 1, 14), java.time.LocalDate.of(2030, 2, 14), java.time.LocalDate.of(2030, 3, 14))
+        for (pd in paydays) {
+            val t = TransactionEntity(id = "pay${n++}", accountId = "chk", date = pd, payee = "Sample Employer Payroll", amount = 1900_00, isPayday = true, createdAt = 0, updatedAt = 0)
+            txs += t; lines += line(t.id, t.amount, rta = true)
+            if (pd == paydays.last()) continue
+            for ((off, amt) in listOf(0L to 95_00L, 1L to 120_00L, 3L to 60_00L, 9L to 40_00L, 16L to 35_00L, 23L to 30_00L)) {
+                val s = TransactionEntity(id = "h${n++}", accountId = "chk", date = pd.plusDays(off), payee = "Sample Shop", amount = -amt, createdAt = 0, updatedAt = 0)
+                txs += s; lines += line(s.id, s.amount, "food")
+            }
+        }
+        for ((i, m) in listOf(12, 1, 2).withIndex()) {
+            val y = if (m == 12) 2029 else 2030
+            val s = TransactionEntity(id = "st$i", accountId = "chk", date = java.time.LocalDate.of(y, m, 3), payee = "SAMPLE STREAMING", importDescription = "SAMPLE STREAMING", amount = if (i == 2) -12_49 else -10_99, createdAt = 0, updatedAt = 0)
+            txs += s; lines += line(s.id, s.amount, "save")
+        }
+        val cloud = TransactionEntity(id = "cl", accountId = "chk", date = java.time.LocalDate.of(2029, 4, 2), payee = "SAMPLE CLOUD BACKUP", importDescription = "SAMPLE CLOUD BACKUP", amount = -59_88, createdAt = 0, updatedAt = 0)
+        txs += cloud; lines += line(cloud.id, cloud.amount, "save")
+        val acct = AccountEntity(id = "chk", name = "Everyday Checking", type = AccountType.BANK, startingBalance = 0, startDate = java.time.LocalDate.of(2029, 12, 1), createdAt = 0, updatedAt = 0)
+        val moved = txs.sumOf { it.amount }
+        val envs = listOf(
+            env("roll", "Rollover", EnvelopeMode.ROLLOVER, 0),
+            env("food", "Groceries", EnvelopeMode.FILL_TO_TARGET, 1, target = 400_00).copy(everyday = true),
+            env("fuel", "Fuel", EnvelopeMode.FILL_TO_TARGET, 2, target = 150_00).copy(everyday = true),
+            env("rent", "Rent", EnvelopeMode.FILL_TO_TARGET, 3, target = 950_00),
+            env("phone", "Phone", EnvelopeMode.FILL_TO_TARGET, 4, target = 70_00),
+            env("ins", "Car Insurance", EnvelopeMode.FILL_TO_TARGET, 5, target = 120_00),
+            env("save", "Rainy Day", EnvelopeMode.ADD_EVERY_PAYDAY, 6, per = 50_00),
+            env("debt", "Sample Loan", EnvelopeMode.DEBT, 7, per = 60_00).copy(requiredPayment = 75_00, dueDate = java.time.LocalDate.of(2030, 1, 22), reminder = true),
+        )
+        val bills = listOf(
+            bill("b1", "Sample Rent", 950_00, java.time.LocalDate.of(2030, 1, 16), "rent", reminder = true),
+            bill("b2", "Sample Phone Line A", 35_00, java.time.LocalDate.of(2030, 1, 20), "phone"),
+            bill("b3", "Sample Phone Line B", 35_00, java.time.LocalDate.of(2030, 1, 27), "phone"),
+            bill("b4", "Sample Car Insurance", 120_00, java.time.LocalDate.of(2030, 1, 25), "ins", autopay = true),
+            bill("b5", "Sample Power", 88_40, java.time.LocalDate.of(2030, 1, 10), "rent", varies = true),
+            bill("b6", "Sample Registration", 145_00, java.time.LocalDate.of(2030, 9, 30), null, rec = BillRecurrence.YEARLY),
+        )
+        val pays = listOf(
+            pay("b1", 950_00, java.time.LocalDate.of(2030, 1, 16)), pay("b1", 950_00, java.time.LocalDate.of(2030, 2, 16)), pay("b1", 600_00, java.time.LocalDate.of(2030, 3, 16)),
+            pay("b2", 35_00, java.time.LocalDate.of(2030, 1, 20)), pay("b2", 35_00, java.time.LocalDate.of(2030, 2, 20)), pay("b2", 35_00, java.time.LocalDate.of(2030, 3, 20), PaymentMethod.HAND),
+            pay("b3", 35_00, java.time.LocalDate.of(2030, 1, 27)), pay("b3", 35_00, java.time.LocalDate.of(2030, 2, 27)),
+            pay("b4", 120_00, java.time.LocalDate.of(2030, 1, 25)), pay("b4", 120_00, java.time.LocalDate.of(2030, 2, 25)),
+            pay("b5", 88_40, java.time.LocalDate.of(2030, 1, 10)), pay("b5", 96_10, java.time.LocalDate.of(2030, 2, 10)),
+        )
+        val moves = listOf(move(null, "food", 1050_00 + 260_00), move(null, "fuel", 90_00), move(null, "rent", 950_00), move(null, "phone", 70_00), move(null, "ins", 75_00), move(null, "save", 150_00))
+        Budget(listOf(acct.copy(startingBalance = 2100_00 - moved)), envs, txs, lines, moves, bills, pays)
+    }
+    private val subs10 = listOf(SubscriptionEntity(matchKey = "sample cloud backup", status = SubscriptionStatus.CONFIRMED, name = "Cloud Backup", createdAt = 0, updatedAt = 0))
+    private val series10 get() = Recurring.detect(budget10.transactions, subs10) + Recurring.Series(
+        "sample cloud backup", listOf("sample cloud backup"), "Cloud Backup", Recurring.Interval.YEARLY,
+        listOf(budget10.transactions.first { it.id == "cl" }, budget10.transactions.first { it.id == "cl" }.copy(id = "cl0", date = java.time.LocalDate.of(2028, 4, 2), amount = -49_88)),
+        subs10[0],
+    ).let { s -> s.copy(charges = s.charges.sortedBy { it.date }) }
+    private val pred10 get() = Paydays.predict(budget10.paydayDates, today)
+    private val forecast10 get() = Forecast.build(budget10, series10, today, pred10.next!!)
+
+    @Test fun bottomBarWithBills() = shot("96-bottom-bar-bills") { Box(Modifier.fillMaxSize()) { Column(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) { BottomTabs(Nav.Bills) {} } } }
+    @Test @Config(qualifiers = TALL) fun homeWithForecastAndChecklist() = shot("97-home-forecast-checklist") {
+        val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!)
+        HomeScreen(budget10, { Column { ForecastCard(forecast10) {} } }, {}, {}, {}, {}, belowReady = { PaydayChecklistCard(list, { _, _ -> }, {}) })
+    }
+    @Test fun homeChecklistCollapsed() = shot("98-checklist-all-paid") {
+        val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!).map { c -> c.copy(payments = c.payments + pay(c.bill.id, c.remaining, c.due, PaymentMethod.HAND)) }
+        Page { PaydayChecklistCard(list, { _, _ -> }, {}) }
+    }
+    @Test fun homePaydayLandedAndLate() = shot("99-payday-landed-and-late") {
+        Page {
+            PaydayLandedCard(TransactionEntity(id = "x", accountId = "chk", date = today, payee = "SAMPLE EMPLOYER PAYROLL", amount = 1895_20, createdAt = 0, updatedAt = 0), {}, {})
+            LatePaydayNote(today.minusDays(2), today)
+        }
+    }
+    @Test @Config(qualifiers = TALL) fun billsTab() = shot("100-bills-tab") { BillsScreen(budget10, today, pred10, series10, {}, {}, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun billDetailPartial() = shot("101-bill-detail-partial") {
+        BillDetailScreen(budget10.bills.first { it.id == "b1" }, budget10.let { b -> Budget(b.accounts + acct("cash", "Wallet", AccountType.CASH, 40_00), b.envelopes, b.transactions, b.lines, b.moves, b.bills, b.billPayments) }, today, null, {}, {}, {}, { _, _ -> }, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun billEdit() = shot("102-bill-edit") { BillEditScreen(budget10.bills.first { it.id == "b4" }.copy(reminder = true, reminderDays = 3), null, budget10, null, {}, {}, {}) }
+    @Test fun paydayChange() = shot("103-payday-change") { BillsScreen(budget10, today, pred10, series10, {}, {}, {}, {}, {}, editingPayday = true) }
+    @Test @Config(qualifiers = TALL) fun subscriptions() = shot("104-subscriptions") { SubscriptionsScreen(series10, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun subscriptionDetail() = shot("105-subscription-detail") {
+        val s = series10.first { it.key == "sample streaming" }
+        SubscriptionDetailScreen(s, series10.filter { it.key != s.key }, budget10, null, {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun forecastUsual() = shot("106-forecast-usual-pace") { ForecastScreen(forecast10, {}) }
+    @Test @Config(qualifiers = TALL) fun forecastPlanOnly() = shot("107-forecast-plan-only") {
+        val b = budget10
+        val thin = Budget(b.accounts, b.envelopes, b.transactions.filter { !it.isPayday || it.date == b.paydayDates.last() }, b.lines, b.moves, b.bills, b.billPayments)
+        ForecastScreen(Forecast.build(thin, series10, today, pred10.next!!), {})
+    }
+    @Test @Config(qualifiers = TALL) fun moreAlertsStage10() = shot("108-more-alerts-bills-reading") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, null, {}, sortAlerts = {
+            SortingAndAlertsSection(SortAlertState(4, false, true, true, true, false, true, true, 6, bills = true, autopay = true, reading = true), {}, {}, { _, _ -> }, {})
+        })
+    }
+    private val bankApp = NotifAppEntity("com.example.samplebank", "Sample Bank", "chk", templates = NotifParse.encode(listOf(NotifParse.Template(false, "of", "at", "with card"))), lastAmount = 42_18, lastPayee = "SAMPLE MARKET 0042", lastAt = at)
+    @Test fun readingOff() = shot("109-reading-off") { NotifReadingScreen(ReadingState(false, false, emptyList(), emptyList(), emptyMap()), budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun readingRestricted() = shot("110-reading-restricted-steps") {
+        NotifReadingScreen(ReadingState(true, false, emptyList(), listOf("com.example.samplebank" to "Sample Bank", "com.example.samplewallet" to "Sample Wallet"), emptyMap()), budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun readingTeach() = shot("111-reading-teach-and-last-read") {
+        val wallet = NotifAppEntity("com.example.samplewallet", "Sample Wallet", "chk")
+        NotifReadingScreen(
+            ReadingState(true, true, listOf(bankApp, wallet), emptyList(), mapOf("com.example.samplewallet" to "Sample Wallet: You paid \$6.25 to SAMPLE COFFEE CART. Balance \$40.10.")),
+            budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {},
+        )
+    }
+    @Test fun activityStale() = shot("112-activity-not-in-sync") {
+        val t = TransactionEntity(id = "n1", accountId = "chk", date = today.minusDays(9), payee = "SAMPLE KIOSK", amount = -9_99, pending = true, source = net.darkrelay.deaddropfinance.data.TransactionSource.NOTIFICATION, createdAt = 0, updatedAt = 0)
+        ActivityScreen(budget8, {}, {}, { _, _, _ -> }, {}, sorting = SortingUi(stale = listOf(t)))
+    }
+    @Test @Config(qualifiers = TALL) fun envelopeDebtReminder() = shot("113-envelope-debt-reminder") { EnvelopeEditScreen(budget10.envelopes.first { it.id == "debt" }, null, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun ruleCountsTowardBill() = shot("114-rule-counts-toward-bill") {
+        RuleEditScreen(RuleEntity(id = "rb", matchText = "sample landlord", splits = "rent:1", billId = "b1", createdAt = 0, updatedAt = 0), null, budget10, emptyList(), null, {}, {}, {})
     }
 }
 

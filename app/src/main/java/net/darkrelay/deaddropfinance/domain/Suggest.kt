@@ -18,12 +18,14 @@ import net.darkrelay.deaddropfinance.domain.BudgetActions.LineDraft
  */
 object Suggest {
 
-    enum class Basis { RETURN, RULE, HISTORY }
+    enum class Basis { RETURN, RULE, BILL, HISTORY }
 
     data class Suggestion(
         val lines: List<LineDraft>,
         val basis: Basis,
         val rule: RuleEntity? = null,
+        /** BILL: the bill this payment counts toward (its envelope is the suggestion). */
+        val bill: net.darkrelay.deaddropfinance.data.BillEntity? = null,
         /** RETURN: the purchase it gives money back to. */
         val returnOf: TransactionEntity? = null,
     ) {
@@ -126,6 +128,10 @@ object Suggest {
                 }
             }
             ruleFor(t)?.let { (r, lines) -> return Suggestion(lines, Basis.RULE, rule = r) }
+            // a payment toward a bill goes to the bill's envelope
+            b.bills.firstOrNull { bill -> bill.envelopeId in live && Bills.matches(bill, t, rules, b.billPayments, t.date) }?.let { bill ->
+                return Suggestion(listOf(LineDraft(bill.envelopeId, t.amount)), Basis.BILL, bill = bill)
+            }
             val sign = if (t.amount < 0) -1 else 1
             val past = history[Payees.key(t)].orEmpty().filter { it.first == sign }.take(HISTORY_LOOKBACK).map { it.second }
             if (past.isEmpty() || past.any { it != past[0] }) return null

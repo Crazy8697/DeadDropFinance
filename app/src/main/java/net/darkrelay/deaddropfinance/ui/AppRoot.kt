@@ -25,8 +25,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,7 +84,18 @@ sealed interface Nav {
     data class ItemSplit(val receiptId: String) : Nav
     data object Receipts : Nav
     data class ReturnItems(val creditId: String, val purchaseId: String) : Nav
+    data object Bills : Nav
+    data class Bill(val id: String) : Nav
+    /** A bill to edit, or a new one ([id] null), optionally made from a repeating charge ([fromSeries]). */
+    data class BillEdit(val id: String?, val fromSeries: String? = null) : Nav
+    data object Subscriptions : Nav
+    data class Subscription(val key: String) : Nav
+    data object Forecast : Nav
+    data object Reading : Nav
 }
+
+/** Where a notification opens the app ([where]: MainActivity.OPEN_*); [n] rises with each one. */
+data class OpenTo(val where: String, val n: Int)
 
 /** Images shared to the app from another app, to scan as a receipt. [n] rises with each share. */
 data class SharedReceipt(val uris: List<android.net.Uri>, val n: Int)
@@ -121,6 +132,17 @@ interface Platform {
     val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles
     /** Removes photos whose receipt is gone. */
     fun sweepReceiptFiles(keep: Set<String>)
+    /** Android's notification access for the bank notification reader is granted. */
+    fun notifAccessGranted(): Boolean
+    /** Turns reading bank notifications on or off (the listener itself, not only a setting). */
+    fun setNotifReading(on: Boolean)
+    fun openNotifAccess()
+    fun openAppInfo()
+    /** The phone's apps with a launcher icon (package, name), for picking a bank app. */
+    fun launcherApps(): List<Pair<String, String>>
+    /** Picked apps' notifications waiting to be checked (in memory only). */
+    fun notifPending(): Map<String, String>
+    fun clearNotifPending(pkg: String)
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -137,11 +159,17 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(
-    store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openActivity: Int = 0, shared: SharedReceipt? = null,
+    store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
 ) {
     val actions = remember(store) { BudgetActions(store, platform.receiptFiles) }
     val sorting = remember(store) { Sorting(store, actions) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
+    val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
+    val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
+    val notifApps by remember(store) { store.dao.notifApps() }.collectAsState(initial = emptyList())
+    // bumped when something outside Compose changes (the payday correction, reading access, the pending inbox)
+    var planTick by remember { mutableIntStateOf(0) }
+    var readingOn by remember { mutableStateOf(sync.settings.notifReading) }
     val receipts by remember(store) { store.dao.receipts() }.collectAsState(initial = emptyList())
     val receiptItems by remember(store) { store.dao.receiptItems() }.collectAsState(initial = emptyList())
     val itemReturns by remember(store) { store.dao.itemReturns() }.collectAsState(initial = emptyList())
@@ -227,7 +255,15 @@ fun AppRoot(
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
         }
     }
-    LaunchedEffect(openActivity) { if (openActivity > 0) tab(Nav.Activity) }
+    LaunchedEffect(openTo?.n) {
+        when (openTo?.where) {
+            null -> {}
+            net.darkrelay.deaddropfinance.MainActivity.OPEN_BILLS -> tab(Nav.Bills)
+            net.darkrelay.deaddropfinance.MainActivity.OPEN_HOME -> tab(Nav.Home)
+            net.darkrelay.deaddropfinance.MainActivity.OPEN_READING -> { tab(Nav.More); go(Nav.Reading) }
+            else -> tab(Nav.Activity)
+        }
+    }
     LaunchedEffect(Unit) {
         // photos left behind by a receipt that's gone (or a scan never saved)
         withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
@@ -241,6 +277,14 @@ fun AppRoot(
     val top = stack.last()
     val hasAccounts = b.accounts.any { !it.archived }
     val suggestions = remember(b, rules) { Suggest.all(b, rules) }
+    val correction by produceState<LocalDate?>(null, planTick) { value = billActions.paydayCorrection() }
+    val prediction = remember(b.paydayDates, correction, today) { net.darkrelay.deaddropfinance.domain.Paydays.predict(b.paydayDates, today, correction) }
+    val nextPayday = prediction.effectiveNext(today)
+    val series = remember(b, subscriptions) { net.darkrelay.deaddropfinance.domain.Recurring.detect(b.transactions, subscriptions) }
+    val forecast = remember(b, series, nextPayday) { nextPayday?.let { net.darkrelay.deaddropfinance.domain.Forecast.build(b, series, today, it) } }
+    val checklist = remember(b, nextPayday) { net.darkrelay.deaddropfinance.domain.Bills.checklist(b.bills, b.billPayments, b.paydayDates.lastOrNull(), nextPayday ?: today.plusDays(14)) }
+    val notPayday = remember(planTick) { sync.settings.notPayday }
+    val landed = b.transactions.filter { it.id !in notPayday && net.darkrelay.deaddropfinance.domain.Paydays.looksLikePayday(it, b, prediction.next) }.maxByOrNull { it.date }
     fun askNotifications() = platform.requestNotifications { _ ->
         alertTick++
         sync.settings.alertsAsked = true
@@ -316,10 +360,37 @@ fun AppRoot(
                         }
                     }
                 }
+                val top2: @Composable () -> Unit = {
+                    Column {
+                        head?.invoke()
+                        if (landed != null) PaydayLandedCard(
+                            landed,
+                            onRun = {
+                                run(scope) {
+                                    val plan = actions.markPayday(landed.id)
+                                    message = "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover."
+                                    if (plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
+                                }
+                            },
+                            onNotNow = { sync.settings.notPayday = sync.settings.notPayday + landed.id; planTick++ },
+                        )
+                        if (prediction.late && prediction.next != null) LatePaydayNote(prediction.next, today)
+                        forecast?.let { ForecastCard(it) { go(Nav.Forecast) } }
+                    }
+                }
                 Refreshable(connections.isNotEmpty(), refreshing, { refresh() }) {
                     HomeScreen(
-                        b, update = head,
+                        b, update = top2,
                         onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) }, onAddEnvelope = { go(Nav.EnvelopeEdit(null)) },
+                        belowReady = if (checklist.isEmpty()) null else {
+                            {
+                                PaydayChecklistCard(
+                                    checklist,
+                                    onTick = { c, on -> run(scope) { if (on) billActions.markPaid(c.bill.id, c.due) else billActions.unmarkPaid(c.bill.id, c.due) } },
+                                    onBill = { go(Nav.Bill(it)) },
+                                )
+                            }
+                        },
                     )
                 }
             }
@@ -353,6 +424,9 @@ fun AppRoot(
                         onScan = { startScan(null) },
                         waitingReceipts = receipts.count { it.transactionId == null },
                         onReceipts = { go(Nav.Receipts) },
+                        stale = net.darkrelay.deaddropfinance.domain.NotifLog.stale(b, today),
+                        onKeepStale = { id -> run(scope) { net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).keep(id) } },
+                        onDeleteStale = { id -> run(scope) { actions.deleteTransaction(id) } },
                     ),
                 )
             }
@@ -377,8 +451,9 @@ fun AppRoot(
                     SortingAndAlertsSection(
                         SortAlertState(
                             rules.size, autoApprove, st.alertSpending, st.alertLowOrOverspent, st.alertSafeToSpend, st.alertAmountsOnLockScreen,
-                            notificationsAllowed, background && connections.isNotEmpty(), interval,
+                            notificationsAllowed, background && connections.isNotEmpty(), interval, st.alertBills, st.alertAutopay, readingOn,
                         ),
+                        onReading = { go(Nav.Reading) },
                         onRules = { go(Nav.Rules) },
                         onAutoApprove = { st.autoApprove = it; autoApprove = it },
                         onAlert = { key, on ->
@@ -387,6 +462,8 @@ fun AppRoot(
                                 ALERT_LOW -> st.alertLowOrOverspent = on
                                 ALERT_SAFE -> st.alertSafeToSpend = on
                                 ALERT_LOCK_AMOUNTS -> st.alertAmountsOnLockScreen = on
+                                ALERT_BILLS -> st.alertBills = on
+                                ALERT_AUTOPAY -> st.alertAutopay = on
                             }
                             alertTick++
                             if (on && key != ALERT_LOCK_AMOUNTS && !notificationsAllowed) askNotifications()
@@ -515,6 +592,97 @@ fun AppRoot(
                 }
             }
             Nav.Receipts -> ReceiptsScreen(receipts, b, ::back, onReceipt = { go(Nav.Receipt(it)) }, onScan = { startScan(null) })
+            Nav.Bills -> BillsScreen(
+                b, today, prediction, series, onBill = { go(Nav.Bill(it)) }, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.BillEdit(null)) },
+                onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { d -> scope.launch { billActions.correctPayday(d); planTick++ } },
+            )
+            is Nav.Bill -> {
+                val bill = b.bills.firstOrNull { it.id == top.id }
+                if (bill == null) back() else BillDetailScreen(
+                    bill, b, today, message ?: error, ::back, onEdit = { go(Nav.BillEdit(bill.id)) },
+                    onPaid = { due -> run(scope) { billActions.markPaid(bill.id, due) } },
+                    onCash = { due, acct -> run(scope) { billActions.markPaid(bill.id, due, cashAccountId = acct); message = "Logged as paid in cash." } },
+                    onUnpay = { due -> run(scope) { billActions.unmarkPaid(bill.id, due) } },
+                    onDebt = { due -> run(scope) { billActions.moveRestToDebt(bill.id, due); message = "The rest went to the catch-up debt envelope." } },
+                    onTransaction = { go(Nav.TxDetail(it)) },
+                )
+            }
+            is Nav.BillEdit -> {
+                val bill = top.id?.let { id -> b.bills.firstOrNull { it.id == id } }
+                val s = top.fromSeries?.let { k -> series.firstOrNull { it.key == k } }
+                val prefill = s?.let {
+                    BillPrefill(
+                        it.name, it.amount, it.nextDate,
+                        when (it.interval) {
+                            net.darkrelay.deaddropfinance.domain.Recurring.Interval.MONTHLY -> net.darkrelay.deaddropfinance.data.BillRecurrence.MONTHLY
+                            net.darkrelay.deaddropfinance.domain.Recurring.Interval.QUARTERLY -> net.darkrelay.deaddropfinance.data.BillRecurrence.QUARTERLY
+                            net.darkrelay.deaddropfinance.domain.Recurring.Interval.SEMIANNUAL -> net.darkrelay.deaddropfinance.data.BillRecurrence.SEMIANNUAL
+                            net.darkrelay.deaddropfinance.domain.Recurring.Interval.YEARLY -> net.darkrelay.deaddropfinance.data.BillRecurrence.YEARLY
+                        },
+                        it.key,
+                    )
+                }
+                BillEditScreen(
+                    bill, prefill, b, error, ::back,
+                    onSave = { d -> run(scope, popAfter = true) { billActions.saveBill(top.id, d) } },
+                    onDelete = if (bill == null) null else { { run(scope) { billActions.deleteBill(bill.id); stack.removeAll { it is Nav.Bill || it is Nav.BillEdit } } } },
+                )
+            }
+            Nav.Subscriptions -> SubscriptionsScreen(series, ::back) { go(Nav.Subscription(it)) }
+            is Nav.Subscription -> {
+                val s = series.firstOrNull { top.key in it.keys }
+                if (s == null) back() else SubscriptionDetailScreen(
+                    s, series.filter { it.key != s.key && !it.dismissed }, b, message ?: error, ::back,
+                    onConfirm = { run(scope) { billActions.confirm(s) } },
+                    onRename = { n -> run(scope) { billActions.rename(s, n); message = "Renamed." } },
+                    onMerge = { k -> series.firstOrNull { it.key == k }?.let { o -> run(scope) { billActions.merge(s, o); message = "Merged." } } },
+                    onMakeBill = { env -> run(scope) { val id = billActions.makeBill(s, env); go(Nav.Bill(id)); message = "Made a bill. Its payments are matched from now on." } },
+                    onDismiss = { run(scope, popAfter = true) { billActions.dismiss(s) } },
+                    onRestore = { run(scope) { billActions.restore(s) } },
+                )
+            }
+            Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: back()
+            Nav.Reading -> {
+                val granted = key(planTick) { platform.notifAccessGranted() }
+                val launcher by produceState(emptyList<Pair<String, String>>(), readingOn) { value = withContext(Dispatchers.IO) { platform.launcherApps() } }
+                val pending = key(planTick, notifApps) { platform.notifPending() }
+                LaunchedEffect(Unit) { while (true) { delay(3000); planTick++ } }
+                NotifReadingScreen(
+                    ReadingState(readingOn, granted, notifApps, launcher, pending), b, ::back,
+                    onToggle = { on ->
+                        platform.setNotifReading(on); readingOn = on; planTick++
+                        if (on && !platform.notificationsAllowed()) askNotifications()
+                    },
+                    onOpenAccess = { platform.openNotifAccess() }, onOpenAppInfo = { platform.openAppInfo() },
+                    onPick = { pkg, label, acct ->
+                        scope.launch {
+                            billActions.pickApp(pkg, label, acct)
+                            sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
+                        }
+                    },
+                    onDrop = { pkg ->
+                        scope.launch {
+                            billActions.dropApp(pkg); platform.clearNotifPending(pkg)
+                            sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
+                        }
+                    },
+                    onTeach = { pkg, t ->
+                        run(scope) {
+                            billActions.teach(pkg, t)
+                            val text = platform.notifPending()[pkg]
+                            platform.clearNotifPending(pkg)
+                            val p = text?.let { net.darkrelay.deaddropfinance.domain.NotifParse.parse(it, listOf(t)) }
+                            if (p != null) {
+                                val r = net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).log(pkg, p)
+                                message = if (r.payday) "Read. It was payday: envelopes filled." else "Read and logged."
+                            }
+                            planTick++
+                        }
+                    },
+                    onForget = { pkg -> scope.launch { billActions.forget(pkg) } },
+                    onRefresh = { planTick++ },
+                )
+            }
             is Nav.ReturnItems -> {
                 val credit = b.transactions.firstOrNull { it.id == top.creditId }
                 val purchase = b.transactions.firstOrNull { it.id == top.purchaseId }
@@ -593,6 +761,7 @@ fun AppRoot(
                         val res = actions.importCsv(acct, plan)
                         if (sync.settings.autoApprove) sorting.autoApprove(res.newIds)
                         if (res.newIds.isNotEmpty()) receiptsOps.matchWaiting()
+                        billActions.matchPayments(res.newIds)
                         importState = ImportState(result = res)
                     }
                 },

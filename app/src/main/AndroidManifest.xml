@@ -10,6 +10,11 @@
 
     <!-- To open release links in a real browser (Browsers.kt), the browsers have to be visible. -->
     <queries>
+        <!-- The app picker for reading bank notifications lists the phone's apps that have a launcher icon. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
@@ -55,6 +60,18 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/capture_paths" />
         </provider>
+        <!-- Reading the notifications of the bank and wallet apps the user picks. Off (disabled) until the user turns it
+             on in More, Alerts; only Android can bind it, and only once the user grants notification access. -->
+        <service
+            android:name=".alerts.BankNotificationListener"
+            android:enabled="false"
+            android:exported="true"
+            android:label="Dead Drop Finance: bank notifications"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
         <!-- A spend alert's Approve button. Only this app's own notifications can reach it. -->
         <receiver
             android:name=".alerts.AlertActionReceiver"

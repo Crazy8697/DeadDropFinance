@@ -38,6 +38,7 @@ class BudgetStore(
                 is ReceiptEntity -> dao.upsertReceipt(new)
                 is ReceiptItemEntity -> dao.upsertReceiptItem(new)
                 is ItemReturnEntity -> dao.upsertItemReturn(new)
+                is SubscriptionEntity -> dao.upsertSubscription(new)
                 else -> error("not a synced table: ${new::class.simpleName}")
             }
             val op = when {
@@ -91,6 +92,7 @@ class BudgetStore(
             is ReceiptEntity -> "receipt"
             is ReceiptItemEntity -> "receipt_item"
             is ItemReturnEntity -> "item_return"
+            is SubscriptionEntity -> "subscription"
             else -> error("not a synced table")
         }
 
