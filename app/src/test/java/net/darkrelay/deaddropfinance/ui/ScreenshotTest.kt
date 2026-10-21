@@ -138,7 +138,7 @@ class ScreenshotTest {
     @Test fun moreNoScreenLock() = shot("17-more-no-screen-lock") { MoreScreen(more.copy(lockAvailable = false), {}, {}, {}, {}, {}, {}, {}) }
     @Test fun accounts() = shot("18-accounts") { AccountsScreen(budget, {}, {}, {}) }
     @Test fun accountsEmpty() = shot("19-accounts-empty") { AccountsScreen(empty, {}, {}, {}) }
-    @Test fun accountEdit() = shot("20-account-edit") { AccountEditScreen(null, null, {}, { _, _, _, _ -> }, {}) }
+    @Test fun accountEdit() = shot("20-account-edit") { AccountEditScreen(null, null, {}, {}, {}) }
     @Test @Config(qualifiers = TALL) fun import() = shot("21-import-preview") {
         val text = "Account: Sample\n\nDate,Description,Debit,Credit,Balance\n03/01/2030,Corner Grocer,40.00,,960.00\n03/02/2030,Sample Payroll Co,,900.00,1860.00\n03/02/2030,Bad Row,,,1860.00\n"
         ImportScreen(budget, ImportState("sample.csv", text, CsvImport.detect(text), "chk"), {}, {}, {}, {}, {})
@@ -188,18 +188,18 @@ class ScreenshotTest {
             FinishPage(listOf("App lock is on.", "Connected: SimpleFIN", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup. Add or change bank connections from More, Bank sync."))
         }
     }
-    @Test fun bankSyncEmpty() = shot("41-bank-sync-empty") { BankSyncScreen(emptyList(), emptyList(), budget.accounts, emptyMap(), true, 6, false, null, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}) }
+    @Test fun bankSyncEmpty() = shot("41-bank-sync-empty") { BankSyncScreen(emptyList(), emptyList(), budget.accounts, emptyMap(), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {}) }
     @Test @Config(qualifiers = TALL) fun bankSync() = shot("42-bank-sync") {
-        BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _ -> }, {}, {})
+        BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {})
     }
     @Test fun syncLinksFromBankSync() = shot("43-bank-sync-accounts") {
         Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null) {} }
     }
     @Test @Config(qualifiers = TALL) fun accountSyncMismatch() = shot("44-account-balance-check") {
-        AccountEditScreen(budget.accounts[0], null, {}, { _, _, _, _ -> }, {}) { AccountSyncSection(budget, "chk", links, conns) { _, _ -> } }
+        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", links, conns) { _, _, _ -> } }, budget = budget)
     }
     @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
-        AccountEditScreen(budget.accounts[2], null, {}, { _, _, _, _ -> }, {}) { AccountSyncSection(budget, "cash", links, conns) { _, _ -> } }
+        AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns) { _, _, _ -> } }, budget = budget)
     }
     @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}) }
     @Test fun fixDialog() = shot("47-fix-dialog") {
@@ -210,4 +210,32 @@ class ScreenshotTest {
         ActivityScreen(budget, {}, {}, { _, _, _ -> }, {}, listOf("0 new transactions, 1 pending removed. A pending SAMPLE HOLD for -\$9.99 on 2030-03-14 disappeared without posting and was removed."))
     }
     @Test fun moreWithSync() = shot("49-more-bank-sync") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "2 connections, last sync Mar 15, 9:30 AM. One needs attention.") }
+
+    // ---- 0.7.2 ---------------------------------------------------------------------------------------------------
+    @Test fun bottomTabsNarrow() = shot("50-bottom-tabs-narrow") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Home) {} } }
+    @Test @Config(qualifiers = "w600dp-h400dp-xhdpi") fun bottomTabsWide() = shot("51-bottom-tabs-wide") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Activity) {} } }
+    @Test @Config(qualifiers = "w320dp-h500dp-xhdpi") fun bottomTabsSmallest() = shot("52-bottom-tabs-320dp") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Envelopes) {} } }
+    @Test @Config(qualifiers = TALL) fun linkOverdrawn() = shot("53-link-overdrawn-and-track-only") {
+        val od = listOf(
+            LinkedAccountEntity("o1", "c1", "ACT-O", "Sample Overdrawn Checking", "", null, -42_17, at),
+            LinkedAccountEntity("o2", "c1", "ACT-S", "Sample Membership Share", "", null, 5_00, at),
+        )
+        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
+            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, null)
+        }
+    }
+    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}); UnlinkDialog("Everyday Checking", {}, {}) }
+    private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
+    private val shareTrack = acct("share", "Membership Share", AccountType.BANK, 5_00).copy(trackOnly = true)
+    private val budget2 = Budget(budget.accounts + listOf(savingsHeld, shareTrack), budget.envelopes, budget.transactions, budget.lines, budget.moves)
+    @Test @Config(qualifiers = TALL) fun accountHeld() = shot("55-account-held-amount") { AccountEditScreen(savingsHeld, null, {}, {}, {}, budget = budget2) }
+    @Test @Config(qualifiers = TALL) fun accountHeldShort() = shot("56-account-below-held") {
+        val low = savingsHeld.copy(startingBalance = 10_00)
+        AccountEditScreen(low, null, {}, {}, {}, budget = Budget(budget.accounts + low, budget.envelopes, budget.transactions, budget.lines, budget.moves))
+    }
+    @Test @Config(qualifiers = TALL) fun accountTrackOnly() = shot("57-account-track-only") { AccountEditScreen(shareTrack, null, {}, {}, {}, budget = budget2) }
+    @Test fun accountsList() = shot("58-accounts-track-only-and-archived") {
+        AccountsScreen(Budget(budget2.accounts + acct("old", "Old Savings", AccountType.BANK, 80_00).copy(archived = true), budget.envelopes, budget.transactions, budget.lines, budget.moves), {}, {}, {})
+    }
+    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}) }
 }

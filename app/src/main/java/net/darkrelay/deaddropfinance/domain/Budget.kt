@@ -17,8 +17,11 @@ import net.darkrelay.deaddropfinance.data.TransactionLineEntity
  * All of the budget's math, from the rows alone (tombstones already filtered out). No screen does arithmetic on
  * money; it asks this. Everything is in cents, so nothing is ever rounded.
  *
- * The money always balances: the sum of the account balances equals Ready to Assign plus every envelope's balance
- * plus whatever is still in To sort (sortedCheck).
+ * The money always balances: the sum of the budget accounts' balances equals Ready to Assign plus every envelope's
+ * balance plus whatever is still in To sort plus the held amounts (sortedCheck).
+ *
+ * Accounts outside the budget (archived, or track only) don't count at all: as if they were never there. Money
+ * moved between a budget account and one outside it comes out of (or goes into) Ready to Assign.
  */
 class Budget(
     val accounts: List<AccountEntity>,
@@ -31,8 +34,13 @@ class Budget(
 ) {
     private val txById = transactions.associateBy { it.id }
 
-    /** Lines that count for the budget: of live transactions, not washes. */
-    private val budgetLines = lines.filter { l -> txById[l.transactionId]?.let { !it.isWash } == true }
+    /** Accounts whose money isn't part of the budget (archived or track only). */
+    val offBudgetIds: Set<String> = accounts.filter { !it.onBudget }.map { it.id }.toSet()
+
+    fun isOnBudget(accountId: String) = accountId !in offBudgetIds
+
+    /** Lines that count for the budget: of live transactions in budget accounts, not washes. */
+    private val budgetLines = lines.filter { l -> txById[l.transactionId]?.let { !it.isWash && isOnBudget(it.accountId) } == true }
 
     val accountBalances: Map<String, Long> = accounts.associate { a ->
         var b = a.startingBalance
@@ -56,15 +64,41 @@ class Budget(
         e.id to b
     }
 
-    /** Money not in any envelope yet: starting balances and income lines, minus what was assigned out of it. */
+    /**
+     * What each budget account holds back: its held amount, but never more than its balance (and nothing when the
+     * balance is zero or below), so a held amount can't push Ready to Assign below what the money really is.
+     */
+    val held: Map<String, Long> = accounts.filter { it.onBudget && it.heldAmount > 0 }.associate { a ->
+        a.id to minOf(a.heldAmount, maxOf(accountBalances[a.id] ?: 0L, 0L))
+    }
+
+    val heldTotal: Long get() = held.values.sum()
+
+    /** A budget account whose balance is below its held amount. */
+    fun heldShort(accountId: String): Boolean {
+        val a = accounts.firstOrNull { it.id == accountId } ?: return false
+        return a.onBudget && a.heldAmount > 0 && (accountBalances[a.id] ?: 0L) < a.heldAmount
+    }
+
+    /**
+     * Money not in any envelope yet: budget accounts' starting balances and income lines, minus what was assigned
+     * out of it, minus transfers out of the budget (plus transfers into it), minus held amounts.
+     */
     val readyToAssign: Long = run {
-        var r = accounts.sumOf { it.startingBalance }
-        for (l in budgetLines) if (l.bucket == LineBucket.READY_TO_ASSIGN) r += l.amount
+        var r = accounts.filter { it.onBudget }.sumOf { it.startingBalance }
+        for (l in budgetLines) if (l.bucket == LineBucket.READY_TO_ASSIGN || l.bucket == LineBucket.OFF_BUDGET) r += l.amount
         for (m in moves) {
             if (m.fromEnvelopeId == null) r -= m.amount
             if (m.toEnvelopeId == null) r += m.amount
         }
-        r
+        for (t in transactions) {
+            if (t.kind != TransactionKind.TRANSFER) continue
+            val fromIn = isOnBudget(t.accountId)
+            val toIn = t.transferAccountId?.let { isOnBudget(it) } ?: false
+            if (fromIn && !toIn) r -= t.amount
+            if (!fromIn && toIn) r += t.amount
+        }
+        r - held.values.sum()
     }
 
     /** Signed total of lines nobody has sorted yet (To sort): spending shows negative, income positive. */
@@ -76,10 +110,10 @@ class Budget(
         transactions.filter { it.id in ids }.sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
     }
 
-    /** sum(accounts) - (RTA + envelopes + To sort): always 0 (washes net to zero in pairs). */
+    /** sum(budget accounts) - (RTA + envelopes + To sort + held): always 0 (washes net to zero in pairs). */
     val sortedCheck: Long
-        get() = accountBalances.values.sum() - (readyToAssign + envelopeBalances.values.sum() + toSortTotal) -
-            transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL }.sumOf { it.amount }
+        get() = accountBalances.filterKeys { isOnBudget(it) }.values.sum() - (readyToAssign + envelopeBalances.values.sum() + toSortTotal + heldTotal) -
+            transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
     fun accountBalance(id: String) = accountBalances[id] ?: 0L

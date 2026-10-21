@@ -37,6 +37,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "0.7.0") assertEquals(700, BuildConfig.VERSION_CODE)
         // 0.7.1 (Teller removed) -> 0 * 10000 + 7 * 100 + 1
         if (BuildConfig.VERSION_NAME == "0.7.1") assertEquals(701, BuildConfig.VERSION_CODE)
+        // 0.7.2 (Stage 7 fixes) -> 0 * 10000 + 7 * 100 + 2
+        if (BuildConfig.VERSION_NAME == "0.7.2") assertEquals(702, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

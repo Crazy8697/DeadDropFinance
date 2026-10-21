@@ -28,6 +28,9 @@ class SimpleFinSource(
     /** The Bridge's developer notes recommend overlapping fetch windows by about 5 days. */
     override val overlapDays = 5L
 
+    /** The Bridge allows at most 90 days between start-date and end-date. */
+    override val maxRangeDays = WINDOW_DAYS
+
     private val parsed = parseAccessUrl(accessUrl, allowLoopbackHttp)
 
     override suspend fun accounts(): FetchResult {

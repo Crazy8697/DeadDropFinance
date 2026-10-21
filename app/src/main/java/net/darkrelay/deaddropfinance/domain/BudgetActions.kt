@@ -32,19 +32,28 @@ class BudgetActions(private val store: BudgetStore) {
 
     // ---- accounts --------------------------------------------------------------------------------------------
 
-    suspend fun saveAccount(id: String?, name: String, type: AccountType, startingBalance: Long, startDate: LocalDate): String {
+    suspend fun saveAccount(
+        id: String?, name: String, type: AccountType, startingBalance: Long, startDate: LocalDate,
+        trackOnly: Boolean? = null, heldAmount: Long? = null,
+    ): String {
         if (name.isBlank()) throw BudgetRuleException("Give the account a name.")
+        if (heldAmount != null && heldAmount < 0) throw BudgetRuleException("A held amount can't be negative.")
         return store.write {
             val old = id?.let { dao.account(it) }
-            val new = old?.copy(name = name.trim(), type = type, startingBalance = startingBalance, startDate = startDate, updatedAt = now)
+            val new = old?.copy(
+                name = name.trim(), type = type, startingBalance = startingBalance, startDate = startDate,
+                trackOnly = trackOnly ?: old.trackOnly, heldAmount = heldAmount ?: old.heldAmount, updatedAt = now,
+            )
                 ?: AccountEntity(
                     name = name.trim(), type = type, startingBalance = startingBalance, startDate = startDate,
+                    trackOnly = trackOnly ?: false, heldAmount = heldAmount ?: 0,
                     sortOrder = dao.accountsNow().size, createdAt = now, updatedAt = now,
                 )
             put(old, new).id
         }
     }
 
+    /** Archiving takes the account's balance out of the budget (Ready to Assign); unarchiving puts it back. */
     suspend fun setAccountArchived(id: String, archived: Boolean) = store.write {
         val old = dao.account(id) ?: return@write
         put(old, old.copy(archived = archived, updatedAt = now))
@@ -277,6 +286,8 @@ class BudgetActions(private val store: BudgetStore) {
      * a row matching a pending transaction posts that one instead of adding a second.
      */
     suspend fun importCsv(accountId: String, plan: CsvImport.Plan): ImportResult = store.write {
+        // an account outside the budget records imported rows as handled instead of putting them in To sort
+        val bucket = if (dao.account(accountId)?.onBudget == false) LineBucket.OFF_BUDGET else LineBucket.UNSORTED
         for (r in plan.toImport) {
             val tx = put(
                 null,
@@ -287,7 +298,7 @@ class BudgetActions(private val store: BudgetStore) {
                     createdAt = now, updatedAt = now,
                 ),
             )
-            put(null, TransactionLineEntity(transactionId = tx.id, bucket = LineBucket.UNSORTED, amount = r.amount, createdAt = now, updatedAt = now))
+            put(null, TransactionLineEntity(transactionId = tx.id, bucket = bucket, amount = r.amount, createdAt = now, updatedAt = now))
         }
         for ((r, p) in plan.matchedPending) {
             val old = dao.transaction(p.id) ?: continue

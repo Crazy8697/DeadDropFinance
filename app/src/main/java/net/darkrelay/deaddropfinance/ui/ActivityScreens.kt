@@ -268,7 +268,7 @@ fun TransactionDetailScreen(
             SectionTitle("Where it went")
             budget.lines.filter { it.transactionId == t.id }.sortedBy { it.sortOrder }.forEach { l ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                    Text(when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort" }, Modifier.weight(1f))
+                    Text(when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort"; LineBucket.OFF_BUDGET -> "Outside the budget (track only)" }, Modifier.weight(1f))
                     MoneyText(l.amount)
                 }
             }

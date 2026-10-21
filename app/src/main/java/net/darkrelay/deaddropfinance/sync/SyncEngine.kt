@@ -32,7 +32,14 @@ class SyncEngine(private val store: BudgetStore) {
         operator fun plus(o: Outcome) = Outcome(added + o.added, linked + o.linked, updated + o.updated, removed + o.removed, notes + o.notes)
     }
 
-    suspend fun apply(provider: Provider, providerAccountId: String, appAccountId: String, data: AccountData, windowStart: LocalDate): Outcome = store.write {
+    /**
+     * [windowStart] to [windowEnd] is the range [data] covers: only synced pending rows dated inside it can have
+     * vanished. [offBudget] (track-only or archived account): new rows are recorded as handled, not put in To sort.
+     */
+    suspend fun apply(
+        provider: Provider, providerAccountId: String, appAccountId: String, data: AccountData, windowStart: LocalDate,
+        windowEnd: LocalDate = LocalDate.MAX, offBudget: Boolean = false,
+    ): Outcome = store.write {
         val prefix = externalPrefix(provider, providerAccountId)
         val all = store.dao.transactionsNow()
         val synced = all.filter { it.externalId?.startsWith(prefix) == true }
@@ -88,7 +95,7 @@ class SyncEngine(private val store: BudgetStore) {
 
         // 4 and 5. synced pending rows the provider no longer lists (only when its list is complete for the window)
         if (data.complete) {
-            val vanished = synced.filter { it.pending && it.externalId !in seen && !it.date.isBefore(windowStart) }
+            val vanished = synced.filter { it.pending && it.externalId !in seen && !it.date.isBefore(windowStart) && !it.date.isAfter(windowEnd) }
             for (v in vanished) {
                 val repl = unmatched.filter { !it.pending && it.amount == v.amount && days(it.date, v.date) <= REISSUE_DAYS }.minByOrNull { days(it.date, v.date) }
                 if (repl != null) {
@@ -115,7 +122,7 @@ class SyncEngine(private val store: BudgetStore) {
                     createdAt = now, updatedAt = now,
                 ),
             )
-            put(null, TransactionLineEntity(transactionId = tx.id, bucket = LineBucket.UNSORTED, amount = f.amount, createdAt = now, updatedAt = now))
+            put(null, TransactionLineEntity(transactionId = tx.id, bucket = if (offBudget) LineBucket.OFF_BUDGET else LineBucket.UNSORTED, amount = f.amount, createdAt = now, updatedAt = now))
             added++
         }
         Outcome(added, linked, updated, removed, notes)

@@ -110,8 +110,11 @@ fun OldSchoolDoor(hasAccounts: Boolean, onAddAccount: () -> Unit, onImport: () -
     OutlinedButton(onClick = onManual, modifier = Modifier.fillMaxWidth()) { Text("No sync, I'll enter things myself") }
 }
 
-/** One provider account's link choice: "new", "ignore" or an app account id. */
-data class LinkPick(val target: String, val history: SyncService.History = SyncService.History.NEWEST)
+/**
+ * One provider account's link choice: "new", "track" (a new track-only account), "ignore" or an app account id.
+ * [removeFromBudget]: when an account that was linked is set to "ignore", take its app account off the budget.
+ */
+data class LinkPick(val target: String, val history: SyncService.History = SyncService.History.NEWEST, val removeFromBudget: Boolean = true)
 
 fun defaultPick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick {
     val open = accounts.filter { !it.archived }
@@ -141,8 +144,14 @@ fun LinkPanel(
         EmptyState("No accounts came back from the provider yet. Try Sync now from More, Bank sync.")
         return
     }
-    Text("Choose where each account's transactions go. New ones land in To sort. Accounts set to Don't sync are ignored.", color = DdfColors.Muted)
-    val targets = listOf("new" to "Create a new account", "ignore" to "Don't sync this one") + accounts.filter { !it.archived }.map { it.id to "Into ${it.name}" }
+    var asking by remember { mutableStateOf<LinkedAccountEntity?>(null) }
+    Text(
+        "Choose where each account's transactions go. New ones land in To sort. Track only keeps the balance in view but out of " +
+            "the budget. Accounts set to Don't sync are ignored.",
+        color = DdfColors.Muted,
+    )
+    val targets = listOf("new" to "Create a new account", "track" to "Track only, not in the budget", "ignore" to "Don't sync this one") +
+        accounts.filter { !it.archived }.map { it.id to "Into ${it.name}" }
     for (l in links) {
         val p = picks[l.id] ?: defaultPick(l, accounts)
         Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
@@ -151,8 +160,23 @@ fun LinkPanel(
                     Text(l.providerName, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                     if (l.mask.isNotEmpty()) Pill("...${l.mask}")
                 }
-                l.providerBalance?.let { Text("Bank balance ${money(it)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
-                Picker("Goes to", targets, p.target, { onPick(l.id, p.copy(target = it)) })
+                l.providerBalance?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Bank balance ", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        MoneyText(it, small = true)
+                    }
+                }
+                Picker("Goes to", targets, p.target, { t ->
+                    onPick(l.id, p.copy(target = t))
+                    if (t == "ignore" && l.accountId != null) asking = l
+                })
+                if (p.target == "ignore" && l.accountId != null) {
+                    Text(
+                        if (p.removeFromBudget) "Its app account will be archived, and its balance taken off Ready to Assign."
+                        else "Its app account stays in the budget, tracked by hand.",
+                        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
                 if (p.target != "ignore" && l.lastSyncedDate == null) {
                     Picker("First sync starts", SyncService.History.entries.map { it to historyName(it) }, p.history, { onPick(l.id, p.copy(history = it)) })
                 }
@@ -164,13 +188,42 @@ fun LinkPanel(
         Gap()
         Button(onClick = onApply, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Syncing..." else "Link and sync") }
     }
+    asking?.let { l ->
+        val name = accounts.firstOrNull { it.id == l.accountId }?.name ?: "its account"
+        UnlinkDialog(name, onChoice = { remove ->
+            onPick(l.id, (picks[l.id] ?: defaultPick(l, accounts)).copy(target = "ignore", removeFromBudget = remove))
+            asking = null
+        }, onDismiss = { asking = null })
+    }
+}
+
+/**
+ * Asked once when a synced account stops syncing: take it off the budget (the default), or keep tracking it by
+ * hand. Dismissing keeps the default.
+ */
+@Composable
+fun UnlinkDialog(accountName: String, onChoice: (removeFromBudget: Boolean) -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Stop syncing $accountName") },
+        text = {
+            Column {
+                Text("Remove from budget: the account is archived and its balance no longer counts in Ready to Assign. Its transactions stay as history.")
+                Gap()
+                Text("Keep tracking it by hand: the account stays and keeps counting in the budget. You enter its transactions yourself.", color = DdfColors.Muted)
+            }
+        },
+        confirmButton = { TextButton(onClick = { onChoice(true) }) { Text("Remove from budget") } },
+        dismissButton = { TextButton(onClick = { onChoice(false) }) { Text("Keep tracking it by hand") } },
+    )
 }
 
 fun toChoices(links: List<LinkedAccountEntity>, accounts: List<AccountEntity>, picks: Map<String, LinkPick>): List<SyncService.LinkChoice> = links.map { l ->
     val p = picks[l.id] ?: defaultPick(l, accounts)
     val target = when (p.target) {
         "new" -> SyncService.Target.New(l.providerName)
-        "ignore" -> SyncService.Target.Ignore
+        "track" -> SyncService.Target.New(l.providerName, trackOnly = true)
+        "ignore" -> SyncService.Target.Ignore(p.removeFromBudget)
         else -> SyncService.Target.Existing(p.target)
     }
     SyncService.LinkChoice(l.id, target, p.history)
@@ -192,11 +245,12 @@ fun BankSyncScreen(
     onSyncNow: (String) -> Unit,
     onFix: (ConnectionEntity) -> Unit,
     onLinks: (String) -> Unit,
-    onDisconnect: (String, Boolean) -> Unit,
+    onDisconnect: (id: String, removeTransactions: Boolean, removeFromBudget: Boolean) -> Unit,
     onBackground: (Boolean) -> Unit,
     onInterval: (Int) -> Unit,
 ) {
     var disconnecting by remember { mutableStateOf<ConnectionEntity?>(null) }
+    var removeTxns by remember { mutableStateOf<Boolean?>(null) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Bank sync", onBack) { TextButton(onClick = onAdd) { Text("Add") } }
         Text("Every connection runs from this phone with your own login. DarkRelay never holds your bank connection.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -233,15 +287,30 @@ fun BankSyncScreen(
         Text("The app also syncs when you open it (at most every 30 minutes) and when you pull down on Home or Activity.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Gap(24)
     }
+    fun pickTxns(c: ConnectionEntity, remove: Boolean) {
+        val fed = links.filter { it.connectionId == c.id && it.accountId != null }
+        if (fed.isEmpty()) { onDisconnect(c.id, remove, false); disconnecting = null } else removeTxns = remove
+    }
+    val c0 = disconnecting
+    val rt = removeTxns
+    if (c0 != null && rt != null) {
+        val names = links.filter { it.connectionId == c0.id }.mapNotNull { l -> accounts.firstOrNull { it.id == l.accountId }?.name }.distinct()
+        UnlinkDialog(names.joinToString(", ").ifEmpty { "its accounts" }, onChoice = { remove ->
+            onDisconnect(c0.id, rt, remove)
+            disconnecting = null
+            removeTxns = null
+        }, onDismiss = { disconnecting = null; removeTxns = null })
+        return
+    }
     disconnecting?.let { c ->
         AlertDialog(
             onDismissRequest = { disconnecting = null },
             title = { Text("Disconnect ${c.name}?") },
             text = { Text("Its saved login is deleted from this phone and it stops syncing. Keep the transactions it brought in, or remove them?") },
-            confirmButton = { TextButton(onClick = { onDisconnect(c.id, false); disconnecting = null }) { Text("Disconnect, keep transactions") } },
+            confirmButton = { TextButton(onClick = { pickTxns(c, false) }) { Text("Disconnect, keep transactions") } },
             dismissButton = {
                 Column {
-                    TextButton(onClick = { onDisconnect(c.id, true); disconnecting = null }) { Text("Disconnect, remove them") }
+                    TextButton(onClick = { pickTxns(c, true) }) { Text("Disconnect, remove them") }
                     TextButton(onClick = { disconnecting = null }) { Text("Cancel") }
                 }
             },
@@ -286,8 +355,9 @@ fun AccountSyncSection(
     accountId: String,
     links: List<LinkedAccountEntity>,
     connections: List<ConnectionEntity>,
-    onChangeLink: (linkedId: String, accountId: String?) -> Unit,
+    onChangeLink: (linkedId: String, accountId: String?, removeFromBudget: Boolean) -> Unit,
 ) {
+    var asking by remember { mutableStateOf<String?>(null) }
     val mine = links.filter { it.accountId == accountId }
     SectionTitle("Bank sync")
     if (mine.isEmpty()) {
@@ -314,8 +384,14 @@ fun AccountSyncSection(
             }
         }
         val targets = listOf<Pair<String?, String>>(null to "Stop syncing this account") + budget.accounts.filter { !it.archived }.map { it.id to "Into ${it.name}" }
-        Picker("Link", targets, l.accountId, { onChangeLink(l.id, it) })
+        Picker("Link", targets, l.accountId, { if (it == null) asking = l.id else onChangeLink(l.id, it, false) })
         Gap()
+    }
+    asking?.let { id ->
+        UnlinkDialog(budget.accounts.firstOrNull { it.id == accountId }?.name ?: "this account", onChoice = { remove ->
+            onChangeLink(id, null, remove)
+            asking = null
+        }, onDismiss = { asking = null })
     }
 }
 

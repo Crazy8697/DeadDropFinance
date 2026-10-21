@@ -37,15 +37,23 @@ data class AccountEntity(
     val type: AccountType,
     @ColumnInfo(name = "starting_balance") val startingBalance: Long = 0,
     @ColumnInfo(name = "start_date") val startDate: LocalDate,
+    /** Archived: hidden, and out of the budget (its balance doesn't count in Ready to Assign). */
     val archived: Boolean = false,
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    /** Track only, not in the budget: the balance shows and syncs, but never counts and nothing lands in To sort. */
+    @ColumnInfo(name = "track_only", defaultValue = "0") val trackOnly: Boolean = false,
+    /** A minimum that stays put: Ready to Assign counts the balance minus this (never more than the balance). */
+    @ColumnInfo(name = "held_amount", defaultValue = "0") val heldAmount: Long = 0,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
+    /** The account's money is part of the budget. */
+    val onBudget get() = !archived && !trackOnly
+
     override fun fields() = mapOf(
         "name" to name, "type" to type.name, "starting_balance" to startingBalance, "start_date" to startDate.toString(),
-        "archived" to archived, "sort_order" to sortOrder, "deleted" to deleted,
+        "archived" to archived, "sort_order" to sortOrder, "track_only" to trackOnly, "held_amount" to heldAmount, "deleted" to deleted,
     )
 }
 
@@ -137,8 +145,11 @@ data class TransactionEntity(
     )
 }
 
-/** Where a line's money sits: an envelope, Ready to Assign (income only), or not sorted yet (To sort). */
-enum class LineBucket { ENVELOPE, READY_TO_ASSIGN, UNSORTED }
+/**
+ * Where a line's money sits: an envelope, Ready to Assign (income only), not sorted yet (To sort), or OFF_BUDGET:
+ * recorded as already handled in an account outside the budget (it joins Ready to Assign if the account joins).
+ */
+enum class LineBucket { ENVELOPE, READY_TO_ASSIGN, UNSORTED, OFF_BUDGET }
 
 @Entity(tableName = "txn_line", indices = [Index("transaction_id"), Index("envelope_id")])
 data class TransactionLineEntity(

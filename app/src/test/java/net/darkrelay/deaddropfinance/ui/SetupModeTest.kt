@@ -11,5 +11,7 @@ class SetupModeTest {
         assertEquals(SetupMode.NONE, setupMode(false, cardDismissed = true, hasAccounts = true, hasConnections = false))
     }
 
+    @Test fun aBankConnectionHidesTheCardForGood() = assertEquals(SetupMode.NONE, setupMode(false, false, hasAccounts = true, hasConnections = true))
+
     @Test fun finishedSetupShowsNothing() = assertEquals(SetupMode.NONE, setupMode(true, false, hasAccounts = false, hasConnections = false))
 }

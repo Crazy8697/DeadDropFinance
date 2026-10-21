@@ -48,4 +48,7 @@ interface SyncSource {
 
     /** Days to overlap with the last sync, so late-posting transactions aren't missed. */
     val overlapDays: Long
+
+    /** The longest date range one fetch may ask for; longer histories are fetched window by window. */
+    val maxRangeDays: Long get() = 3650L
 }

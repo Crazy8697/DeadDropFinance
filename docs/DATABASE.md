@@ -19,6 +19,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   transaction) and three tables for this phone's own connections: `connection`, `linked_account` and `sync_log`.
   Migration 1 to 2 only adds; `MigrationTest` builds a version 1 database from `1.json`, migrates it and checks
   every row survived.
+- Version 3 (0.7.2): adds `track_only` and `held_amount` to `account`, both with a default of 0, so every existing
+  account stays in the budget with nothing held. `MigrationTest` checks 2 to 3 as well.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a

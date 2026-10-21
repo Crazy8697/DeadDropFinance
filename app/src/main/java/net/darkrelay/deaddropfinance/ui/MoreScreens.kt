@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -113,7 +114,7 @@ fun AccountsScreen(budget: Budget, onBack: () -> Unit, onAccount: (String) -> Un
             ListRow(onClick = { onAccount(a.id) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Row { Text(a.name); if (a.archived) Pill("archived") }
+                        Row { Text(a.name); if (a.archived) Pill("archived") else if (a.trackOnly) Pill("track only") }
                         Text(accountTypeName(a.type), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                     MoneyText(budget.accountBalance(a.id))
@@ -124,31 +125,100 @@ fun AccountsScreen(budget: Budget, onBack: () -> Unit, onAccount: (String) -> Un
     }
 }
 
+/** What the account screen saves. */
+data class AccountForm(val name: String, val type: AccountType, val startingBalance: Long, val startDate: LocalDate, val trackOnly: Boolean, val heldAmount: Long)
+
 @Composable
 fun AccountEditScreen(
-    existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (String, AccountType, Long, LocalDate) -> Unit, onArchive: (Boolean) -> Unit,
+    existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (AccountForm) -> Unit, onArchive: (Boolean) -> Unit,
     syncSection: (@Composable () -> Unit)? = null,
+    budget: Budget? = null,
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var type by remember { mutableStateOf(existing?.type ?: AccountType.BANK) }
     var start by remember { mutableStateOf(existing?.startingBalance?.let { Money.plain(it) } ?: "") }
     var date by remember { mutableStateOf((existing?.startDate ?: LocalDate.now()).toString()) }
+    var trackOnly by remember { mutableStateOf(existing?.trackOnly ?: false) }
+    var held by remember { mutableStateOf(existing?.heldAmount?.takeIf { it > 0 }?.let { Money.plain(it) } ?: "") }
+    var confirmArchive by remember { mutableStateOf(false) }
+    val balance = existing?.let { budget?.accountBalance(it.id) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New account" else "Edit account", onBack)
+        if (existing != null && balance != null && budget != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Balance ", color = DdfColors.Muted)
+                MoneyText(balance, bold = true)
+                if (existing.archived) Pill("archived, not in the budget") else if (existing.trackOnly) Pill("track only")
+            }
+            val h = budget.held[existing.id]
+            if (h != null && h > 0) Text("Held: ${Money.format(h)}", color = DdfColors.Muted)
+            if (budget.heldShort(existing.id)) {
+                Text(
+                    "The balance is below the held amount of ${Money.format(existing.heldAmount)}. Only the actual balance is held until it's back up.",
+                    color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            Gap()
+        }
         TextFieldRow("Name", name, { name = it })
         Picker("Type", AccountType.entries.map { it to accountTypeName(it) }, type, { type = it })
         AmountField("Starting balance", start, { start = it })
         DateField("Balance as of", date, { date = it })
-        Text("The starting balance goes to Ready to Assign.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        Text(
+            if (trackOnly) "This account is outside the budget, so its starting balance doesn't go to Ready to Assign."
+            else "The starting balance goes to Ready to Assign.",
+            color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+        )
+        SettingRow(
+            "Track only, not in the budget",
+            "The balance shows and syncs, but never counts in Ready to Assign, and its transactions don't go to To sort.",
+            trackOnly, true, { trackOnly = it },
+        )
+        if (!trackOnly) {
+            AmountField("Held amount (optional)", held, { held = it })
+            Text(
+                "Money that has to stay in this account, like a required minimum. Ready to Assign counts the balance minus this.",
+                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+        }
         ErrorLine(error)
         Gap()
-        Button(onClick = { onSave(name, type, Money.parse(start) ?: 0, parseDateOrNull(date) ?: LocalDate.now()) }, modifier = Modifier.fillMaxWidth()) { Text("Save") }
+        Button(
+            onClick = {
+                onSave(
+                    AccountForm(
+                        name, type, Money.parse(start) ?: 0, parseDateOrNull(date) ?: LocalDate.now(), trackOnly,
+                        if (trackOnly) 0 else Money.parse(held) ?: 0,
+                    ),
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Save") }
         if (existing != null) {
             Gap()
-            OutlinedButton(onClick = { onArchive(!existing.archived) }) { Text(if (existing.archived) "Unarchive" else "Archive") }
+            OutlinedButton(onClick = { confirmArchive = true }) { Text(if (existing.archived) "Unarchive" else "Archive") }
         }
         syncSection?.invoke()
         Gap(24)
+    }
+    if (confirmArchive && existing != null) {
+        val amount = balance?.let { Money.format(it) }
+        AlertDialog(
+            onDismissRequest = { confirmArchive = false },
+            title = { Text(if (existing.archived) "Unarchive ${existing.name}?" else "Archive ${existing.name}?") },
+            text = {
+                Text(
+                    when {
+                        existing.archived && existing.trackOnly -> "It comes back to the account list. It stays track only, so its balance still doesn't count in Ready to Assign."
+                        existing.archived -> "Its balance${amount?.let { " ($it)" } ?: ""} goes back into Ready to Assign, and the account is back in the budget."
+                        existing.trackOnly -> "It leaves the account list. Its transactions stay as history."
+                        else -> "This takes its balance${amount?.let { " ($it)" } ?: ""} out of Ready to Assign, as if the account was never in the budget. Its transactions stay as history."
+                    },
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirmArchive = false; onArchive(!existing.archived) }) { Text(if (existing.archived) "Unarchive" else "Archive") } },
+            dismissButton = { TextButton(onClick = { confirmArchive = false }) { Text("Cancel") } },
+        )
     }
 }
 

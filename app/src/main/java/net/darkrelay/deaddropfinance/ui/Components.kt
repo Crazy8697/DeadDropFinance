@@ -17,6 +17,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -41,14 +42,19 @@ import java.time.LocalDate
 import net.darkrelay.deaddropfinance.domain.Money
 
 @Composable
-fun MoneyText(cents: Long, modifier: Modifier = Modifier, bold: Boolean = false, color: Color? = null) {
+fun MoneyText(cents: Long, modifier: Modifier = Modifier, bold: Boolean = false, color: Color? = null, small: Boolean = false) {
     Text(
         Money.format(cents),
         modifier = modifier,
-        color = color ?: if (cents < 0) DdfColors.Warning else MaterialTheme.colorScheme.onSurface,
+        color = color ?: moneyColor(cents),
         fontWeight = if (bold) FontWeight.Medium else null,
+        style = if (small) MaterialTheme.typography.bodySmall else LocalTextStyle.current,
     )
 }
+
+/** Negative money is always shown in the warning color, with its minus sign (Money.format). */
+@Composable
+fun moneyColor(cents: Long): Color = if (cents < 0) DdfColors.Warning else MaterialTheme.colorScheme.onSurface
 
 /** What a list says when it's empty (a new install starts empty everywhere). */
 @Composable

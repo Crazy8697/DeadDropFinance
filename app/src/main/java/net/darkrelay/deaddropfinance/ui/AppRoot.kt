@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -153,6 +151,9 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
         try { sync.syncAll(SyncService.Trigger.MANUAL) } finally { refreshing = false }
     }
 
+    LaunchedEffect(connections.isNotEmpty()) {
+        if (connections.isNotEmpty() && !cardDismissed) { sync.settings.setupCardDismissed = true; cardDismissed = true }
+    }
     LaunchedEffect(Unit) {
         store.ensureSystemEnvelopes()
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
@@ -180,7 +181,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     fun screen(top: Nav) {
         when (top) {
             Nav.Home -> {
-                val showCard = !setupDone && !cardDismissed
+                val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true, hasConnections = connections.isNotEmpty()) == SetupMode.CARD
                 val r = release
                 val head: (@Composable () -> Unit)? = if (!showCard && r == null) null else {
                     {
@@ -276,11 +277,13 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
             is Nav.AccountEdit -> {
                 val a = b.accounts.firstOrNull { it.id == top.id }
                 AccountEditScreen(
-                    a, error, ::back, onSave = { n, ty, s, d -> run(scope, popAfter = true) { actions.saveAccount(top.id, n, ty, s, d) } },
+                    a, error, ::back,
+                    onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount) } },
                     onArchive = { v -> run(scope, popAfter = true) { actions.setAccountArchived(a!!.id, v) } },
                     syncSection = if (a == null) null else {
-                        { AccountSyncSection(b, a.id, links, connections) { lid, acct -> scope.launch { sync.setLink(lid, acct) } } }
+                        { AccountSyncSection(b, a.id, links, connections) { lid, acct, remove -> scope.launch { sync.setLink(lid, acct, remove) } } }
                     },
+                    budget = b,
                 )
             }
             Nav.Import -> ImportScreen(
@@ -309,9 +312,9 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     onSyncNow = { id -> scope.launch { syncMessage = sync.syncConnection(id, SyncService.Trigger.MANUAL).message } },
                     onFix = { c -> fixConnection(c.id, c.fixCode, ctl, connectUi, connections, ::go, scope, sync) },
                     onLinks = { id -> picks.clear(); go(Nav.SyncLink(id)) },
-                    onDisconnect = { id, remove ->
+                    onDisconnect = { id, remove, offBudget ->
                         scope.launch {
-                            sync.disconnect(id, remove)
+                            sync.disconnect(id, remove, offBudget)
                             platform.scheduleSync(store.sync.connectionsNow().isNotEmpty())
                             syncMessage = if (remove) "Disconnected. Its transactions were removed." else "Disconnected. Its transactions were kept."
                         }
@@ -386,13 +389,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     }
 
     Scaffold(
-        bottomBar = {
-            NavigationBar {
-                listOf(Nav.Home to "Home", Nav.Envelopes to "Envelopes", Nav.Activity to "Activity", Nav.More to "More").forEach { (n, label) ->
-                    NavigationBarItem(selected = stack.first() == n, onClick = { tab(n) }, icon = { Text(label.take(1)) }, label = { Text(label) })
-                }
-            }
-        },
+        bottomBar = { BottomTabs(stack.first()) { tab(it) } },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) { screen(top) }
     }

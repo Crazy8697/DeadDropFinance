@@ -5,7 +5,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Every schema change is a real migration with a test (MigrationTest). Nothing here ever drops or rewrites budget
- * data: version 2 only adds a nullable column and the bank sync tables.
+ * data: version 2 adds a nullable column and the bank sync tables, version 3 two account columns with defaults.
  */
 object Migrations {
 
@@ -23,5 +23,13 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2)
+    /** 2 to 3 (0.7.2): track-only accounts and held amounts. Two columns with defaults, nothing else changes. */
+    val V2_V3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `account` ADD COLUMN `track_only` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `account` ADD COLUMN `held_amount` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3)
 }

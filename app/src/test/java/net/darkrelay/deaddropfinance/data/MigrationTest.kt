@@ -52,7 +52,7 @@ class MigrationTest {
         db.close()
     }
 
-    @Test fun oneToTwoKeepsEveryRowAndAddsTheSyncTables() = runBlocking<Unit> {
+    @Test fun oneToLatestKeepsEveryRowAndAddsTheSyncTables() = runBlocking<Unit> {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val file = ctx.getDatabasePath("migration-test.db").apply { parentFile?.mkdirs(); delete() }
         createVersion(file, 1)
@@ -70,6 +70,24 @@ class MigrationTest {
             // the new tables work
             db.syncDao().upsertConnection(ConnectionEntity(provider = Provider.SIMPLEFIN, name = "Sample", createdAt = 1))
             assertEquals(1, db.syncDao().connectionsNow().size)
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun twoToThreeAddsTrackOnlyAndHeldWithSafeDefaults() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-2.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 2)
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val a = db.dao().account("a1")!!
+            assertEquals("Sample Account", a.name)
+            assertEquals(false, a.trackOnly)
+            assertEquals(0L, a.heldAmount)
+            assertTrue(a.onBudget)
+            assertEquals(-1234L, db.dao().transaction("t1")!!.amount)
+            assertEquals(1, db.dao().changes().size)
         } finally {
             db.close()
         }

@@ -177,11 +177,12 @@ enum class SetupMode { WIZARD, CARD, NONE }
 
 /**
  * Setup is required on a fresh install. A quick check of what's already there decides: an install updated from
- * 0.6.x with accounts or a connection in it is a working setup, so it gets a dismissible Home card instead.
+ * 0.6.x with accounts in it is a working setup, so it gets a dismissible Home card instead. The card is gone for good
+ * once the wizard is finished, a bank connection exists, or the user taps Not now.
  */
 fun setupMode(setupDone: Boolean, cardDismissed: Boolean, hasAccounts: Boolean, hasConnections: Boolean): SetupMode = when {
-    setupDone -> SetupMode.NONE
-    !hasAccounts && !hasConnections -> SetupMode.WIZARD
+    setupDone || hasConnections -> SetupMode.NONE
+    !hasAccounts -> SetupMode.WIZARD
     cardDismissed -> SetupMode.NONE
     else -> SetupMode.CARD
 }
