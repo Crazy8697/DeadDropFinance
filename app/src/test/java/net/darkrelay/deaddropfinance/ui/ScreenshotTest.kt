@@ -155,13 +155,13 @@ class ScreenshotTest {
     // ---- 0.7.0: setup wizard and bank sync (invented connections; no secret, masked or not, looks real) ------------
     private val at = today.atTime(9, 30).toEpochSecond(java.time.ZoneOffset.UTC) * 1000
     private val conns = listOf(
-        ConnectionEntity("c1", Provider.TELLER, "Sample Bank", "enr_sample", ConnectionStatus.OK, null, at, "3 new transactions, 1 updated.", null, 0),
+        ConnectionEntity("c1", Provider.SIMPLEFIN, "SimpleFIN", null, ConnectionStatus.OK, null, at, "3 new transactions, 1 updated.", null, 0),
         ConnectionEntity("c2", Provider.SIMPLEFIN, "SimpleFIN", null, ConnectionStatus.NEEDS_FIX, FixCode.SIMPLEFIN_TOKEN, at - 86_400_000,
             "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again.", "Example Credit Union needs you to log in again.", 0),
     )
     private val links = listOf(
-        LinkedAccountEntity("l1", "c1", "acc_x", "Sample Bank Checking", "0001", "chk", 240_00, at),
-        LinkedAccountEntity("l2", "c1", "acc_y", "Sample Bank Savings", "0002", null, 1_000_00, at),
+        LinkedAccountEntity("l1", "c1", "ACT-A", "Sample Bank Checking", "", "chk", 240_00, at),
+        LinkedAccountEntity("l2", "c1", "ACT-B", "Sample Bank Savings", "", null, 1_000_00, at),
         LinkedAccountEntity("l3", "c2", "ACT-1", "Example Credit Union Card", "", "app", -55_00, at),
     )
     @Composable private fun Page(content: @Composable () -> Unit) = Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) { content() }
@@ -170,17 +170,6 @@ class ScreenshotTest {
     @Test fun wizardLock() = shot("31-wizard-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(true, true) {} } }
     @Test fun wizardLockNoScreenLock() = shot("32-wizard-lock-no-screen-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(false, false) {} } }
     @Test fun wizardDoor() = shot("33-wizard-door") { WizardFrame(WizardPage.DOOR, "Pick your door", {}, null) { DoorList({}) } }
-    @Test @Config(qualifiers = TALL) fun wizardTeller() = shot("34-wizard-teller") {
-        WizardFrame(WizardPage.CONNECT, "Connect with Teller", {}, "Skip for now" to {}) { TellerDoor(ConnectUi(), false, null, {}, {}, {}) }
-    }
-    @Test @Config(qualifiers = TALL) fun wizardTellerPasteErrors() = shot("35-wizard-teller-paste-error") {
-        val ui = ConnectUi().apply {
-            appId = "Application ID: 12345"
-            appIdMessage = "That doesn't look like a Teller application ID. It starts with app_ and is on your Teller dashboard."
-            certMessage = "Certificate read. Now choose the private key file."
-        }
-        WizardFrame(WizardPage.CONNECT, "Connect with Teller", {}, "Skip for now" to {}) { TellerDoor(ui, true, "Mar 17, 2031", {}, {}, {}) }
-    }
     @Test @Config(qualifiers = TALL) fun wizardSimpleFin() = shot("36-wizard-simplefin") {
         val ui = ConnectUi().apply { error = "SimpleFIN says that token is already used or doesn't exist. Setup tokens work once. If you didn't use it, someone else may have: disable it in your SimpleFIN account, then get a new setup token." }
         WizardFrame(WizardPage.CONNECT, "Connect with SimpleFIN", {}, "Skip for now" to {}) { SimpleFinDoor(ui, {}, {}) }
@@ -196,7 +185,7 @@ class ScreenshotTest {
     }
     @Test fun wizardFinish() = shot("40-wizard-finish") {
         WizardFrame(WizardPage.FINISH, "Finish", {}, "Finish" to {}) {
-            FinishPage(listOf("App lock is on.", "Connected: Sample Bank", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup. Add or change bank connections from More, Bank sync."))
+            FinishPage(listOf("App lock is on.", "Connected: SimpleFIN", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup. Add or change bank connections from More, Bank sync."))
         }
     }
     @Test fun bankSyncEmpty() = shot("41-bank-sync-empty") { BankSyncScreen(emptyList(), emptyList(), budget.accounts, emptyMap(), true, 6, false, null, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}) }
@@ -215,7 +204,7 @@ class ScreenshotTest {
     @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}) }
     @Test fun fixDialog() = shot("47-fix-dialog") {
         HomeScreen(budget, null, {}, {}, {}, {})
-        FixDialog(SyncService.FixPrompt("c1", FixCode.TELLER_RECONNECT, "Your bank login changed. Reconnect the bank to keep syncing."), {}, {})
+        FixDialog(SyncService.FixPrompt("c2", FixCode.SIMPLEFIN_TOKEN, "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again."), {}, {})
     }
     @Test fun activitySyncNote() = shot("48-activity-sync-note") {
         ActivityScreen(budget, {}, {}, { _, _, _ -> }, {}, listOf("0 new transactions, 1 pending removed. A pending SAMPLE HOLD for -\$9.99 on 2030-03-14 disappeared without posting and was removed."))

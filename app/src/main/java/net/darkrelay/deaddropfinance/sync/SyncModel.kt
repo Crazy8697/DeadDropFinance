@@ -17,8 +17,6 @@ data class FetchResult(val accounts: List<AccountData>, val messages: List<Strin
 
 /** Where a fix is needed: the screens turn each into a message and a button straight to the fix. */
 object FixCode {
-    const val TELLER_CERTIFICATE = "teller.certificate"
-    const val TELLER_RECONNECT = "teller.reconnect"
     const val SIMPLEFIN_TOKEN = "simplefin.token"
     const val SIMPLEFIN_PAYMENT = "simplefin.payment"
 }

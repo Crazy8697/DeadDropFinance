@@ -58,6 +58,12 @@ How the app behaves. Each section names the stage that builds it. Everything run
   - Identical rows inside one file are never skipped automatically, since two real purchases or transfers can look the same. The preview lists them under "Possible duplicates in this file", grouped, with the row numbers. Each row has an import or skip choice, import by default. The counts at the top (to import, already here, possible duplicates, skipped by you, bad) update as the choices change.
   - A row that is the posted version of a pending transaction (same amount, within 5 days) posts that transaction instead of adding a second one.
 
+## Bank sync and setup (Stage 7)
+- A setup wizard on first start: app lock, how transactions get in, optional starter envelopes, finish. Installs that already have accounts get a Finish setup card on Home instead. Setup can be rerun from More.
+- Two doors: Easy (SimpleFIN Bridge, a paid service the user signs up for and pays directly) and Old School (CSV import, or entering things by hand). Free sync is CSV.
+- Every connection runs from the user's phone with the user's own SimpleFIN login. DarkRelay never holds a bank connection.
+- Removed in 0.7.1: Teller. It has no public signup for independent developers, so users couldn't get the developer accounts the Nerdy door needed. Its connections were removed on update and their transactions kept.
+
 ## Bills (Stage 6 data model, Stage 10 reminders and checklist)
 - Bills and envelopes are many to one: several bills can feed one envelope (for example three phone lines billed on different days feeding one Phone envelope).
 - One bill can be paid by several payments, by different methods (for example part by one transfer service, the rest by another). The bill counts as paid only when the payments reach the amount due.

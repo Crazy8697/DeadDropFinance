@@ -108,7 +108,6 @@ fun SetupWizardHost(
     starters: Set<String>,
     more: MoreState,
     hasAccounts: Boolean,
-    tellerDoor: @Composable (after: (String) -> Unit) -> Unit,
     onPage: (WizardPage?) -> Unit,
     onDoor: (Door) -> Unit,
     door: Door?,
@@ -136,11 +135,10 @@ fun SetupWizardHost(
             DoorList(onPick = onDoor)
         }
         WizardPage.CONNECT -> {
-            val title = when (door) { Door.NERDY -> "Connect with Teller"; Door.EASY -> "Connect with SimpleFIN"; else -> "Old School" }
+            val title = when (door) { Door.EASY -> "Connect with SimpleFIN"; else -> "Old School" }
             val skip = if (door == Door.OLD_SCHOOL) null else "Skip for now" to { onPage(WizardPage.STARTER) }
             WizardFrame(page, title, { onPage(WizardPage.DOOR) }, skip) {
                 when (door) {
-                    Door.NERDY -> tellerDoor(onConnected)
                     Door.EASY -> SimpleFinDoor(ui, onOpen, onSimpleFin)
                     else -> OldSchoolDoor(hasAccounts, onAddAccount, onImport) { onPage(WizardPage.STARTER) }
                 }

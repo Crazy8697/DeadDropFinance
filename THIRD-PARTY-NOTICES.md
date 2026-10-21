@@ -2,32 +2,29 @@
 
 Dead Drop Finance is licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 
-The release app ships the components below: the release runtime classpath, checked against the contents of the built APK (including its native libraries). Each license was read from the component's own POM and from the license in its upstream repository or website. The full license texts are in the licenses folder (licenses/Apache-2.0.txt, licenses/BSD-3-Clause-SQLCipher.txt, licenses/BSD-3-Clause-ThreeTen-Backport.txt, licenses/BSL-1.0.txt, licenses/LibTom-Unlicense-LibTomCrypt.txt, licenses/MIT-Teller-Connect-Android.txt, licenses/SQLite-Public-Domain.txt), and the app carries copies of this file, NOTICE, LICENSE and those texts under assets/licenses.
+The release app ships the components below: the release runtime classpath, checked against the contents of the built APK (including its native libraries). Each license was read from the component's own POM and from the license in its upstream repository or website. The full license texts are in the licenses folder (licenses/Apache-2.0.txt, licenses/BSD-3-Clause-SQLCipher.txt, licenses/BSD-3-Clause-ThreeTen-Backport.txt, licenses/BSL-1.0.txt, licenses/LibTom-Unlicense-LibTomCrypt.txt, licenses/SQLite-Public-Domain.txt), and the app carries copies of this file, NOTICE, LICENSE and those texts under assets/licenses.
 
 ## AndroidX, Jetpack Compose, Room and WorkManager (Google, The Android Open Source Project)
 
 License: Apache-2.0  
 Upstream: https://github.com/androidx/androidx
 
-Includes the native library libandroidx.graphics.path.so (androidx.graphics:graphics-path) for each CPU type. AppCompat, Fragment, WebKit and the view libraries below arrive with the Teller Connect SDK.
+Includes the native library libandroidx.graphics.path.so (androidx.graphics:graphics-path) for each CPU type.
 
 | Component | Version | License (from its POM) |
 |---|---|---|
 | `androidx.activity:activity` | 1.13.0 | The Apache Software License, Version 2.0 |
 | `androidx.activity:activity-compose` | 1.13.0 | The Apache Software License, Version 2.0 |
 | `androidx.activity:activity-ktx` | 1.13.0 | The Apache Software License, Version 2.0 |
-| `androidx.annotation:annotation` | 1.10.0 | The Apache Software License, Version 2.0 |
+| `androidx.annotation:annotation` | 1.9.1 | The Apache Software License, Version 2.0 |
 | `androidx.annotation:annotation-experimental` | 1.5.0 | The Apache Software License, Version 2.0 |
-| `androidx.annotation:annotation-jvm` | 1.10.0 | The Apache Software License, Version 2.0 |
-| `androidx.appcompat:appcompat` | 1.6.1 | The Apache Software License, Version 2.0 |
-| `androidx.appcompat:appcompat-resources` | 1.6.1 | The Apache Software License, Version 2.0 |
+| `androidx.annotation:annotation-jvm` | 1.9.1 | The Apache Software License, Version 2.0 |
 | `androidx.arch.core:core-common` | 2.2.0 | The Apache Software License, Version 2.0 |
 | `androidx.arch.core:core-runtime` | 2.2.0 | The Apache Software License, Version 2.0 |
 | `androidx.autofill:autofill` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.cardview:cardview` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.collection:collection` | 1.6.0 | The Apache Software License, Version 2.0 |
-| `androidx.collection:collection-jvm` | 1.6.0 | The Apache Software License, Version 2.0 |
-| `androidx.collection:collection-ktx` | 1.6.0 | The Apache Software License, Version 2.0 |
+| `androidx.collection:collection` | 1.5.0 | The Apache Software License, Version 2.0 |
+| `androidx.collection:collection-jvm` | 1.5.0 | The Apache Software License, Version 2.0 |
+| `androidx.collection:collection-ktx` | 1.5.0 | The Apache Software License, Version 2.0 |
 | `androidx.compose.animation:animation` | 1.12.1 | The Apache Software License, Version 2.0 |
 | `androidx.compose.animation:animation-android` | 1.12.1 | The Apache Software License, Version 2.0 |
 | `androidx.compose.animation:animation-core` | 1.12.1 | The Apache Software License, Version 2.0 |
@@ -62,25 +59,13 @@ Includes the native library libandroidx.graphics.path.so (androidx.graphics:grap
 | `androidx.compose.ui:ui-util-android` | 1.12.1 | The Apache Software License, Version 2.0 |
 | `androidx.concurrent:concurrent-futures` | 1.1.0 | The Apache Software License, Version 2.0 |
 | `androidx.concurrent:concurrent-futures-ktx` | 1.1.0 | The Apache Software License, Version 2.0 |
-| `androidx.constraintlayout:constraintlayout` | 2.0.1 | The Apache Software License, Version 2.0 |
-| `androidx.constraintlayout:constraintlayout-solver` | 2.0.1 | The Apache Software License, Version 2.0 |
-| `androidx.coordinatorlayout:coordinatorlayout` | 1.1.0 | The Apache Software License, Version 2.0 |
 | `androidx.core:core` | 1.18.0 | The Apache Software License, Version 2.0 |
 | `androidx.core:core-ktx` | 1.18.0 | The Apache Software License, Version 2.0 |
 | `androidx.core:core-viewtree` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.cursoradapter:cursoradapter` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.customview:customview` | 1.1.0 | The Apache Software License, Version 2.0 |
 | `androidx.customview:customview-poolingcontainer` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.documentfile:documentfile` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.drawerlayout:drawerlayout` | 1.1.1 | The Apache Software License, Version 2.0 |
-| `androidx.dynamicanimation:dynamicanimation` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.emoji2:emoji2` | 1.4.0 | The Apache Software License, Version 2.0 |
-| `androidx.emoji2:emoji2-views-helper` | 1.4.0 | The Apache Software License, Version 2.0 |
-| `androidx.fragment:fragment` | 1.9.1 | The Apache Software License, Version 2.0 |
-| `androidx.fragment:fragment-ktx` | 1.9.1 | The Apache Software License, Version 2.0 |
 | `androidx.graphics:graphics-path` | 1.0.1 | The Apache Software License, Version 2.0 |
 | `androidx.interpolator:interpolator` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.legacy:legacy-support-core-utils` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.lifecycle:lifecycle-common` | 2.11.0 | The Apache Software License, Version 2.0 |
 | `androidx.lifecycle:lifecycle-common-java8` | 2.11.0 | The Apache Software License, Version 2.0 |
 | `androidx.lifecycle:lifecycle-common-jvm` | 2.11.0 | The Apache Software License, Version 2.0 |
@@ -100,16 +85,11 @@ Includes the native library libandroidx.graphics.path.so (androidx.graphics:grap
 | `androidx.lifecycle:lifecycle-viewmodel-ktx` | 2.11.0 | The Apache Software License, Version 2.0 |
 | `androidx.lifecycle:lifecycle-viewmodel-savedstate` | 2.11.0 | The Apache Software License, Version 2.0 |
 | `androidx.lifecycle:lifecycle-viewmodel-savedstate-android` | 2.11.0 | The Apache Software License, Version 2.0 |
-| `androidx.loader:loader` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.localbroadcastmanager:localbroadcastmanager` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.navigationevent:navigationevent` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.navigationevent:navigationevent-android` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.navigationevent:navigationevent-compose` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.navigationevent:navigationevent-compose-android` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.print:print` | 1.0.0 | The Apache Software License, Version 2.0 |
 | `androidx.profileinstaller:profileinstaller` | 1.4.0 | The Apache Software License, Version 2.0 |
-| `androidx.recyclerview:recyclerview` | 1.1.0 | The Apache Software License, Version 2.0 |
-| `androidx.resourceinspection:resourceinspection-annotation` | 1.0.1 | The Apache Software License, Version 2.0 |
 | `androidx.room:room-common` | 2.8.5 | The Apache Software License, Version 2.0 |
 | `androidx.room:room-common-jvm` | 2.8.5 | The Apache Software License, Version 2.0 |
 | `androidx.room:room-runtime` | 2.8.5 | The Apache Software License, Version 2.0 |
@@ -124,62 +104,13 @@ Includes the native library libandroidx.graphics.path.so (androidx.graphics:grap
 | `androidx.sqlite:sqlite-framework` | 2.7.0 | The Apache Software License, Version 2.0 |
 | `androidx.sqlite:sqlite-framework-android` | 2.7.0 | The Apache Software License, Version 2.0 |
 | `androidx.startup:startup-runtime` | 1.1.1 | The Apache Software License, Version 2.0 |
-| `androidx.tracing:tracing` | 2.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.tracing:tracing-android` | 2.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.tracing:tracing-ktx` | 2.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.transition:transition` | 1.5.0 | The Apache Software License, Version 2.0 |
-| `androidx.vectordrawable:vectordrawable` | 1.1.0 | The Apache Software License, Version 2.0 |
-| `androidx.vectordrawable:vectordrawable-animated` | 1.1.0 | The Apache Software License, Version 2.0 |
+| `androidx.tracing:tracing` | 1.2.0 | The Apache Software License, Version 2.0 |
+| `androidx.tracing:tracing-ktx` | 1.2.0 | The Apache Software License, Version 2.0 |
 | `androidx.versionedparcelable:versionedparcelable` | 1.1.1 | The Apache Software License, Version 2.0 |
-| `androidx.viewpager2:viewpager2` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.viewpager:viewpager` | 1.0.0 | The Apache Software License, Version 2.0 |
-| `androidx.webkit:webkit` | 1.17.1 | The Apache Software License, Version 2.0 |
 | `androidx.window:window` | 1.5.0 | The Apache Software License, Version 2.0 |
 | `androidx.window:window-core` | 1.5.0 | The Apache Software License, Version 2.0 |
 | `androidx.window:window-core-android` | 1.5.0 | The Apache Software License, Version 2.0 |
 | `androidx.work:work-runtime` | 2.12.0 | The Apache Software License, Version 2.0 |
-
-## Teller Connect Android SDK (Teller)
-
-License: MIT  
-Upstream: https://github.com/tellerhq/connect-android
-
-Teller's official Android SDK for Teller Connect (a WebView fragment). Its POM declares the MIT License; its repository publishes no license file or copyright line. The MIT text, with the copyright naming Teller, is in licenses/MIT-Teller-Connect-Android.txt.
-
-| Component | Version | License (from its POM) |
-|---|---|---|
-| `io.teller:connect-android-sdk` | 0.1.0 | MIT License |
-
-## Material Components for Android (Google)
-
-License: Apache-2.0  
-Upstream: https://github.com/material-components/material-components-android
-
-Arrives with the Teller Connect SDK.
-
-| Component | Version | License (from its POM) |
-|---|---|---|
-| `com.google.android.material:material` | 1.12.0 | The Apache Software License, Version 2.0 |
-
-## Klaxon (Cedric Beust)
-
-License: Apache-2.0  
-Upstream: https://github.com/cbeust/klaxon
-
-A JSON library the Teller Connect SDK uses. It arrives with the SDK.
-
-| Component | Version | License (from its POM) |
-|---|---|---|
-| `com.beust:klaxon` | 5.6 | Apache License, Version 2.0 |
-
-## Error Prone annotations (Google)
-
-License: Apache-2.0  
-Upstream: https://github.com/google/error-prone
-
-| Component | Version | License (from its POM) |
-|---|---|---|
-| `com.google.errorprone:error_prone_annotations` | 2.15.0 | Apache 2.0 |
 
 ## SQLCipher for Android (Zetetic)
 
@@ -201,12 +132,7 @@ Per the Kotlin repository's license/README.md, parts of the standard library are
 
 | Component | Version | License (from its POM) |
 |---|---|---|
-| `org.jetbrains.kotlin:kotlin-android-extensions-runtime` | 1.9.0 | The Apache License, Version 2.0 |
-| `org.jetbrains.kotlin:kotlin-parcelize-runtime` | 1.9.0 | The Apache License, Version 2.0 |
-| `org.jetbrains.kotlin:kotlin-reflect` | 1.8.22 | The Apache License, Version 2.0 |
 | `org.jetbrains.kotlin:kotlin-stdlib` | 2.4.21 | Apache-2.0 |
-| `org.jetbrains.kotlin:kotlin-stdlib-jdk7` | 1.9.0 | The Apache License, Version 2.0 |
-| `org.jetbrains.kotlin:kotlin-stdlib-jdk8` | 1.9.0 | The Apache License, Version 2.0 |
 
 ## kotlinx.coroutines (JetBrains)
 
@@ -269,7 +195,6 @@ These are bills of materials: they only pin the versions of the components above
 | Component | Version | License (from its POM) |
 |---|---|---|
 | `androidx.compose:compose-bom` | 2026.09.00 | The Apache Software License, Version 2.0 |
-| `org.jetbrains.kotlin:kotlin-bom` | 1.8.22 | The Apache Software License, Version 2.0 |
 | `org.jetbrains.kotlinx:kotlinx-coroutines-bom` | 1.9.0 | The Apache Software License, Version 2.0 |
 | `org.jetbrains.kotlinx:kotlinx-serialization-bom` | 1.7.3 | The Apache Software License, Version 2.0 |
 

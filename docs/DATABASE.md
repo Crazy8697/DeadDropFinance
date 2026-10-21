@@ -33,7 +33,7 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 
 ## Bank sync credentials
 
-- Teller's certificate and private key, Teller access tokens and SimpleFIN access URLs are kept in their own
+- SimpleFIN access URLs (and any later provider's credentials) are kept in their own
   encrypted file (`keys/secrets.bin`), never in the database, SharedPreferences, the change log or any log.
 - That file is encrypted with its own Android Keystore key (AES-256-GCM), separate from the database key's.
 - If it can't be decrypted, it is left as it is (never replaced or deleted); the affected connection asks to be
@@ -41,6 +41,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Screens show only a masked hint (the last four characters), never a value.
 - Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
 - Disconnecting deletes that connection's credentials.
+- `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see
+  `RemovedProviderCleanup`), so the app never reads a provider it no longer knows.
 
 ## Change log
 

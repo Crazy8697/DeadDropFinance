@@ -12,18 +12,19 @@ import java.time.LocalDate
  * URLs live in SecretStore.
  */
 
-enum class Provider { TELLER, SIMPLEFIN }
+/** The bank sync providers. A new provider is a new value here and a new SyncSource adapter. */
+enum class Provider { SIMPLEFIN }
 
 enum class ConnectionStatus { OK, NEEDS_FIX }
 
-/** One bank login (a Teller enrollment, or one SimpleFIN access URL). */
+/** One bank login (one SimpleFIN access URL). */
 @Entity(tableName = "connection")
 data class ConnectionEntity(
     @PrimaryKey val id: String = newId(),
     val provider: Provider,
     /** The institution's name as the provider reports it, for display. */
     val name: String,
-    /** Teller's enrollment id (not a secret), so Connect can reopen in update mode to repair the connection. */
+    /** A provider's own id for the login, if it has one (not a secret). No current provider uses it. */
     @ColumnInfo(name = "enrollment_id") val enrollmentId: String? = null,
     val status: ConnectionStatus = ConnectionStatus.OK,
     /** What to fix, as a short code the screens turn into a button (see SyncError). */

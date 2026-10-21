@@ -36,34 +36,22 @@ import net.darkrelay.deaddropfinance.sync.FixCode
 import net.darkrelay.deaddropfinance.sync.SyncService
 import net.darkrelay.deaddropfinance.sync.SyncSettings
 
-/** The three ways in (FEATURES.md and ROADMAP.md Stage 7). */
-enum class Door { NERDY, EASY, OLD_SCHOOL }
+/** The ways in (FEATURES.md and ROADMAP.md Stage 7). */
+enum class Door { EASY, OLD_SCHOOL }
 
 /** Links the door screens open in the real browser. */
 object ProviderLinks {
-    const val TELLER_SIGN_IN = "https://teller.io/session"
-    const val TELLER_APPLICATION = "https://teller.io/settings/application"
-    const val TELLER_CERTIFICATES = "https://teller.io/settings/certificates"
-    const val TELLER_DOCS = "https://teller.io/docs"
     const val SIMPLEFIN_BRIDGE = "https://beta-bridge.simplefin.org/"
     const val SIMPLEFIN_NEW_TOKEN = "https://beta-bridge.simplefin.org/simplefin/create"
 }
 
 /** What the door screens hold while the user fills them in (typed text lives only in memory). */
 class ConnectUi {
-    var appId by mutableStateOf("")
-    var appIdMessage by mutableStateOf<String?>(null)
-    var environment by mutableStateOf("development")
-    var certMessage by mutableStateOf<String?>(null)
     var token by mutableStateOf("")
     var tokenMessage by mutableStateOf<String?>(null)
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
-    /** A certificate or key picked so far, held in memory only until both are there and saved. */
-    var pendingCertificate: String? = null
-    var pendingKey: String? = null
-
-    fun clearSecrets() { token = ""; pendingCertificate = null; pendingKey = null }
+    fun clearSecrets() { token = "" }
 }
 
 private val whenFormat = DateTimeFormatter.ofPattern("MMM d, h:mm a")
@@ -71,8 +59,7 @@ fun syncTime(at: Long?, zone: ZoneId = ZoneId.systemDefault()) = at?.let { Insta
 
 @Composable
 fun DoorList(onPick: (Door) -> Unit, includeOldSchool: Boolean = true) {
-    DoorCard("Nerdy: Teller", "Your own free Teller developer account (its free tier allows up to 100 bank logins). The most steps to set up.", "Costs nothing.") { onPick(Door.NERDY) }
-    DoorCard("Easy: SimpleFIN", "Sign up with SimpleFIN Bridge, connect your bank there, paste one token here.", "SimpleFIN charges you a fee, paid to SimpleFIN.") { onPick(Door.EASY) }
+    DoorCard("Easy: SimpleFIN", "Sign up with SimpleFIN Bridge, connect your bank there, paste one token here.", "SimpleFIN charges its own fee, paid directly to SimpleFIN.") { onPick(Door.EASY) }
     if (includeOldSchool) DoorCard("Old School: CSV", "No bank connection. Import files you download from your bank, or enter things yourself.", "Costs nothing.") { onPick(Door.OLD_SCHOOL) }
 }
 
@@ -85,43 +72,6 @@ private fun DoorCard(title: String, line: String, cost: String, onClick: () -> U
             Text(cost, color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
         }
     }
-}
-
-/** Nerdy door: the user's own Teller developer account, certificate and application ID. */
-@Composable
-fun TellerDoor(
-    ui: ConnectUi,
-    certificateSaved: Boolean,
-    certificateExpires: String?,
-    onOpen: (String) -> Unit,
-    onImportFiles: () -> Unit,
-    onConnect: () -> Unit,
-) {
-    Text(
-        "Teller connects to your bank. You use your own free Teller developer account, so your bank login goes from this phone to Teller " +
-            "and nowhere else. DarkRelay never sees it.",
-        color = DdfColors.Muted,
-    )
-    Gap()
-    Text("1. Sign up or sign in at Teller. Signing up downloads a file called teller.zip with your certificate and private key.")
-    Row { TextButton(onClick = { onOpen(ProviderLinks.TELLER_SIGN_IN) }) { Text("Open Teller") }; TextButton(onClick = { onOpen(ProviderLinks.TELLER_CERTIFICATES) }) { Text("Certificates page") } }
-    Text("2. Import teller.zip, or the certificate and private key files from it.")
-    OutlinedButton(onClick = onImportFiles) { Text(if (certificateSaved) "Import again" else "Import teller.zip or the .pem files") }
-    if (certificateSaved) Text("Certificate saved on this phone" + (certificateExpires?.let { ", valid until $it" } ?: "") + ".", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
-    ui.certMessage?.let { Text(it, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall) }
-    Gap()
-    Text("3. Copy your application ID (it starts with app_) from the Application page and paste it here.")
-    TextButton(onClick = { onOpen(ProviderLinks.TELLER_APPLICATION) }) { Text("Application page") }
-    OutlinedTextField(value = ui.appId, onValueChange = { ui.appId = it; ui.appIdMessage = null }, label = { Text("Application ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    ui.appIdMessage?.let { Text(it, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall) }
-    Picker(
-        "Environment", listOf("development" to "Development (real banks, free, up to 100 logins)", "production" to "Production (needs Teller's business approval)", "sandbox" to "Sandbox (test data only)"),
-        ui.environment, { ui.environment = it },
-    )
-    Gap()
-    Text("4. Log in to your bank inside Teller's own page.")
-    ErrorLine(ui.error)
-    Button(onClick = onConnect, enabled = !ui.busy, modifier = Modifier.fillMaxWidth()) { Text(if (ui.busy) "Working..." else "Connect a bank") }
 }
 
 /** Easy door: a SimpleFIN Bridge setup token. */
@@ -250,7 +200,7 @@ fun BankSyncScreen(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Bank sync", onBack) { TextButton(onClick = onAdd) { Text("Add") } }
         Text("Every connection runs from this phone with your own login. DarkRelay never holds your bank connection.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-        if (connections.isEmpty()) EmptyState("No bank connections yet. Tap Add to connect through Teller or SimpleFIN.")
+        if (connections.isEmpty()) EmptyState("No bank connections yet. Tap Add to connect through SimpleFIN.")
         message?.let { Text(it, modifier = Modifier.padding(vertical = 6.dp)) }
         for (c in connections) {
             val mine = links.filter { it.connectionId == c.id }
@@ -258,12 +208,11 @@ fun BankSyncScreen(
                 Column(Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(c.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                        Pill(if (c.provider == Provider.TELLER) "Teller" else "SimpleFIN")
                     }
                     hints[c.id]?.let { Text("Login saved ($it)", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
                     Text("Last sync: ${syncTime(c.lastSyncAt)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     c.lastResult?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = if (c.status == ConnectionStatus.NEEDS_FIX) DdfColors.Warning else DdfColors.Text) }
-                    c.providerMessages?.let { Text("From ${if (c.provider == Provider.SIMPLEFIN) "SimpleFIN" else "Teller"}: $it", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall) }
+                    c.providerMessages?.let { Text("From SimpleFIN: $it", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall) }
                     Text(
                         "${mine.count { it.accountId != null }} of ${mine.size} accounts synced" +
                             mine.filter { it.accountId != null }.joinToString("") { l -> "\n  ${l.providerName} into ${accounts.firstOrNull { it.id == l.accountId }?.name ?: "?"}" },
@@ -304,8 +253,6 @@ fun BankSyncScreen(
 @Composable
 fun FixDialog(prompt: SyncService.FixPrompt, onFix: () -> Unit, onLater: () -> Unit) {
     val button = when (prompt.code) {
-        FixCode.TELLER_CERTIFICATE -> "Re-import certificate"
-        FixCode.TELLER_RECONNECT -> "Reconnect"
         FixCode.SIMPLEFIN_TOKEN -> "Get a new token"
         else -> "Open Bank sync"
     }
@@ -378,7 +325,7 @@ fun FinishSetupCard(onOpen: () -> Unit, onDismiss: () -> Unit) {
     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Finish setup", style = MaterialTheme.typography.titleMedium)
-            Text("Connect your bank (Teller or SimpleFIN), or keep using CSV import. Nothing you already have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Connect your bank through SimpleFIN, or keep using CSV import. Nothing you already have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             Row {
                 TextButton(onClick = onOpen) { Text("Open setup") }
                 TextButton(onClick = onDismiss) { Text("Not now") }

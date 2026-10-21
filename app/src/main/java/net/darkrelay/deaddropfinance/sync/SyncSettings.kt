@@ -4,8 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 
 /**
- * Plain settings for bank sync and setup. Nothing here is a secret: the Teller application ID identifies the
- * user's Teller app (it's what Teller Connect is opened with) and the rest are switches and times.
+ * Plain settings for bank sync and setup. Nothing here is a secret: they are switches and times.
  */
 class SyncSettings(private val prefs: SharedPreferences) {
 
@@ -18,14 +17,6 @@ class SyncSettings(private val prefs: SharedPreferences) {
     var intervalHours: Int
         get() = prefs.getInt("interval_hours", DEFAULT_INTERVAL_HOURS).takeIf { it in INTERVALS } ?: DEFAULT_INTERVAL_HOURS
         set(v) = prefs.edit().putInt("interval_hours", v.takeIf { it in INTERVALS } ?: DEFAULT_INTERVAL_HOURS).apply()
-
-    var tellerAppId: String?
-        get() = prefs.getString("teller_app_id", null)
-        set(v) = prefs.edit().putString("teller_app_id", v).apply()
-
-    var tellerEnvironment: String
-        get() = prefs.getString("teller_environment", null)?.takeIf { it in ENVIRONMENTS } ?: "development"
-        set(v) = prefs.edit().putString("teller_environment", v.takeIf { it in ENVIRONMENTS } ?: "development").apply()
 
     /** Setup finished (or a working setup was found) on this install. */
     var setupDone: Boolean
@@ -41,10 +32,12 @@ class SyncSettings(private val prefs: SharedPreferences) {
     fun setLastAttempt(connectionId: String, at: Long) = prefs.edit().putLong("attempt.$connectionId", at).apply()
     fun forget(connectionId: String) = prefs.edit().remove("attempt.$connectionId").apply()
 
+    /** Removes settings keys that no longer mean anything (the upgrade cleanup uses this). */
+    fun removeKeys(keys: Collection<String>) = prefs.edit().apply { keys.forEach { remove(it) } }.apply()
+
     companion object {
         const val DEFAULT_INTERVAL_HOURS = 6
         val INTERVALS = listOf(6, 12, 24)
-        val ENVIRONMENTS = listOf("sandbox", "development", "production")
         /** Syncing on app open happens at most this often per connection. */
         const val OPEN_MIN_GAP_MS = 30L * 60 * 1000
         /** Automatic syncs of a SimpleFIN connection happen at most this often (stricter than the 30 minutes above). */

@@ -8,6 +8,8 @@ import net.darkrelay.deaddropfinance.data.DatabaseOpener
 import net.darkrelay.deaddropfinance.data.KeystoreWrapper
 import net.darkrelay.deaddropfinance.data.SecretStore
 import net.darkrelay.deaddropfinance.lock.AppLock
+import net.darkrelay.deaddropfinance.sync.RemovedProviderCleanup
+import net.darkrelay.deaddropfinance.sync.SyncScheduler
 import net.darkrelay.deaddropfinance.sync.SyncService
 import net.darkrelay.deaddropfinance.sync.SyncSettings
 
@@ -38,11 +40,13 @@ class DdfApp : Application() {
         service?.let { return it }
         val o = open() as? DatabaseOpener.Opened.Ok ?: return null
         return openLock.withLock {
-            service ?: SyncService(
-                o.store,
-                SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS)),
-                SyncSettings(this),
-            ).also { service = it }
+            service ?: run {
+                val secrets = SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS))
+                val settings = SyncSettings(this)
+                // before anything reads the connection table: clear what the removed Teller provider left (0.7.0 installs)
+                runCatching { RemovedProviderCleanup(o.store, secrets, settings) { has -> SyncScheduler.apply(this, settings, has) }.run() }
+                SyncService(o.store, secrets, settings).also { service = it }
+            }
         }
     }
 

@@ -2,8 +2,6 @@ package net.darkrelay.deaddropfinance.sync
 
 import java.time.LocalDate
 import java.time.ZoneId
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
@@ -20,9 +18,9 @@ import net.darkrelay.deaddropfinance.data.SyncLogEntity
 import net.darkrelay.deaddropfinance.data.TransactionKind
 
 /**
- * Bank sync for the whole app: connecting (SimpleFIN claim, Teller enrollment), linking provider accounts to app
- * accounts, syncing, and disconnecting. Every connection runs from this phone with the user's own credentials;
- * nothing goes through DarkRelay. One sync runs at a time.
+ * Bank sync for the whole app: connecting (a SimpleFIN claim), linking provider accounts to app accounts, syncing,
+ * and disconnecting. Every connection runs from this phone with the user's own credentials; nothing goes through
+ * DarkRelay. One sync runs at a time. Providers are adapters behind SyncSource; SimpleFIN is the only one.
  */
 class SyncService(
     private val store: BudgetStore,
@@ -30,9 +28,7 @@ class SyncService(
     val settings: SyncSettings,
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: ZoneId = ZoneId.systemDefault(),
-    private val httpFor: (SSLSocketFactory?) -> Http = { Http(it) },
-    private val tellerBaseUrl: String = TellerSource.BASE_URL,
-    private val tellerTrust: Array<TrustManager>? = null,
+    private val httpFor: () -> Http = { Http() },
     private val allowLoopbackHttp: Boolean = false,
     private val limiterMax: Int = RequestLimiter.DEFAULT_MAX,
 ) {
@@ -51,45 +47,16 @@ class SyncService(
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
 
-    // ---- Teller application credentials -----------------------------------------------------------------------
-
-    /** Checks and saves the user's Teller certificate and private key (PEM). Throws TellerCredentials.Invalid. */
-    fun saveTellerCredentials(certPem: String, keyPem: String) {
-        TellerCredentials.parse(certPem, keyPem)
-        secrets.put(SecretStore.TELLER_CERT, certPem)
-        secrets.put(SecretStore.TELLER_KEY, keyPem)
-    }
-
-    fun hasTellerCredentials() = secrets.has(SecretStore.TELLER_CERT) && secrets.has(SecretStore.TELLER_KEY)
-
-    /** When the saved certificate expires, for the screen (the certificate itself is never shown). */
-    fun tellerCertificateExpires(): java.util.Date? = try {
-        val cert = secrets.get(SecretStore.TELLER_CERT)
-        val key = secrets.get(SecretStore.TELLER_KEY)
-        if (cert == null || key == null) null else TellerCredentials.parse(cert, key).expires
-    } catch (e: Exception) {
-        null
-    }
-
     /** A masked hint of a connection's token or access URL: "...last 4", never the value. */
     fun secretHint(conn: ConnectionEntity): String? = when (conn.provider) {
-        Provider.TELLER -> secrets.hint(SecretStore.tellerToken(conn.id))
         Provider.SIMPLEFIN -> secrets.hint(SecretStore.simplefinUrl(conn.id))
-    }
-
-    private fun tellerSsl(): SSLSocketFactory {
-        val cert = secrets.get(SecretStore.TELLER_CERT)
-        val key = secrets.get(SecretStore.TELLER_KEY)
-        if (cert == null || key == null) throw SyncError.NeedsFix(FixCode.TELLER_CERTIFICATE, "Your Teller certificate isn't saved on this phone. Import it from your Teller dashboard.")
-        val creds = try { TellerCredentials.parse(cert, key) } catch (e: TellerCredentials.Invalid) { throw SyncError.NeedsFix(FixCode.TELLER_CERTIFICATE, e.message ?: "Your Teller certificate can't be used.") }
-        return creds.sslSocketFactory(tellerTrust)
     }
 
     // ---- connecting -------------------------------------------------------------------------------------------
 
     /** Claims a SimpleFIN setup token (once), saves only the access URL, and lists the accounts to link. */
     suspend fun connectSimpleFin(setupToken: String, existingId: String? = null): String {
-        val access = SimpleFinSource.claim(setupToken, httpFor(null), allowLoopbackHttp)
+        val access = SimpleFinSource.claim(setupToken, httpFor(), allowLoopbackHttp)
         // a new token for an existing connection keeps its links and synced history
         val conn = existingId?.let { store.sync.connection(it) }?.copy(status = ConnectionStatus.OK, fixCode = null)
             ?: ConnectionEntity(provider = Provider.SIMPLEFIN, name = "SimpleFIN", createdAt = clock())
@@ -104,30 +71,10 @@ class SyncService(
         return conn.id
     }
 
-    /** Saves a Teller enrollment from Teller Connect. For a reconnect ([existingId]) the same connection is kept. */
-    suspend fun connectTeller(accessToken: String, enrollmentId: String, institution: String, existingId: String? = null): String {
-        val old = existingId?.let { store.sync.connection(it) }
-        val conn = old?.copy(status = ConnectionStatus.OK, fixCode = null, enrollmentId = enrollmentId)
-            ?: ConnectionEntity(provider = Provider.TELLER, name = institution.ifBlank { "Bank" }, enrollmentId = enrollmentId, createdAt = clock())
-        secrets.put(SecretStore.tellerToken(conn.id), accessToken)
-        store.sync.upsertConnection(conn)
-        promptedThisSession.remove(conn.id)
-        try {
-            refreshAccounts(conn.id)
-        } catch (e: SyncError) {
-            store.sync.upsertConnection(conn.copy(lastResult = e.message))
-        }
-        return conn.id
-    }
-
     fun source(conn: ConnectionEntity): SyncSource = when (conn.provider) {
         Provider.SIMPLEFIN -> SimpleFinSource(
             secrets.get(SecretStore.simplefinUrl(conn.id)) ?: throw SyncError.NeedsFix(FixCode.SIMPLEFIN_TOKEN, "This connection's SimpleFIN login is missing. Connect again with a new setup token."),
-            httpFor(null), RequestLimiter(MetaLimiterStorage(store.dao), RequestLimiter.keyFor(conn.id), limiterMax, clock = clock), zone, allowLoopbackHttp,
-        )
-        Provider.TELLER -> TellerSource(
-            secrets.get(SecretStore.tellerToken(conn.id)) ?: throw SyncError.NeedsFix(FixCode.TELLER_RECONNECT, "This bank connection's Teller token is missing. Reconnect the bank."),
-            httpFor(tellerSsl()), tellerBaseUrl,
+            httpFor(), RequestLimiter(MetaLimiterStorage(store.dao), RequestLimiter.keyFor(conn.id), limiterMax, clock = clock), zone, allowLoopbackHttp,
         )
     }
 
@@ -250,7 +197,7 @@ class SyncService(
         } catch (e: SyncError) {
             return failed(conn, e, trigger)
         } catch (e: SecretStore.Unavailable) {
-            return failed(conn, SyncError.NeedsFix(if (conn.provider == Provider.TELLER) FixCode.TELLER_RECONNECT else FixCode.SIMPLEFIN_TOKEN, e.message ?: "Saved credentials can't be read."), trigger)
+            return failed(conn, SyncError.NeedsFix(FixCode.SIMPLEFIN_TOKEN, e.message ?: "Saved credentials can't be read."), trigger)
         }
     }
 

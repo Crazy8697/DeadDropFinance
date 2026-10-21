@@ -274,10 +274,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
     // bank sync in the background (periodic, network required)
     implementation("androidx.work:work-runtime:2.12.0")
-    // Teller Connect, Teller's official Android SDK (a WebView fragment hosted by TellerConnectActivity)
-    implementation("io.teller:connect-android-sdk:0.1.0")
-    implementation("androidx.fragment:fragment-ktx:1.9.1")
-    implementation("androidx.webkit:webkit:1.17.1")
 
     // test only, never packaged into the app
     testImplementation("junit:junit:4.13.2")

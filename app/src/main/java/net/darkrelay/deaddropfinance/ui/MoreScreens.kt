@@ -61,7 +61,7 @@ fun MoreScreen(
         ListRow(onBankSync) {
             Column {
                 Text("Bank sync")
-                Text(syncLine ?: "Teller or SimpleFIN, from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text(syncLine ?: "SimpleFIN, from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }

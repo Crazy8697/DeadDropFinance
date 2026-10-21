@@ -35,9 +35,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Bank sync end to end: the real SyncService and engine on an in-memory Room database, against local mock servers
- * for SimpleFIN (HTTP on 127.0.0.1) and Teller (mutual TLS with certificates made at test time). Synthetic data only;
- * nothing reaches the internet.
+ * Bank sync end to end: the real SyncService and engine on an in-memory Room database, against a local SimpleFIN
+ * mock server (HTTP on 127.0.0.1). Synthetic data only; nothing reaches the internet.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
@@ -72,10 +71,9 @@ class SyncTest {
 
     @After fun tearDown() { closers.forEach { it.close() }; db.close() }
 
-    private fun service(teller: TellerMock? = null, limiterMax: Int = RequestLimiter.DEFAULT_MAX, readTimeoutMs: Int = 1500) = SyncService(
+    private fun service(limiterMax: Int = RequestLimiter.DEFAULT_MAX, readTimeoutMs: Int = 1500) = SyncService(
         store, secrets, settings, clock = { now }, zone = ZoneOffset.UTC,
-        httpFor = { Http(it, sleep = {}, connectTimeoutMs = 2000, readTimeoutMs = readTimeoutMs, baseBackoffMs = 1) },
-        tellerBaseUrl = teller?.baseUrl ?: "https://127.0.0.1:1", tellerTrust = TestCerts.get().clientTrust(),
+        httpFor = { Http(sleep = {}, connectTimeoutMs = 2000, readTimeoutMs = readTimeoutMs, baseBackoffMs = 1) },
         allowLoopbackHttp = true, limiterMax = limiterMax,
     )
 
@@ -376,76 +374,5 @@ class SyncTest {
         assertFalse(everything.contains(m.user))
         assertFalse(String(secretsFile.readBytes(), Charsets.ISO_8859_1).contains(m.pass))
         assertEquals(m.accessUrl, secrets.get(SecretStore.simplefinUrl(id)))
-    }
-
-    // ---- Teller (mutual TLS) ------------------------------------------------------------------------------------
-
-    private fun teller(accessToken: String = "test_token_" + System.nanoTime()) = TellerMock(TestCerts.get(), accessToken).also { closers += it }
-
-    @Test fun tellerSyncsOverMutualTls() = runBlocking<Unit> {
-        val t = teller()
-        t.transactions = listOf(
-            TellerMock.txn("txn_1", day.minusDays(1).toString(), "-42.10", "SAMPLE MARKET"),
-            TellerMock.txn("txn_2", day.toString(), "-3.25", "SAMPLE COFFEE", status = "pending"),
-        )
-        val s = service(t)
-        s.saveTellerCredentials(TestCerts.get().clientCertPem, TestCerts.get().clientKeyPem)
-        val id = s.connectTeller(t.accessToken, "enr_test1", "Sample Bank")
-        val l = store.sync.linkedOf(id).single()
-        assertEquals("0001", l.mask)
-        assertEquals(250_00L, l.providerBalance)
-        s.link(listOf(SyncService.LinkChoice(l.id, SyncService.Target.New("Checking"), SyncService.History.DAYS_30)))
-        val r = s.syncConnection(id)
-        assertTrue(r.message, r.ok)
-        assertEquals(2, r.outcome.added)
-        assertEquals(1, synced().count { it.pending })
-        assertEquals(250_00L, s.postedBalance(store.sync.linkedOf(id).single().accountId!!))
-        assertEquals(0, s.syncConnection(id).outcome.added)
-        val log = store.dao.changes().joinToString { it.changedFields }
-        assertFalse(log.contains(t.accessToken))
-        assertFalse(log.contains("PRIVATE KEY"))
-        assertEquals("enr_test1", store.sync.connection(id)!!.enrollmentId)
-    }
-
-    @Test fun aCertificateTellerDoesntKnowNeedsAFix() = runBlocking<Unit> {
-        val t = teller()
-        val s = service(t)
-        s.saveTellerCredentials(TestCerts.get().otherCertPem, TestCerts.get().otherKeyPem)
-        val id = s.connectTeller(t.accessToken, "enr_test1", "Sample Bank")
-        val r = s.syncConnection(id)
-        assertFalse(r.ok)
-        assertEquals(FixCode.TELLER_CERTIFICATE, store.sync.connection(id)!!.fixCode)
-    }
-
-    @Test fun aDisconnectedEnrollmentAsksForAReconnect() = runBlocking<Unit> {
-        val t = teller()
-        val s = service(t)
-        s.saveTellerCredentials(TestCerts.get().clientCertPem, TestCerts.get().clientKeyPem)
-        val id = s.connectTeller(t.accessToken, "enr_test1", "Sample Bank")
-        s.link(listOf(SyncService.LinkChoice(store.sync.linkedOf(id).single().id, SyncService.Target.New("Checking"))))
-        t.forced = Answer(404, """{"error":{"code":"enrollment.disconnected.credentials_invalid","message":"x"}}""")
-        val r = s.syncConnection(id)
-        assertFalse(r.ok)
-        val c = store.sync.connection(id)!!
-        assertEquals(FixCode.TELLER_RECONNECT, c.fixCode)
-        assertTrue(c.lastResult!!.contains("login changed"))
-    }
-
-    @Test fun aRevokedTellerTokenAsksForAReconnect() = runBlocking<Unit> {
-        val t = teller()
-        val s = service(t)
-        s.saveTellerCredentials(TestCerts.get().clientCertPem, TestCerts.get().clientKeyPem)
-        val id = s.connectTeller("not_the_token", "enr_test1", "Sample Bank")
-        assertEquals(FixCode.TELLER_RECONNECT, (s.syncConnection(id).let { store.sync.connection(id)!!.fixCode }))
-    }
-
-    @Test fun aCreditCardBalanceIsWhatYouOwe() = runBlocking<Unit> {
-        val t = teller()
-        t.accountType = "credit"
-        t.balance = "120.00"
-        val s = service(t)
-        s.saveTellerCredentials(TestCerts.get().clientCertPem, TestCerts.get().clientKeyPem)
-        val id = s.connectTeller(t.accessToken, "enr_test1", "Sample Bank")
-        assertEquals(-120_00L, store.sync.linkedOf(id).single().providerBalance)
     }
 }

@@ -73,9 +73,8 @@ TOKEN = ("a token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z
 CRED_URL = ("a web address with a login in it",
             re.compile(r"\bhttps?://(?![$<{%])[^\s/:@\"']+:(?![$<{%])[^\s/@\"']+@[A-Za-z0-9.-]+"))
 KEY = ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"))
-# Kotlin labels such as this@SomeClass.member (kotlin-reflect, shipped by the Teller SDK) are code, not addresses
 EMAIL = ("an e-mail address",
-         re.compile(r"\b(?!this@)(?!(?:" + "|".join(re.escape(a) for a in EMAIL_ALLOW_ADDRESSES or ["\0"]) + r")\b)"
+         re.compile(r"\b(?!(?:" + "|".join(re.escape(a) for a in EMAIL_ALLOW_ADDRESSES or ["\0"]) + r")\b)"
                     r"[A-Za-z0-9._%+-]+@(?!(?:" + "|".join(re.escape(d) for d in EMAIL_ALLOW_DOMAINS) + r")\b)"
                     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"))
 # key = value with a real-looking value (not empty, not a placeholder, not a variable reference, not code that

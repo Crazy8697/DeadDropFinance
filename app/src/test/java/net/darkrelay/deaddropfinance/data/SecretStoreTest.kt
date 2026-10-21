@@ -27,20 +27,20 @@ class SecretStoreTest {
         val f = file()
         val w = Fake()
         val value = "token-" + System.nanoTime()
-        SecretStore(f, w).put(SecretStore.tellerToken("c1"), value)
-        assertEquals(value, SecretStore(f, w).get(SecretStore.tellerToken("c1")))
+        SecretStore(f, w).put(SecretStore.simplefinUrl("c1"), value)
+        assertEquals(value, SecretStore(f, w).get(SecretStore.simplefinUrl("c1")))
         assertFalse(String(f.readBytes(), Charsets.ISO_8859_1).contains(value))
-        assertEquals("..." + value.takeLast(4), SecretStore(f, w).hint(SecretStore.tellerToken("c1")))
+        assertEquals("..." + value.takeLast(4), SecretStore(f, w).hint(SecretStore.simplefinUrl("c1")))
     }
 
     @Test fun removingAConnectionsSecretsLeavesTheRest() {
         val s = SecretStore(file(), Fake())
-        s.put(SecretStore.tellerToken("c1"), "a")
+        s.put(SecretStore.simplefinUrl("c1"), "a")
         s.put(SecretStore.simplefinUrl("c2"), "b")
-        s.put(SecretStore.TELLER_CERT, "c")
+        s.put("app.setting", "c")
         s.removeWhere(SecretStore.forConnection("c1"))
-        assertNull(s.get(SecretStore.tellerToken("c1")))
-        assertEquals(setOf(SecretStore.simplefinUrl("c2"), SecretStore.TELLER_CERT), s.names())
+        assertNull(s.get(SecretStore.simplefinUrl("c1")))
+        assertEquals(setOf(SecretStore.simplefinUrl("c2"), "app.setting"), s.names())
     }
 
     @Test fun anUnreadableStoreIsNeverOverwritten() {

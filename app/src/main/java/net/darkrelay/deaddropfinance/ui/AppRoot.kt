@@ -66,9 +66,8 @@ sealed interface Nav {
     data class AccountEdit(val id: String?) : Nav
     data object Import : Nav
     data object BankSync : Nav
-    data object SyncDoor : Nav
-    /** A door's connect screen; [fixId] repairs that connection instead of adding a new one. */
-    data class SyncConnect(val door: Door, val fixId: String? = null) : Nav
+    /** The SimpleFIN connect screen; [fixId] repairs that connection with a new token instead of adding one. */
+    data class SyncConnect(val fixId: String? = null) : Nav
     data class SyncLink(val connectionId: String) : Nav
 }
 
@@ -76,10 +75,6 @@ sealed interface Nav {
 interface Platform {
     fun openUrl(url: String)
     fun pickCsv(onPicked: (name: String, text: String?) -> Unit)
-    /** Any small file (certificates, keys, teller.zip), as bytes; null bytes if it couldn't be read or is too big. */
-    fun pickFile(mimes: Array<String>, maxBytes: Int, onPicked: (name: String, bytes: ByteArray?) -> Unit)
-    /** Opens Teller Connect; [done] gets the enrollment, or null and a message (or null for a plain close). */
-    fun openTellerConnect(appId: String, environment: String, enrollmentId: String?, done: (net.darkrelay.deaddropfinance.sync.TellerHandoff.Success?, String?) -> Unit)
     /** Puts the background sync job in line with the settings. */
     fun scheduleSync(hasConnections: Boolean)
     val more: MoreState
@@ -139,7 +134,6 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     var wizardDoor by remember { mutableStateOf<Door?>(null) }
     var wizardConn by remember { mutableStateOf<String?>(null) }
     var starters by remember { mutableStateOf(setOf<String>()) }
-    var certTick by remember { mutableStateOf(0) }
 
     fun go(n: Nav) { error = null; message = null; stack.add(n) }
     fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) }
@@ -182,16 +176,6 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     val b = budget ?: return
     val top = stack.last()
     val hasAccounts = b.accounts.any { !it.archived }
-    val certSaved = remember(certTick) { sync.hasTellerCredentials() }
-    val certExpires = remember(certTick) { sync.tellerCertificateExpires()?.let { java.text.DateFormat.getDateInstance().format(it) } }
-
-    @Composable
-    fun tellerDoor(reconnectId: String?, enrollmentId: String?, afterImport: () -> Unit, after: (String) -> Unit) = TellerDoor(
-        connectUi, certSaved, certExpires, onOpen = platform::openUrl,
-        onImportFiles = { ctl.importTellerFiles(connectUi) { certTick++; afterImport() } },
-        onConnect = { ctl.connectTeller(connectUi, reconnectId, enrollmentId, after) },
-    )
-
     @Composable
     fun screen(top: Nav) {
         when (top) {
@@ -321,7 +305,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 }
                 BankSyncScreen(
                     connections, links, b.accounts, hints, background, interval, syncBusy, syncMessage, ::back,
-                    onAdd = { syncMessage = null; go(Nav.SyncDoor) },
+                    onAdd = { syncMessage = null; connectUi.error = null; go(Nav.SyncConnect()) },
                     onSyncNow = { id -> scope.launch { syncMessage = sync.syncConnection(id, SyncService.Trigger.MANUAL).message } },
                     onFix = { c -> fixConnection(c.id, c.fixCode, ctl, connectUi, connections, ::go, scope, sync) },
                     onLinks = { id -> picks.clear(); go(Nav.SyncLink(id)) },
@@ -336,25 +320,13 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     onInterval = { sync.settings.intervalHours = it; interval = it; platform.scheduleSync(connections.isNotEmpty()) },
                 )
             }
-            Nav.SyncDoor -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                ScreenTitle("Add a connection", ::back)
-                DoorList(onPick = { d -> ctl.prefill(connectUi); connectUi.error = null; go(Nav.SyncConnect(d)) }, includeOldSchool = false)
-            }
             is Nav.SyncConnect -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
                 val fix = top.fixId?.let { id -> connections.firstOrNull { it.id == id } }
-                ScreenTitle(if (top.door == Door.NERDY) "Teller" else "SimpleFIN", ::back)
-                when (top.door) {
-                    Door.NERDY -> tellerDoor(
-                        reconnectId = fix?.id, enrollmentId = fix?.enrollmentId,
-                        afterImport = { if (fix != null) scope.launch { syncMessage = sync.syncConnection(fix.id).message; backTo(Nav.BankSync) } },
-                        after = { id -> if (fix != null) { scope.launch { syncMessage = sync.syncConnection(id).message }; backTo(Nav.BankSync) } else { back(); stack[stack.lastIndex] = Nav.SyncLink(id) } },
-                    )
-                    Door.EASY -> SimpleFinDoor(connectUi, platform::openUrl) {
-                        ctl.connectSimpleFin(connectUi, fix?.id) { id ->
-                            if (fix != null) { scope.launch { syncMessage = sync.syncConnection(id).message }; backTo(Nav.BankSync) } else { back(); stack[stack.lastIndex] = Nav.SyncLink(id) }
-                        }
+                ScreenTitle("SimpleFIN", ::back)
+                SimpleFinDoor(connectUi, platform::openUrl) {
+                    ctl.connectSimpleFin(connectUi, fix?.id) { id ->
+                        if (fix != null) { scope.launch { syncMessage = sync.syncConnection(id).message }; backTo(Nav.BankSync) } else { back(); go(Nav.SyncLink(id)) }
                     }
-                    Door.OLD_SCHOOL -> {}
                 }
             }
             is Nav.SyncLink -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -377,9 +349,8 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
     if (page != null && (stack.size == 1 || (top !is Nav.AccountEdit && top != Nav.Import))) {
         SetupWizardHost(
             page, wizardForced, b, connections, links, connectUi, picks, linkBusy, syncMessage, starters, more, hasAccounts,
-            tellerDoor = { after -> tellerDoor(null, null, {}, after) },
             onPage = { wizard = it },
-            onDoor = { d -> wizardDoor = d; ctl.prefill(connectUi); connectUi.error = null; wizard = WizardPage.CONNECT },
+            onDoor = { d -> wizardDoor = d; connectUi.error = null; wizard = WizardPage.CONNECT },
             door = wizardDoor,
             onConnected = { id -> wizardConn = id; picks.clear(); wizard = WizardPage.LINK },
             wizardConn = wizardConn,
@@ -442,11 +413,8 @@ private fun fixConnection(
 ) {
     val c = connections.firstOrNull { it.id == connectionId } ?: return
     ui.error = null
-    ctl.prefill(ui)
     when (code) {
-        FixCode.TELLER_CERTIFICATE -> go(Nav.SyncConnect(Door.NERDY, c.id))
-        FixCode.TELLER_RECONNECT -> ctl.connectTeller(ui, c.id, c.enrollmentId) { id -> scope.launch { sync.syncConnection(id) } }
-        FixCode.SIMPLEFIN_TOKEN -> go(Nav.SyncConnect(Door.EASY, c.id))
+        FixCode.SIMPLEFIN_TOKEN -> go(Nav.SyncConnect(c.id))
         else -> go(Nav.BankSync)
     }
 }

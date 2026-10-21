@@ -12,12 +12,6 @@ object Paste {
         data class Bad(val message: String) : Result()
     }
 
-    fun appId(raw: String): Result {
-        val m = Regex("""app_[A-Za-z0-9]+""").find(raw)
-        return if (m != null) Result.Ok(m.value)
-        else Result.Bad("That doesn't look like a Teller application ID. It starts with app_ and is on your Teller dashboard.")
-    }
-
     /** A SimpleFIN setup token is base64 text that decodes to a web address (the claim URL). */
     fun setupToken(raw: String): Result {
         var t = raw.trim()

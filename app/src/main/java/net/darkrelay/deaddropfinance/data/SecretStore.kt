@@ -4,8 +4,7 @@ import java.io.File
 import org.json.JSONObject
 
 /**
- * Where bank credentials live: Teller's certificate and private key, Teller access tokens and SimpleFIN access
- * URLs. They are encrypted as one blob with a Keystore-wrapped key (its own Keystore key, separate from the
+ * Where bank credentials live: SimpleFIN access URLs (and any later provider's credentials). They are encrypted as one blob with a Keystore-wrapped key (its own Keystore key, separate from the
  * database key's), in their own file, never in the database, SharedPreferences or the change log. Nothing reads
  * a secret back out for display: screens only get [hint], the last four characters.
  *
@@ -58,9 +57,6 @@ class SecretStore(private val file: File, private val wrapper: KeyWrapper) {
     fun hint(name: String): String? = get(name)?.let { "..." + it.takeLast(4) }
 
     companion object {
-        const val TELLER_CERT = "teller.certificate"
-        const val TELLER_KEY = "teller.private_key"
-        fun tellerToken(connectionId: String) = "teller.token.$connectionId"
         fun simplefinUrl(connectionId: String) = "simplefin.url.$connectionId"
         fun forConnection(connectionId: String): (String) -> Boolean = { it.endsWith(".$connectionId") }
         const val FILE_NAME = "secrets.bin"
