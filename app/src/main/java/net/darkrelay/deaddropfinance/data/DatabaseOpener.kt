@@ -30,6 +30,7 @@ object DatabaseOpener {
             key.fill(0)
             val db = Room.databaseBuilder(app, AppDatabase::class.java, AppDatabase.NAME)
                 .openHelperFactory(SupportOpenHelperFactory(password))
+                .addMigrations(*Migrations.ALL)
                 .build()
             db.openHelper.writableDatabase      // open now, so a wrong key shows up here and not later
             Opened.Ok(BudgetStore(db))

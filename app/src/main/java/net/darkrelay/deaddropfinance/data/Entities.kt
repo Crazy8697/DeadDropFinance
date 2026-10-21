@@ -92,14 +92,14 @@ data class EnvelopeEntity(
 
 enum class TransactionKind { NORMAL, TRANSFER }
 
-enum class TransactionSource { MANUAL, CSV }
+enum class TransactionSource { MANUAL, CSV, SYNC }
 
 /**
  * One money movement on one account. [amount] is signed: negative is money out, positive is money in. A TRANSFER
  * moves [amount] (positive) from [accountId] to [transferAccountId] and touches no envelope. A NORMAL transaction's
  * lines (TransactionLineEntity) say where its money went and always add up to [amount].
  */
-@Entity(tableName = "txn", indices = [Index("account_id"), Index("date")])
+@Entity(tableName = "txn", indices = [Index("account_id"), Index("date"), Index("external_id")])
 data class TransactionEntity(
     @PrimaryKey override val id: String = newId(),
     @ColumnInfo(name = "account_id") val accountId: String,
@@ -121,6 +121,8 @@ data class TransactionEntity(
     val source: TransactionSource = TransactionSource.MANUAL,
     /** The bank's own description from the import that brought or posted this, for duplicate checks. */
     @ColumnInfo(name = "import_description") val importDescription: String? = null,
+    /** The provider's id for this transaction (bank sync), "provider:account:id". Null for hand entry and CSV. */
+    @ColumnInfo(name = "external_id") val externalId: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -131,7 +133,7 @@ data class TransactionEntity(
         "account_id" to accountId, "kind" to kind.name, "transfer_account_id" to transferAccountId,
         "date" to date.toString(), "payee" to payee, "memo" to memo, "amount" to amount, "pending" to pending,
         "wash_group_id" to washGroupId, "is_payday" to isPayday, "fee" to fee, "fee_rebate" to feeRebate,
-        "source" to source.name, "import_description" to importDescription, "deleted" to deleted,
+        "source" to source.name, "import_description" to importDescription, "external_id" to externalId, "deleted" to deleted,
     )
 }
 

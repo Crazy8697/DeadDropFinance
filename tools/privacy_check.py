@@ -66,10 +66,16 @@ TAILNET = ("a tailnet name or address",
 # private machines themselves live in the gitignored privacy-local.txt, not here
 HOMELAB = ("a home-lab hostname", re.compile(r"[a-z0-9-]+\.darkrelay\.net", re.I))
 TOKEN = ("a token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}"
-                               r"|\beyJ[A-Za-z0-9_-]{20,}\.eyJ|\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{35}\b"))
+                               r"|\beyJ[A-Za-z0-9_-]{20,}\.eyJ|\bAKIA[0-9A-Z]{16}\b|\bAIza[0-9A-Za-z_-]{35}\b"
+                               # Teller access tokens (live and sandbox)
+                               r"|\b(?:test_)?token_[A-Za-z0-9]{16,}\b"))
+# a web address with a login in it, like a SimpleFIN access URL (template variables like $user are code, not values)
+CRED_URL = ("a web address with a login in it",
+            re.compile(r"\bhttps?://(?![$<{%])[^\s/:@\"']+:(?![$<{%])[^\s/@\"']+@[A-Za-z0-9.-]+"))
 KEY = ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"))
+# Kotlin labels such as this@SomeClass.member (kotlin-reflect, shipped by the Teller SDK) are code, not addresses
 EMAIL = ("an e-mail address",
-         re.compile(r"\b(?!(?:" + "|".join(re.escape(a) for a in EMAIL_ALLOW_ADDRESSES or ["\0"]) + r")\b)"
+         re.compile(r"\b(?!this@)(?!(?:" + "|".join(re.escape(a) for a in EMAIL_ALLOW_ADDRESSES or ["\0"]) + r")\b)"
                     r"[A-Za-z0-9._%+-]+@(?!(?:" + "|".join(re.escape(d) for d in EMAIL_ALLOW_DOMAINS) + r")\b)"
                     r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"))
 # key = value with a real-looking value (not empty, not a placeholder, not a variable reference, not code that
@@ -92,12 +98,12 @@ EMDASH = ("an em dash", re.compile(chr(0x2014)))
 ENV_LINE = ("a filled-in .env line",
             re.compile(r"^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?![\"']?\s*(?:$|<|\$\{|changeme\b))\S"))
 
-TREE_PATTERNS = [USER_PATH, PRIVATE_IP, TAILNET, HOMELAB, TOKEN, KEY, EMAIL, SECRET, KEYSTORE, ADB, FINGERPRINT,
+TREE_PATTERNS = [USER_PATH, PRIVATE_IP, TAILNET, HOMELAB, TOKEN, CRED_URL, KEY, EMAIL, SECRET, KEYSTORE, ADB, FINGERPRINT,
                  EMDASH]
 # the APK also carries AndroidX, Compose and the Kotlin standard library; their strings are not ours, so only the
 # patterns that could only be ours are used there: no key=value or fingerprint-shape rules, and no em dash (the
 # sources are checked for those; library translations carry them)
-APK_PATTERNS = [USER_PATH, PRIVATE_IP, TAILNET, HOMELAB, TOKEN, KEY, EMAIL, ADB]
+APK_PATTERNS = [USER_PATH, PRIVATE_IP, TAILNET, HOMELAB, TOKEN, CRED_URL, KEY, EMAIL, ADB]
 # raw binary entries (resources.arsc, binary XML, native code): byte noise can look like an address, so no e-mail
 # rule there; their strings are read decoded through aapt2 instead
 APK_BINARY_PATTERNS = [p for p in APK_PATTERNS if p is not EMAIL]

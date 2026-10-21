@@ -43,11 +43,16 @@ fun ActivityScreen(
     onTransaction: (String) -> Unit,
     onSort: (String, String?, Boolean) -> Unit,
     onSplit: (String) -> Unit,
+    syncNotes: List<String> = emptyList(),
 ) {
     val accounts = budget.accounts.associateBy { it.id }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Activity", onBack = null) { TextButton(onClick = onAdd, enabled = budget.accounts.any { !it.archived }) { Text("Add") } }
         if (budget.accounts.none { !it.archived }) EmptyState("No accounts yet. Add one in More to get started.")
+        if (syncNotes.isNotEmpty()) {
+            SectionTitle("From bank sync")
+            syncNotes.forEach { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp)) }
+        }
         SectionTitle("To sort")
         if (budget.toSort.isEmpty()) EmptyState("Nothing to sort.")
         budget.toSort.forEach { t ->

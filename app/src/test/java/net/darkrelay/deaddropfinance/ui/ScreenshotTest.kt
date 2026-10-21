@@ -30,6 +30,17 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
 import org.junit.runners.model.Statement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.unit.dp
+import net.darkrelay.deaddropfinance.data.ConnectionEntity
+import net.darkrelay.deaddropfinance.data.ConnectionStatus
+import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
+import net.darkrelay.deaddropfinance.data.Provider
+import net.darkrelay.deaddropfinance.sync.FixCode
+import net.darkrelay.deaddropfinance.sync.SyncService
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -99,7 +110,7 @@ class ScreenshotTest {
         moves = listOf(move(null, "food", 400_00), move(null, "fuel", 20_00), move(null, "save", 50_00), move(null, "trip", 100_00), move(null, "debt", 60_00), move(null, "roll", 30_00)),
     )
     private val empty = Budget(emptyList(), listOf(env("roll", "Rollover", EnvelopeMode.ROLLOVER, 0)), emptyList(), emptyList(), emptyList())
-    private val more = MoreState(true, true, 5, false, true, false, null, "0.6.0")
+    private val more = MoreState(true, true, 5, false, true, false, null, "0.7.0")
     private val release = UpdateCheck.Release("99.1.0", "https://example.com/notes")
 
     private companion object { const val TALL = "w400dp-h1500dp-xhdpi" }
@@ -140,4 +151,74 @@ class ScreenshotTest {
     @Test fun importEmpty() = shot("22-import-no-accounts") { ImportScreen(empty, ImportState(), {}, {}, {}, {}, {}) }
     @Test fun lock() = shot("23-lock") { LockScreen({}, null) }
     @Test fun unavailable() = shot("24-data-unavailable") { DataUnavailableScreen("the stored key can't be unlocked on this phone") }
+
+    // ---- 0.7.0: setup wizard and bank sync (invented connections; no secret, masked or not, looks real) ------------
+    private val at = today.atTime(9, 30).toEpochSecond(java.time.ZoneOffset.UTC) * 1000
+    private val conns = listOf(
+        ConnectionEntity("c1", Provider.TELLER, "Sample Bank", "enr_sample", ConnectionStatus.OK, null, at, "3 new transactions, 1 updated.", null, 0),
+        ConnectionEntity("c2", Provider.SIMPLEFIN, "SimpleFIN", null, ConnectionStatus.NEEDS_FIX, FixCode.SIMPLEFIN_TOKEN, at - 86_400_000,
+            "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again.", "Example Credit Union needs you to log in again.", 0),
+    )
+    private val links = listOf(
+        LinkedAccountEntity("l1", "c1", "acc_x", "Sample Bank Checking", "0001", "chk", 240_00, at),
+        LinkedAccountEntity("l2", "c1", "acc_y", "Sample Bank Savings", "0002", null, 1_000_00, at),
+        LinkedAccountEntity("l3", "c2", "ACT-1", "Example Credit Union Card", "", "app", -55_00, at),
+    )
+    @Composable private fun Page(content: @Composable () -> Unit) = Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) { content() }
+
+    @Test fun wizardWelcome() = shot("30-wizard-welcome") { WizardFrame(WizardPage.WELCOME, "Welcome", null, "Start" to {}) { WelcomePage() } }
+    @Test fun wizardLock() = shot("31-wizard-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(true, true) {} } }
+    @Test fun wizardLockNoScreenLock() = shot("32-wizard-lock-no-screen-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(false, false) {} } }
+    @Test fun wizardDoor() = shot("33-wizard-door") { WizardFrame(WizardPage.DOOR, "Pick your door", {}, null) { DoorList({}) } }
+    @Test @Config(qualifiers = TALL) fun wizardTeller() = shot("34-wizard-teller") {
+        WizardFrame(WizardPage.CONNECT, "Connect with Teller", {}, "Skip for now" to {}) { TellerDoor(ConnectUi(), false, null, {}, {}, {}) }
+    }
+    @Test @Config(qualifiers = TALL) fun wizardTellerPasteErrors() = shot("35-wizard-teller-paste-error") {
+        val ui = ConnectUi().apply {
+            appId = "Application ID: 12345"
+            appIdMessage = "That doesn't look like a Teller application ID. It starts with app_ and is on your Teller dashboard."
+            certMessage = "Certificate read. Now choose the private key file."
+        }
+        WizardFrame(WizardPage.CONNECT, "Connect with Teller", {}, "Skip for now" to {}) { TellerDoor(ui, true, "Mar 17, 2031", {}, {}, {}) }
+    }
+    @Test @Config(qualifiers = TALL) fun wizardSimpleFin() = shot("36-wizard-simplefin") {
+        val ui = ConnectUi().apply { error = "SimpleFIN says that token is already used or doesn't exist. Setup tokens work once. If you didn't use it, someone else may have: disable it in your SimpleFIN account, then get a new setup token." }
+        WizardFrame(WizardPage.CONNECT, "Connect with SimpleFIN", {}, "Skip for now" to {}) { SimpleFinDoor(ui, {}, {}) }
+    }
+    @Test fun wizardOldSchool() = shot("37-wizard-old-school") { WizardFrame(WizardPage.CONNECT, "Old School", {}, null) { OldSchoolDoor(false, {}, {}, {}) } }
+    @Test @Config(qualifiers = TALL) fun wizardLink() = shot("38-wizard-link") {
+        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
+            LinkPanel(links.filter { it.connectionId == "c1" }.map { it.copy(accountId = null) }, budget.accounts, mapOf("l1" to LinkPick("chk")), { _, _ -> }, false, null, null)
+        }
+    }
+    @Test @Config(qualifiers = TALL) fun wizardStarter() = shot("39-wizard-starter") {
+        WizardFrame(WizardPage.STARTER, "Starter envelopes", {}, "Add 2" to {}) { StarterPage(setOf("Groceries", "Phone"), setOf("Rollover", "Gas"), {}, {}) }
+    }
+    @Test fun wizardFinish() = shot("40-wizard-finish") {
+        WizardFrame(WizardPage.FINISH, "Finish", {}, "Finish" to {}) {
+            FinishPage(listOf("App lock is on.", "Connected: Sample Bank", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup. Add or change bank connections from More, Bank sync."))
+        }
+    }
+    @Test fun bankSyncEmpty() = shot("41-bank-sync-empty") { BankSyncScreen(emptyList(), emptyList(), budget.accounts, emptyMap(), true, 6, false, null, {}, {}, {}, {}, {}, { _, _ -> }, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun bankSync() = shot("42-bank-sync") {
+        BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _ -> }, {}, {})
+    }
+    @Test fun syncLinksFromBankSync() = shot("43-bank-sync-accounts") {
+        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun accountSyncMismatch() = shot("44-account-balance-check") {
+        AccountEditScreen(budget.accounts[0], null, {}, { _, _, _, _ -> }, {}) { AccountSyncSection(budget, "chk", links, conns) { _, _ -> } }
+    }
+    @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
+        AccountEditScreen(budget.accounts[2], null, {}, { _, _, _, _ -> }, {}) { AccountSyncSection(budget, "cash", links, conns) { _, _ -> } }
+    }
+    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}) }
+    @Test fun fixDialog() = shot("47-fix-dialog") {
+        HomeScreen(budget, null, {}, {}, {}, {})
+        FixDialog(SyncService.FixPrompt("c1", FixCode.TELLER_RECONNECT, "Your bank login changed. Reconnect the bank to keep syncing."), {}, {})
+    }
+    @Test fun activitySyncNote() = shot("48-activity-sync-note") {
+        ActivityScreen(budget, {}, {}, { _, _, _ -> }, {}, listOf("0 new transactions, 1 pending removed. A pending SAMPLE HOLD for -\$9.99 on 2030-03-14 disappeared without posting and was removed."))
+    }
+    @Test fun moreWithSync() = shot("49-more-bank-sync") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "2 connections, last sync Mar 15, 9:30 AM. One needs attention.") }
 }

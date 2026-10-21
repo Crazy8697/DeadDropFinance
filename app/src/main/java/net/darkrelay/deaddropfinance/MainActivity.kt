@@ -29,6 +29,10 @@ import net.darkrelay.deaddropfinance.ui.DdfTheme
 import net.darkrelay.deaddropfinance.ui.LockScreen
 import net.darkrelay.deaddropfinance.ui.MoreState
 import net.darkrelay.deaddropfinance.ui.Platform
+import net.darkrelay.deaddropfinance.sync.SyncScheduler
+import net.darkrelay.deaddropfinance.sync.SyncService
+import net.darkrelay.deaddropfinance.sync.TellerConnectActivity
+import net.darkrelay.deaddropfinance.sync.TellerHandoff
 
 /**
  * The one activity. Opens the encrypted database off the main thread, shows the lock screen while locked (nothing
@@ -40,6 +44,10 @@ class MainActivity : ComponentActivity() {
     private var locked by mutableStateOf(true)
     private var lockMessage by mutableStateOf<String?>(null)
     private var pickCallback: ((String, String?) -> Unit)? = null
+    private var fileCallback: ((String, ByteArray?) -> Unit)? = null
+    private var fileMax = 0
+    private var tellerCallback: ((TellerHandoff.Success?, String?) -> Unit)? = null
+    private var sync by mutableStateOf<SyncService?>(null)
     private val app get() = application as DdfApp
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -52,12 +60,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val filePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val cb = fileCallback ?: return@registerForActivityResult
+        fileCallback = null
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            val bytes = withContext(Dispatchers.IO) { readBytes(uri, fileMax) }
+            cb(uri.lastPathSegment?.substringAfterLast('/') ?: "file", bytes)
+        }
+    }
+
+    private val tellerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val cb = tellerCallback ?: return@registerForActivityResult
+        tellerCallback = null
+        val (ok, failure) = TellerHandoff.take()
+        cb(ok, failure)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyHide()
         locked = app.lock.locked
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
-        lifecycleScope.launch { opened = withContext(Dispatchers.IO) { DatabaseOpener.open(this@MainActivity) } }
+        lifecycleScope.launch {
+            opened = withContext(Dispatchers.IO) { app.open() }
+            sync = withContext(Dispatchers.IO) { app.syncService() }
+        }
         setContent {
             DdfTheme {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -66,7 +94,7 @@ class MainActivity : ComponentActivity() {
                         when {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
-                            o is DatabaseOpener.Opened.Ok -> AppRoot(o.store, platform, startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true })
+                            o is DatabaseOpener.Opened.Ok && sync != null -> AppRoot(o.store, sync!!, platform, startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true })
                             else -> {}
                         }
                     }
@@ -113,12 +141,36 @@ class MainActivity : ComponentActivity() {
         null
     }
 
+    private fun readBytes(uri: Uri, max: Int): ByteArray? = try {
+        contentResolver.openInputStream(uri)?.use { input ->
+            val bytes = input.readNBytes(max + 1)
+            if (bytes.size > max) null else bytes
+        }
+    } catch (t: Throwable) {
+        null
+    }
+
     private val platform = object : Platform {
         override fun openUrl(url: String) { Browsers.open(this@MainActivity, url) }
 
         override fun pickCsv(onPicked: (String, String?) -> Unit) {
             pickCallback = onPicked
             picker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel"))
+        }
+
+        override fun pickFile(mimes: Array<String>, maxBytes: Int, onPicked: (String, ByteArray?) -> Unit) {
+            fileCallback = onPicked
+            fileMax = maxBytes
+            filePicker.launch(mimes)
+        }
+
+        override fun openTellerConnect(appId: String, environment: String, enrollmentId: String?, done: (TellerHandoff.Success?, String?) -> Unit) {
+            tellerCallback = done
+            tellerLauncher.launch(TellerConnectActivity.intent(this@MainActivity, appId, environment, enrollmentId))
+        }
+
+        override fun scheduleSync(hasConnections: Boolean) {
+            sync?.let { SyncScheduler.apply(this@MainActivity, it.settings, hasConnections) }
         }
 
         override val more: MoreState

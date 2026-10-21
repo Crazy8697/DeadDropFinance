@@ -51,10 +51,19 @@ fun MoreScreen(
     onHide: (Boolean) -> Unit,
     onCheckAtStartup: (Boolean) -> Unit,
     onCheckNow: () -> Unit,
+    onBankSync: () -> Unit = {},
+    onSetup: () -> Unit = {},
+    syncLine: String? = null,
 ) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
         ListRow(onAccounts) { Text("Accounts") }
+        ListRow(onBankSync) {
+            Column {
+                Text("Bank sync")
+                Text(syncLine ?: "Teller or SimpleFIN, from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         SectionTitle("Privacy")
         SettingRow(
@@ -74,6 +83,7 @@ fun MoreScreen(
         SettingRow("Check for updates at startup", "Asks GitHub for a newer version. Nothing about you is sent.", s.checkAtStartup, true, onCheckAtStartup)
         OutlinedButton(onClick = onCheckNow, enabled = !s.checking) { Text(if (s.checking) "Checking..." else "Check for updates") }
         if (s.updateMessage != null) Text(s.updateMessage, modifier = Modifier.padding(vertical = 6.dp))
+        ListRow(onSetup) { Column { Text("Setup"); Text("Run the setup wizard again. Nothing you have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         SectionTitle("About")
         Text("Dead Drop Finance, version ${s.version}", color = DdfColors.Muted)
         Gap(24)
@@ -81,7 +91,7 @@ fun MoreScreen(
 }
 
 @Composable
-private fun SettingRow(title: String, help: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+internal fun SettingRow(title: String, help: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text(title); Text(help, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
@@ -115,7 +125,10 @@ fun AccountsScreen(budget: Budget, onBack: () -> Unit, onAccount: (String) -> Un
 }
 
 @Composable
-fun AccountEditScreen(existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (String, AccountType, Long, LocalDate) -> Unit, onArchive: (Boolean) -> Unit) {
+fun AccountEditScreen(
+    existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (String, AccountType, Long, LocalDate) -> Unit, onArchive: (Boolean) -> Unit,
+    syncSection: (@Composable () -> Unit)? = null,
+) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var type by remember { mutableStateOf(existing?.type ?: AccountType.BANK) }
     var start by remember { mutableStateOf(existing?.startingBalance?.let { Money.plain(it) } ?: "") }
@@ -134,6 +147,7 @@ fun AccountEditScreen(existing: AccountEntity?, error: String?, onBack: () -> Un
             Gap()
             OutlinedButton(onClick = { onArchive(!existing.archived) }) { Text(if (existing.archived) "Unarchive" else "Archive") }
         }
+        syncSection?.invoke()
         Gap(24)
     }
 }

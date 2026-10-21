@@ -14,7 +14,12 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 
 ## Schema
 
-- Version 1 (0.6.0). The schema is exported to `app/schemas` and committed, so every change is reviewable.
+- Version 1 (0.6.0): the budget tables.
+- Version 2 (0.7.0): bank sync. Adds a nullable `external_id` column to `txn` (the provider's id for a synced
+  transaction) and three tables for this phone's own connections: `connection`, `linked_account` and `sync_log`.
+  Migration 1 to 2 only adds; `MigrationTest` builds a version 1 database from `1.json`, migrates it and checks
+  every row survived.
+- Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
   database at the old version, migrates it and checks the data survived.
@@ -26,6 +31,17 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Money is stored as whole cents in 64-bit integers. No floating point is used for money anywhere.
 - Dates are stored as ISO text (`yyyy-mm-dd`).
 
+## Bank sync credentials
+
+- Teller's certificate and private key, Teller access tokens and SimpleFIN access URLs are kept in their own
+  encrypted file (`keys/secrets.bin`), never in the database, SharedPreferences, the change log or any log.
+- That file is encrypted with its own Android Keystore key (AES-256-GCM), separate from the database key's.
+- If it can't be decrypted, it is left as it is (never replaced or deleted); the affected connection asks to be
+  reconnected.
+- Screens show only a masked hint (the last four characters), never a value.
+- Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
+- Disconnecting deletes that connection's credentials.
+
 ## Change log
 
 - Every write goes through one transaction that saves the rows and, for each one, a `change_log` row: entity type,
@@ -34,3 +50,5 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - An update that changes nothing writes no change row.
 - The device id is a random UUID made once and stored in the `meta` table.
 - The change log is for later stages (sync between the user's own devices); nothing reads it yet.
+- The bank sync tables (`connection`, `linked_account`, `sync_log`) describe this phone's own connections and are
+  not change-logged. Transactions that bank sync brings in are ordinary budget rows and are.
