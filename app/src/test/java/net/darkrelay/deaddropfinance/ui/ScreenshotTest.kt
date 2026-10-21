@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
@@ -32,6 +33,12 @@ import net.darkrelay.deaddropfinance.data.RuleAction
 import net.darkrelay.deaddropfinance.data.RuleEntity
 import net.darkrelay.deaddropfinance.data.RuleOrigin
 import net.darkrelay.deaddropfinance.data.SortedBy
+import net.darkrelay.deaddropfinance.data.ReceiptEntity
+import net.darkrelay.deaddropfinance.data.ReceiptItemEntity
+import net.darkrelay.deaddropfinance.data.ReceiptKind
+import net.darkrelay.deaddropfinance.data.ItemReturnEntity
+import net.darkrelay.deaddropfinance.domain.ReceiptMatch
+import net.darkrelay.deaddropfinance.domain.ReceiptParser
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -365,6 +372,72 @@ class ScreenshotTest {
     }
     @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}) }
     @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
+
+    // ---- 0.9.0: receipts ----------------------------------------------------------------------------------------
+    /** An invented receipt drawn on the canvas, as a scan would show it. */
+    private fun receiptImage(lines: List<String>): androidx.compose.ui.graphics.ImageBitmap {
+        val b = android.graphics.Bitmap.createBitmap(420, 40 + lines.size * 30, android.graphics.Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        c.drawColor(android.graphics.Color.rgb(236, 236, 236))
+        val p = android.graphics.Paint().apply { color = android.graphics.Color.rgb(30, 30, 30); textSize = 22f; typeface = android.graphics.Typeface.MONOSPACE; isAntiAlias = true }
+        lines.forEachIndexed { i, l -> c.drawText(l, 16f, 40f + i * 30, p) }
+        return b.asImageBitmap()
+    }
+    private val shopLines = listOf("SAMPLE SUPERSTORE", "03/14/2030", "SAMPLE TOWELS 2 @ 10.00  20.00", "SAMPLE SNACKS          12.50", "SAMPLE SOAP             6.00",
+        "COUPON                 1.00-", "SUBTOTAL               37.50", "TAX                     3.00", "TOTAL                  40.50")
+    private val rcpt = ReceiptEntity(id = "rc1", transactionId = "shop9", store = "SAMPLE SUPERSTORE", date = today.minusDays(3), total = 40_50, tax = 3_00, pages = 1, createdAt = 0, updatedAt = 0)
+    private fun item(id: String, text: String, amount: Long, line: Int, qty: Long = 1000, env: String? = null) =
+        ReceiptItemEntity(id = id, receiptId = "rc1", line = line, text = text, name = ReceiptParser.cleanName(text), quantityMilli = qty, unitPrice = amount * 1000 / qty, amount = amount, envelopeId = env, createdAt = 0, updatedAt = 0)
+    private val rItems = listOf(item("i1", "SAMPLE TOWELS", 20_00, 0, 2000, "save"), item("i2", "SAMPLE SNACKS", 12_50, 1, env = "food"), item("i3", "SAMPLE SOAP", 6_00, 2, env = "save"), item("i4", "COUPON", -1_00, 3, env = "save"))
+    private val budget9 = Budget(
+        budget8.accounts, budget8.envelopes,
+        budget8.transactions + listOf(bankTx("shop9", "SAMPLE SUPERSTORE #88", -40_50, 3), bankTx("back9", "SAMPLE SUPERSTORE REFUND", 10_60, 0).copy(returnOf = "shop9")),
+        budget8.lines + listOf(line("shop9", -13_63, "food"), line("shop9", -26_87, "save"), line("back9", 10_60)),
+        budget8.moves,
+    )
+    private val waiting = ReceiptEntity(id = "rc2", store = "SAMPLE HARDWARE", date = today.minusDays(1), total = 18_99, tax = 1_40, pages = 1, createdAt = 0, updatedAt = 0)
+
+    @Test @Config(qualifiers = TALL) fun activityScanAndWaiting() = shot("83-activity-scan-and-waiting") {
+        ActivityScreen(budget8, {}, {}, { _, _, _ -> }, {}, sorting = sortingUi().copy(offer = null, learned = emptyList(), onScan = {}, waitingReceipts = 2))
+    }
+    @Test fun scanScreen() = shot("84-scan-receipt") { ScanScreen("SAMPLE SUPERSTORE #88, -\$40.50", false, null, {}, {}, {}) }
+    @Test fun scanReading() = shot("85-scan-reading") { ScanScreen(null, true, null, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun receiptCheck() = shot("86-receipt-check") {
+        val parsed = ReceiptParser.parse(listOf(shopLines.map { ReceiptParser.Line(it, if (it.startsWith("SAMPLE SOAP")) 40 else 95) }))
+        ReceiptEditScreen(ReceiptForm.from(parsed), listOf(receiptImage(shopLines)), true, false, null, {}, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun receiptDetail() = shot("87-receipt-detail") {
+        ReceiptDetailScreen(rcpt, rItems, listOf(receiptImage(shopLines)), budget9.transactions.first { it.id == "shop9" }, budget9,
+            listOf(ItemReturnEntity(itemId = "i1", transactionId = "back9", quantityMilli = 1000, amount = 10_60, createdAt = 0, updatedAt = 0)), null,
+            {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun receiptWaiting() = shot("88-receipt-waiting") {
+        ReceiptDetailScreen(waiting, emptyList(), listOf(receiptImage(listOf("SAMPLE HARDWARE", "TOTAL 18.99"))), null, budget9, emptyList(),
+            "Saved. It waits in Receipts and is matched when its charge comes in.", {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun receiptMatch() = shot("89-receipt-match") {
+        val t1 = bankTx("m1", "SAMPLE HARDWARE 0042", -18_99, 0)
+        val t2 = bankTx("m2", "OTHER SAMPLE SHOP", -18_99, 1).copy(pending = true)
+        ReceiptMatchScreen(waiting, listOf(ReceiptMatch.Candidate(t1, ReceiptMatch.Fit.EXACT, false, 1), ReceiptMatch.Candidate(t2, ReceiptMatch.Fit.EXACT, false, 0)), {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun itemSplit() = shot("90-split-by-items") {
+        ItemSplitScreen(rcpt, rItems, budget9.transactions.first { it.id == "shop9" }, budget9, rItems.associate { it.id to it.envelopeId }, null, {}, {})
+    }
+    @Test fun receiptsList() = shot("91-receipts") { ReceiptsScreen(listOf(waiting, rcpt), budget9, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun returnItems() = shot("92-return-items") {
+        ReturnItemsScreen(budget9.transactions.first { it.id == "back9" }, budget9.transactions.first { it.id == "shop9" }, rcpt, rItems, emptyList(),
+            mapOf("i1" to 1000L), budget9, null, {}, {}, {})
+    }
+    @Test @Config(qualifiers = TALL) fun transactionWithReceipt() = shot("93-transaction-receipt") {
+        val t = budget9.transactions.first { it.id == "shop9" }
+        TransactionDetailScreen(t, budget9, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {}, receipt = rcpt, onAddReceipt = {})
+    }
+    @Test fun transactionAddReceipt() = shot("94-transaction-add-receipt") {
+        TransactionDetailScreen(budget8.transactions.first { it.id == "gas" }, budget8, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {}, onAddReceipt = {})
+    }
+    @Test @Config(qualifiers = TALL) fun moreReceiptsRow() = shot("95-more-receipts-row") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {})
+    }
 }
 
 /** A plain dialog look-alike for screenshots of a confirmation (the real ones are AlertDialogs). */

@@ -75,6 +75,8 @@ class MigrationTest {
             assertNull(t.returnOf)
             assertTrue(d.rulesNow().isEmpty())
             assertEquals(false, d.account("a1")!!.trackOnly)
+            assertTrue(d.receiptsNow().isEmpty())
+            assertTrue(d.receiptItemsNow().isEmpty())
         } finally {
             db.close()
         }
@@ -149,6 +151,42 @@ class MigrationTest {
             store.write { put(null, RuleEntity(matchText = "sample shop", splits = "e1:1", createdAt = now, updatedAt = now)) }
             assertEquals("sample shop", d.rulesNow().single().matchText)
             assertTrue(d.changes().any { it.entityType == "rule" && it.operation == ChangeOperation.INSERT })
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test fun fiveToSixAddsReceiptsWithEverythingKept() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-5.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 5)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        // a 0.8.x budget: a rule, and the transaction approved by it
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, everyday, created_at, updated_at, deleted) VALUES ('e1', 'Sample Envelope', 'FILL_TO_TARGET', 0, 1, 1, 1, 1, 0)")
+        raw.execSQL("INSERT INTO rule (id, match_text, account_id, direction, min_amount, max_amount, action, splits, always_ask, priority, origin, acknowledged, created_at, updated_at, deleted) VALUES ('r1', 'sample payee', NULL, -1, NULL, NULL, 'ENVELOPE', 'e1:1', 0, 0, 'USER', 1, 1, 1, 0)")
+        raw.execSQL("UPDATE txn SET sorted_by = 'APPROVED', sorted_at = 5, rule_id = 'r1' WHERE id = 't1'")
+        raw.execSQL("UPDATE txn_line SET bucket = 'ENVELOPE', envelope_id = 'e1' WHERE id = 'l1'")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            val t = d.transaction("t1")!!
+            assertEquals(SortedBy.APPROVED, t.sortedBy)
+            assertEquals("r1", t.ruleId)
+            assertEquals("e1", d.linesOf("t1").single().envelopeId)
+            assertEquals("sample payee", d.rulesNow().single().matchText)
+            assertEquals(true, d.envelope("e1")!!.everyday)
+            assertTrue(d.receiptsNow().isEmpty())
+            // the receipt tables work, through the store (with change log rows)
+            val store = BudgetStore(db)
+            store.write {
+                val r = put(null, ReceiptEntity(transactionId = "t1", store = "Sample Shop", total = 1234, pages = 1, createdAt = now, updatedAt = now))
+                val i = put(null, ReceiptItemEntity(receiptId = r.id, text = "SAMPLE THING", name = "sample thing", amount = 1234, createdAt = now, updatedAt = now))
+                put(null, ItemReturnEntity(itemId = i.id, transactionId = "t1", quantityMilli = 1000, amount = 1234, createdAt = now, updatedAt = now))
+            }
+            assertEquals("t1", d.receiptsNow().single().transactionId)
+            assertEquals(1, d.itemReturnsNow().size)
+            assertTrue(listOf("receipt", "receipt_item", "item_return").all { k -> d.changes().any { it.entityType == k } })
         } finally {
             db.close()
         }

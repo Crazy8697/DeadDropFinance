@@ -6,7 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 /**
  * Every schema change is a real migration with a test (MigrationTest). Nothing here ever drops or rewrites budget
  * data: version 2 adds a nullable column and the bank sync tables, version 3 two account columns with defaults,
- * version 5 the rule table and nullable or defaulted columns.
+ * version 5 the rule table and nullable or defaulted columns, version 6 the receipt tables.
  */
 object Migrations {
 
@@ -54,5 +54,18 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5)
+    /** 5 to 6 (0.9.0): receipts, their items, and items returned. Three new tables; nothing existing changes. */
+    val V5_V6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `receipt` (`id` TEXT NOT NULL, `transaction_id` TEXT, `store` TEXT NOT NULL, `date` TEXT, `total` INTEGER, `tax` INTEGER, `kind` TEXT NOT NULL, `pages` INTEGER NOT NULL, `low_confidence` TEXT NOT NULL, `raw_text` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_receipt_transaction_id` ON `receipt` (`transaction_id`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `receipt_item` (`id` TEXT NOT NULL, `receipt_id` TEXT NOT NULL, `line` INTEGER NOT NULL, `text` TEXT NOT NULL, `name` TEXT NOT NULL, `quantity_milli` INTEGER NOT NULL, `unit_price` INTEGER, `amount` INTEGER NOT NULL, `envelope_id` TEXT, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_receipt_item_receipt_id` ON `receipt_item` (`receipt_id`)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS `item_return` (`id` TEXT NOT NULL, `item_id` TEXT NOT NULL, `transaction_id` TEXT NOT NULL, `quantity_milli` INTEGER NOT NULL, `amount` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_item_return_item_id` ON `item_return` (`item_id`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_item_return_transaction_id` ON `item_return` (`transaction_id`)")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6)
 }

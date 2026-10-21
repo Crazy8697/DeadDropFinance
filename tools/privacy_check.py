@@ -53,9 +53,10 @@ EMAIL_ALLOW_DOMAINS = ["users.noreply.github.com", "example.com", "example.org"]
 # (git@github.com is GitHub's SSH remote address, used by tools/release.ps1, not a mailbox)
 EMAIL_ALLOW_ADDRESSES = ["git@github.com"]
 
+# build service accounts (CI runners, and JitPack's, whose paths Tesseract4Android's native library keeps) aren't people
 USER_PATH = ("a personal user path",
              re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+(?!Public\b|Default\b|<|%|\$|\{)[A-Za-z0-9_.-]+"
-                        r"|/(?:home|Users)/(?!runner\b|builder\b|<|\$|\{)[a-z][a-z0-9_.-]+", re.I))
+                        r"|/(?:home|Users)/(?!runner\b|builder\b|jitpack\b|<|\$|\{)[a-z][a-z0-9_.-]+", re.I))
 PRIVATE_IP = ("a private network address",
               re.compile(r"(?<!Version: )(?<![\d.])(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))"
                          r"\.\d{1,3}\.\d{1,3}(?![\d.])"))

@@ -57,6 +57,11 @@ data class SortingUi(
     /** Sorted automatically by a rule lately (auto-approve), newest first. */
     val recentlySorted: List<TransactionEntity> = emptyList(),
     val rules: List<RuleEntity> = emptyList(),
+    /** Scan a receipt (to match it to a charge here or one still to come). */
+    val onScan: (() -> Unit)? = null,
+    /** Receipts still waiting for their charge. */
+    val waitingReceipts: Int = 0,
+    val onReceipts: () -> Unit = {},
 )
 
 /**
@@ -78,7 +83,10 @@ fun ActivityScreen(
     var confirmAll by remember { mutableStateOf(false) }
     val suggested = budget.toSort.count { it.id in sorting.suggestions }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ScreenTitle("Activity", onBack = null) { TextButton(onClick = onAdd, enabled = budget.accounts.any { !it.archived }) { Text("Add") } }
+        ScreenTitle("Activity", onBack = null) {
+            sorting.onScan?.let { TextButton(onClick = it) { Text("Scan") } }
+            TextButton(onClick = onAdd, enabled = budget.accounts.any { !it.archived }) { Text("Add") }
+        }
         if (budget.accounts.none { !it.archived }) EmptyState("No accounts yet. Add one in More to get started.")
         if (syncNotes.isNotEmpty()) {
             SectionTitle("From bank sync")
@@ -88,6 +96,17 @@ fun ActivityScreen(
         sorting.offer?.let { o -> OfferCard(o, budget, sorting.onOffer) }
         SectionTitle("To sort") {
             if (suggested > 0) TextButton(onClick = { confirmAll = true }) { Text("Approve all suggested ($suggested)") }
+        }
+        if (sorting.onScan != null && budget.toSort.isNotEmpty()) {
+            TextButton(onClick = sorting.onScan) { Text("Scan a receipt for one of these") }
+        }
+        if (sorting.waitingReceipts > 0) {
+            ListRow(onClick = sorting.onReceipts) {
+                Text(
+                    if (sorting.waitingReceipts == 1) "1 receipt waiting for its charge" else "${sorting.waitingReceipts} receipts waiting for their charges",
+                    color = DdfColors.Cyan,
+                )
+            }
         }
         if (budget.toSort.isEmpty()) EmptyState("Nothing to sort.")
         budget.toSort.forEach { t ->
@@ -397,11 +416,20 @@ fun TransactionDetailScreen(
     onMakeRule: (() -> Unit)? = null,
     /** Start with the return picker open (screenshots). */
     pickingReturn: Boolean = false,
+    /** Its receipt, if it has one. */
+    receipt: net.darkrelay.deaddropfinance.data.ReceiptEntity? = null,
+    onReceipt: () -> Unit = {},
+    onAddReceipt: (() -> Unit)? = null,
+    /** A return of a purchase with a receipt: pick which items came back. */
+    onPickItems: (() -> Unit)? = null,
+    /** Delete, and whether its receipt goes too (only asked when it has one). */
+    onDeleteWithReceipt: ((deleteReceipt: Boolean) -> Unit)? = null,
 ) {
     val accounts = budget.accounts.associateBy { it.id }
     val envelopes = budget.envelopes.associateBy { it.id }
     var confirmDelete by remember { mutableStateOf(false) }
     var pickReturn by remember { mutableStateOf(pickingReturn) }
+    var alsoReceipt by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "Transaction" }, onBack) { TextButton(onClick = onEdit) { Text("Edit") } }
         Card(Modifier.fillMaxWidth()) {
@@ -446,7 +474,10 @@ fun TransactionDetailScreen(
                             ". The money went back to its envelopes. A return isn't income.",
                         color = DdfColors.Muted,
                     )
-                    TextButton(onClick = onNotReturn) { Text("Not a return") }
+                    Row {
+                        if (onPickItems != null) TextButton(onClick = onPickItems) { Text("Pick returned items") }
+                        TextButton(onClick = onNotReturn) { Text("Not a return") }
+                    }
                 } else if (!pickReturn) {
                     OutlinedButton(onClick = { pickReturn = true }) { Text("This is a return") }
                 } else {
@@ -479,11 +510,32 @@ fun TransactionDetailScreen(
                 }
             }
         }
+        if (t.kind == TransactionKind.NORMAL) {
+            if (receipt != null) {
+                SectionTitle("Receipt")
+                ListRow(onClick = onReceipt) {
+                    Row {
+                        Text("${receipt.store.ifBlank { "Receipt" }}${receipt.date?.let { ", $it" } ?: ""}", Modifier.weight(1f))
+                        receipt.total?.let { Text(Money.format(it), color = DdfColors.Muted) }
+                    }
+                }
+            } else if (onAddReceipt != null) {
+                TextButton(onClick = onAddReceipt) { Text("Add receipt") }
+            }
+        }
         if (onMakeRule != null && t.kind == TransactionKind.NORMAL && !t.isWash) TextButton(onClick = onMakeRule) { Text("Make a rule from this") }
         if (message != null) Text(message, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 6.dp))
         Gap()
         if (!confirmDelete) OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete") }
-        else Row { Text("Delete this transaction?", Modifier.weight(1f)); TextButton(onClick = onDelete) { Text("Delete") }; TextButton(onClick = { confirmDelete = false }) { Text("Keep") } }
+        else Column {
+            Row { Text("Delete this transaction?", Modifier.weight(1f)); TextButton(onClick = { if (receipt != null && onDeleteWithReceipt != null) onDeleteWithReceipt(alsoReceipt) else onDelete() }) { Text("Delete") }; TextButton(onClick = { confirmDelete = false }) { Text("Keep") } }
+            if (receipt != null && onDeleteWithReceipt != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(alsoReceipt, { alsoReceipt = it })
+                    Text("Delete its receipt too (otherwise it goes back to Receipts, waiting for a charge)", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         Gap(24)
     }
 }

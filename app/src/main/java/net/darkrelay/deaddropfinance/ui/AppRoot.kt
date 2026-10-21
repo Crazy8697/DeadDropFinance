@@ -75,7 +75,19 @@ sealed interface Nav {
     data object Rules : Nav
     /** A rule to edit, or a new one ([id] null), optionally started from a transaction. */
     data class RuleEdit(val id: String?, val fromTx: String? = null) : Nav
+    /** Scan a receipt, for a transaction or to match later. */
+    data class Scan(val forTx: String? = null) : Nav
+    /** The receipt form: a new scan ([isNew]) or a saved receipt. */
+    data class ReceiptEdit(val id: String, val isNew: Boolean) : Nav
+    data class Receipt(val id: String) : Nav
+    data class ReceiptMatch(val id: String) : Nav
+    data class ItemSplit(val receiptId: String) : Nav
+    data object Receipts : Nav
+    data class ReturnItems(val creditId: String, val purchaseId: String) : Nav
 }
+
+/** Images shared to the app from another app, to scan as a receipt. [n] rises with each share. */
+data class SharedReceipt(val uris: List<android.net.Uri>, val n: Int)
 
 /** The phone-side hooks the screens need but can't do in Compose (browser, file picker, settings). */
 interface Platform {
@@ -97,6 +109,18 @@ interface Platform {
     fun notificationsAllowed(): Boolean
     /** Asks for the notification permission; when Android won't ask again, opens the app's notification settings. */
     fun requestNotifications(done: (Boolean) -> Unit)
+    /** The camera app takes a photo (no camera permission); null if cancelled. */
+    fun takeReceiptPhoto(done: (android.net.Uri?) -> Unit)
+    /** An image or a PDF from the phone; null if cancelled. */
+    fun pickReceiptFile(done: (android.net.Uri?) -> Unit)
+    /** Reads [uri] into receipt pages from [firstPage] on (stored encrypted). Runs off the main thread. */
+    suspend fun scanReceipt(uri: android.net.Uri, receiptId: String, firstPage: Int): List<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>
+    /** One stored page, decrypted for showing. */
+    suspend fun receiptPage(receiptId: String, page: Int): androidx.compose.ui.graphics.ImageBitmap?
+    /** Deletes a receipt's photos. */
+    val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles
+    /** Removes photos whose receipt is gone. */
+    fun sweepReceiptFiles(keep: Set<String>)
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -112,9 +136,21 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openActivity: Int = 0) {
-    val actions = remember(store) { BudgetActions(store) }
+fun AppRoot(
+    store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openActivity: Int = 0, shared: SharedReceipt? = null,
+) {
+    val actions = remember(store) { BudgetActions(store, platform.receiptFiles) }
     val sorting = remember(store) { Sorting(store, actions) }
+    val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
+    val receipts by remember(store) { store.dao.receipts() }.collectAsState(initial = emptyList())
+    val receiptItems by remember(store) { store.dao.receiptItems() }.collectAsState(initial = emptyList())
+    val itemReturns by remember(store) { store.dao.itemReturns() }.collectAsState(initial = emptyList())
+    // the receipt being scanned: its id, what it's for, each photo's text, and the form
+    var scanId by remember { mutableStateOf<String?>(null) }
+    var scanFor by remember { mutableStateOf<String?>(null) }
+    val scanPages = remember { mutableStateListOf<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>() }
+    var scanForm by remember { mutableStateOf<ReceiptForm?>(null) }
+    var scanning by remember { mutableStateOf(false) }
     val rules by remember(store) { store.dao.rules() }.collectAsState(initial = emptyList())
     var offer by remember { mutableStateOf<Sorting.Learned.Offer?>(null) }
     var autoApprove by remember { mutableStateOf(sync.settings.autoApprove) }
@@ -192,6 +228,10 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
         }
     }
     LaunchedEffect(openActivity) { if (openActivity > 0) tab(Nav.Activity) }
+    LaunchedEffect(Unit) {
+        // photos left behind by a receipt that's gone (or a scan never saved)
+        withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
+    }
     BackHandler(enabled = stack.size > 1) { back() }
     BackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
         wizard = WizardPage.entries[wizard!!.ordinal - 1].let { if (it == WizardPage.LINK && wizardConn == null) WizardPage.CONNECT else it }
@@ -206,6 +246,52 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
         sync.settings.alertsAsked = true
         alertsAsked = true
     }
+    /** Starts a new scan (for a transaction, or to match later). */
+    fun startScan(forTx: String?) {
+        scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = forTx; scanPages.clear(); scanForm = null; scanning = false
+        go(Nav.Scan(forTx))
+    }
+    /** Reads one more photo or file into the scan, then shows the form. */
+    fun addToScan(uri: android.net.Uri?) {
+        val id = scanId ?: return
+        if (uri == null) return
+        scope.launch {
+            scanning = true; error = null
+            try {
+                scanPages += platform.scanReceipt(uri, id, scanPages.size)
+                scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList()))
+                if (stack.last() !is Nav.ReceiptEdit) { stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true)) }
+            } catch (e: Exception) {
+                error = "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
+            } finally {
+                scanning = false
+            }
+        }
+    }
+    /** A scan left without saving: its photos go. */
+    fun dropScan() { scanId?.let { id -> if (receipts.none { it.id == id }) platform.receiptFiles.delete(id) }; scanId = null; scanForm = null; scanPages.clear() }
+    /** A return's purchase has a receipt: pick items; otherwise the whole-purchase return. */
+    fun returnOf(creditId: String, purchaseId: String) {
+        if (receipts.any { it.transactionId == purchaseId && it.kind == net.darkrelay.deaddropfinance.data.ReceiptKind.PURCHASE }) go(Nav.ReturnItems(creditId, purchaseId))
+        else run(scope) { sorting.confirmReturn(creditId, purchaseId) }
+    }
+    LaunchedEffect(shared?.n) {
+        val s = shared ?: return@LaunchedEffect
+        if (s.uris.isEmpty()) return@LaunchedEffect
+        startScan(null)
+        val id = scanId!!
+        scanning = true
+        try {
+            for (u in s.uris) scanPages += platform.scanReceipt(u, id, scanPages.size)
+            scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList()))
+            stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true))
+        } catch (e: Exception) {
+            error = "The shared file couldn't be read as a receipt."
+        } finally {
+            scanning = false
+        }
+    }
+
     /** Sorting by hand from To sort, then what learning says (an offer, or a rule made: that one shows from the rules). */
     fun handSort(id: String, env: String?, rta: Boolean, transfer: Boolean = false) = run(scope) {
         offer = sorting.sortByHand(id, env, rta, transfer) as? Sorting.Learned.Offer
@@ -249,7 +335,12 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     syncNotes = syncLog.filter { it.removed > 0 && it.at > weekAgo }.map { it.message },
                     sorting = SortingUi(
                         suggestions = suggestions,
-                        onApprove = { id -> run(scope) { sorting.approve(id) } },
+                        onApprove = { id ->
+                            val s = suggestions[id]
+                            val p = s?.returnOf
+                            if (s?.basis == Suggest.Basis.RETURN && p != null && receipts.any { it.transactionId == p.id }) go(Nav.ReturnItems(id, p.id))
+                            else run(scope) { sorting.approve(id) }
+                        },
                         onApproveAll = { run(scope) { sorting.approveAll() } },
                         onTransfer = { id -> handSort(id, null, rta = false, transfer = true) },
                         offer = offer,
@@ -259,6 +350,9 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                         recentlySorted = b.transactions.filter { it.sortedBy == net.darkrelay.deaddropfinance.data.SortedBy.AUTO && (it.sortedAt ?: 0L) > weekAgo }
                             .sortedByDescending { it.sortedAt }.take(20),
                         rules = rules,
+                        onScan = { startScan(null) },
+                        waitingReceipts = receipts.count { it.transactionId == null },
+                        onReceipts = { go(Nav.Receipts) },
                     ),
                 )
             }
@@ -276,6 +370,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
+                onReceipts = { go(Nav.Receipts) },
                 sortAlerts = {
                     val st = sync.settings
                     val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
@@ -333,6 +428,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                 if (t == null) back() else TransactionDetailScreen(
                     t, b, washCandidates, message ?: error, ::back, onEdit = { go(Nav.TxEdit(t.id)) },
                     onDelete = { run(scope, popAfter = true) { actions.deleteTransaction(t.id) } },
+                    onDeleteWithReceipt = { also -> run(scope, popAfter = true) { actions.deleteTransaction(t.id, deleteReceipt = also) } },
                     onPayday = { mark ->
                         run(scope) {
                             if (mark) {
@@ -345,10 +441,92 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     },
                     onWash = { other -> run(scope) { actions.markWash(t.id, other) } }, onUnwash = { run(scope) { actions.unmarkWash(t.id) } },
                     returnCandidates = remember(b, t.id) { Suggest.returnCandidates(b, t) },
-                    onReturn = { p -> run(scope) { sorting.confirmReturn(t.id, p) } },
+                    onReturn = { p -> returnOf(t.id, p) },
                     onNotReturn = { run(scope) { sorting.notAReturn(t.id) } },
                     onMakeRule = { go(Nav.RuleEdit(null, fromTx = t.id)) },
+                    receipt = receipts.firstOrNull { it.transactionId == t.id },
+                    onReceipt = { receipts.firstOrNull { it.transactionId == t.id }?.let { go(Nav.Receipt(it.id)) } },
+                    onAddReceipt = if (t.kind == net.darkrelay.deaddropfinance.data.TransactionKind.NORMAL) { { startScan(t.id) } } else null,
+                    onPickItems = t.returnOf?.takeIf { p -> receipts.any { it.transactionId == p } }?.let { p -> { go(Nav.ReturnItems(t.id, p)) } },
                 )
+            }
+            is Nav.Scan -> ScanScreen(
+                b.transactions.firstOrNull { it.id == top.forTx }?.let { "${it.payee.ifBlank { "a transaction" }}, ${Money.format(it.amount)}" },
+                scanning, error, onBack = { dropScan(); back() },
+                onCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onFile = { platform.pickReceiptFile { addToScan(it) } },
+            )
+            is Nav.ReceiptEdit -> {
+                val saved = receipts.firstOrNull { it.id == top.id }
+                val form = if (top.isNew) scanForm else remember(top.id) { saved?.let { r -> ReceiptForm.from(r, receiptItems.filter { it.receiptId == r.id }) } }
+                val pageCount = if (top.isNew) scanPages.size else saved?.pages ?: 0
+                val pages by produceState(emptyList<androidx.compose.ui.graphics.ImageBitmap?>(), top.id, pageCount) {
+                    value = (0 until pageCount).map { platform.receiptPage(top.id, it) }
+                }
+                if (form == null) back() else ReceiptEditScreen(
+                    form, pages, top.isNew, scanning, error,
+                    onBack = { if (top.isNew) dropScan(); back() },
+                    onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
+                    onSave = {
+                        run(scope) {
+                            val id = receiptsOps.save(top.id, form.draft(pageCount), if (top.isNew) scanFor else null)
+                            if (!top.isNew) { back(); return@run }
+                            val forTx = scanFor
+                            scanId = null; scanForm = null; scanPages.clear()
+                            stack.removeAt(stack.lastIndex)
+                            if (forTx != null) {
+                                go(Nav.Receipt(id))
+                                message = "Saved to this transaction."
+                            } else when (val d = receiptsOps.match(id)) {
+                                is net.darkrelay.deaddropfinance.domain.ReceiptMatch.Decision.One -> { go(Nav.Receipt(id)); message = "Matched to ${d.c.tx.payee.ifBlank { "a transaction" }} on ${d.c.tx.date}." }
+                                is net.darkrelay.deaddropfinance.domain.ReceiptMatch.Decision.Several -> go(Nav.ReceiptMatch(id))
+                                else -> { go(Nav.Receipt(id)); message = "Saved. It waits in Receipts and is matched when its charge comes in." }
+                            }
+                        }
+                    },
+                )
+            }
+            is Nav.Receipt -> {
+                val r = receipts.firstOrNull { it.id == top.id }
+                val pages by produceState(emptyList<androidx.compose.ui.graphics.ImageBitmap?>(), top.id, r?.pages) {
+                    value = (0 until (r?.pages ?: 0)).map { platform.receiptPage(top.id, it) }
+                }
+                if (r == null) back() else ReceiptDetailScreen(
+                    r, receiptItems.filter { it.receiptId == r.id }, pages, b.transactions.firstOrNull { it.id == r.transactionId }, b, itemReturns, message ?: error,
+                    onBack = ::back, onEdit = { go(Nav.ReceiptEdit(r.id, isNew = false)) }, onMatch = { go(Nav.ReceiptMatch(r.id)) },
+                    onSplit = { go(Nav.ItemSplit(r.id)) }, onDetach = { run(scope) { receiptsOps.detach(r.id) } },
+                    onDelete = { run(scope, popAfter = true) { receiptsOps.delete(r.id) } }, onTransaction = { go(Nav.TxDetail(it)) },
+                )
+            }
+            is Nav.ReceiptMatch -> {
+                val r = receipts.firstOrNull { it.id == top.id }
+                val list by produceState(emptyList<net.darkrelay.deaddropfinance.domain.ReceiptMatch.Candidate>(), top.id, b.transactions.size) { value = receiptsOps.candidates(top.id) }
+                if (r == null) back() else ReceiptMatchScreen(r, list, onBack = { back(); if (stack.last() !is Nav.Receipt) go(Nav.Receipt(r.id)) }) { txId ->
+                    run(scope) { receiptsOps.attach(r.id, txId); back(); if (stack.last() !is Nav.Receipt) go(Nav.Receipt(r.id)); message = "Matched." }
+                }
+            }
+            is Nav.ItemSplit -> {
+                val r = receipts.firstOrNull { it.id == top.receiptId }
+                val tx = r?.transactionId?.let { id -> b.transactions.firstOrNull { it.id == id } }
+                val items = receiptItems.filter { it.receiptId == top.receiptId }
+                if (r == null || tx == null) back() else {
+                    val txEnv = b.lines.filter { it.transactionId == tx.id }.singleOrNull()?.envelopeId
+                    val initial = remember(r.id) { net.darkrelay.deaddropfinance.domain.ItemSplit.suggestions(items, rules, b.envelopes.filter { !it.archived }.map { it.id }.toSet(), txEnv) }
+                    ItemSplitScreen(r, items, tx, b, initial, error, ::back) { pick -> run(scope, popAfter = true) { receiptsOps.splitByItems(r.id, pick); message = "Split by items." } }
+                }
+            }
+            Nav.Receipts -> ReceiptsScreen(receipts, b, ::back, onReceipt = { go(Nav.Receipt(it)) }, onScan = { startScan(null) })
+            is Nav.ReturnItems -> {
+                val credit = b.transactions.firstOrNull { it.id == top.creditId }
+                val purchase = b.transactions.firstOrNull { it.id == top.purchaseId }
+                val r = receipts.firstOrNull { it.transactionId == top.purchaseId }
+                val pre by produceState(emptyMap<String, Long>(), top) { value = receiptsOps.preselect(top.creditId, top.purchaseId) }
+                if (credit == null || purchase == null || r == null) back() else key(pre) {
+                    ReturnItemsScreen(
+                        credit, purchase, r, receiptItems.filter { it.receiptId == r.id }, itemReturns, pre, b, error, ::back,
+                        onApply = { picks -> run(scope, popAfter = true) { receiptsOps.returnItems(credit.id, purchase.id, picks) } },
+                        onWholePurchase = { run(scope, popAfter = true) { sorting.confirmReturn(credit.id, purchase.id) } },
+                    )
+                }
             }
             Nav.Rules -> RulesScreen(
                 rules, b, ::back, onRule = { go(Nav.RuleEdit(it)) }, onAdd = { go(Nav.RuleEdit(null)) },
@@ -414,6 +592,7 @@ fun AppRoot(store: BudgetStore, sync: SyncService, platform: Platform, startupUp
                     scope.launch {
                         val res = actions.importCsv(acct, plan)
                         if (sync.settings.autoApprove) sorting.autoApprove(res.newIds)
+                        if (res.newIds.isNotEmpty()) receiptsOps.matchWaiting()
                         importState = ImportState(result = res)
                     }
                 },

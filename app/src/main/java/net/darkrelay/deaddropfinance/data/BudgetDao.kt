@@ -39,6 +39,30 @@ interface BudgetDao {
     @Query("SELECT * FROM rule WHERE id = :id")
     suspend fun rule(id: String): RuleEntity?
 
+    @Query("SELECT * FROM receipt WHERE deleted = 0 ORDER BY created_at DESC")
+    fun receipts(): Flow<List<ReceiptEntity>>
+
+    @Query("SELECT * FROM receipt WHERE deleted = 0 ORDER BY created_at DESC")
+    suspend fun receiptsNow(): List<ReceiptEntity>
+
+    @Query("SELECT * FROM receipt WHERE id = :id")
+    suspend fun receipt(id: String): ReceiptEntity?
+
+    @Query("SELECT * FROM receipt_item WHERE deleted = 0 ORDER BY receipt_id, line")
+    fun receiptItems(): Flow<List<ReceiptItemEntity>>
+
+    @Query("SELECT * FROM receipt_item WHERE deleted = 0 ORDER BY receipt_id, line")
+    suspend fun receiptItemsNow(): List<ReceiptItemEntity>
+
+    @Query("SELECT * FROM receipt_item WHERE receipt_id = :receiptId AND deleted = 0 ORDER BY line")
+    suspend fun itemsOf(receiptId: String): List<ReceiptItemEntity>
+
+    @Query("SELECT * FROM item_return WHERE deleted = 0")
+    fun itemReturns(): Flow<List<ItemReturnEntity>>
+
+    @Query("SELECT * FROM item_return WHERE deleted = 0")
+    suspend fun itemReturnsNow(): List<ItemReturnEntity>
+
     @Query("SELECT * FROM account WHERE deleted = 0")
     suspend fun accountsNow(): List<AccountEntity>
 
@@ -99,6 +123,9 @@ interface BudgetDao {
     @Upsert suspend fun upsertBill(e: BillEntity)
     @Upsert suspend fun upsertBillPayment(e: BillPaymentEntity)
     @Upsert suspend fun upsertRule(e: RuleEntity)
+    @Upsert suspend fun upsertReceipt(e: ReceiptEntity)
+    @Upsert suspend fun upsertReceiptItem(e: ReceiptItemEntity)
+    @Upsert suspend fun upsertItemReturn(e: ItemReturnEntity)
 
     // ---- change log and meta ----------------------------------------------------------------------------------
     @Insert suspend fun insertChange(e: ChangeLogEntity)

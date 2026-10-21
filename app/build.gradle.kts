@@ -87,7 +87,13 @@ android {
         versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         resValue("string", "app_name", "Dead Drop Finance")
+        // The native libraries (SQLCipher, Tesseract) for ARM phones and 64-bit x86 (ChromeOS); 32-bit x86 is left out,
+        // which keeps the APK smaller.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
+
+    // Native libraries are stored compressed in the APK and unpacked at install: a much smaller download.
+    packaging { jniLibs { useLegacyPackaging = true } }
 
     buildFeatures {
         buildConfig = true
@@ -274,6 +280,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
     // bank sync in the background (periodic, network required)
     implementation("androidx.work:work-runtime:2.12.0")
+    // Receipt text recognition on the phone: Tesseract OCR, Leptonica, libjpeg and libpng, wrapped for Android.
+    // No network code and no permissions (checked in the AAR); the English model is in assets/tessdata.
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
 
     // test only, never packaged into the app
     testImplementation("junit:junit:4.13.2")

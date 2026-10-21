@@ -22,7 +22,7 @@ class BudgetRuleException(message: String) : Exception(message)
  * Everything the screens can change, each as one atomic write through BudgetStore (so each also writes its change
  * log rows). Checks the rules first and throws BudgetRuleException with a plain message when one is broken.
  */
-class BudgetActions(private val store: BudgetStore) {
+class BudgetActions(private val store: BudgetStore, private val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles? = null) {
 
     private val dao get() = store.dao
 
@@ -181,6 +181,8 @@ class BudgetActions(private val store: BudgetStore) {
         val tx = dao.transaction(txId) ?: return
         if (tx.kind != TransactionKind.NORMAL) return
         store.write {
+            // items it returned can be returned again
+            dao.itemReturnsNow().filter { it.transactionId == txId }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             put(tx, tx.copy(sortedBy = null, sortedAt = null, ruleId = null, returnOf = null, updatedAt = now))
             replaceLines(this, txId, listOf(LineDraft(null, tx.amount)))
         }
@@ -236,9 +238,14 @@ class BudgetActions(private val store: BudgetStore) {
      * the account is removed too.
      */
     suspend fun deleteAccount(id: String) {
+        val goneReceipts = mutableListOf<String>()
         store.write {
             val a = dao.account(id) ?: return@write
             val all = dao.transactionsNow()
+            // receipts on the account's own transactions go with them, photos included
+            val own = all.filter { it.accountId == id && it.kind == TransactionKind.NORMAL }.map { it.id }.toSet()
+            dao.receiptsNow().filter { it.transactionId in own }.forEach { r -> Receipts.deleteRows(this, dao, r.id); goneReceipts += r.id }
+            dao.itemReturnsNow().filter { it.transactionId in own }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             for (t in all) {
                 val touches = t.accountId == id || t.transferAccountId == id
                 if (!touches) continue
@@ -277,15 +284,31 @@ class BudgetActions(private val store: BudgetStore) {
             }
             put(a, a.copy(deleted = true, updatedAt = now))
         }
+        goneReceipts.forEach { receiptFiles?.delete(it) }
         // this phone's bank link for it (not change-logged)
         store.sync.linkedNow().filter { it.accountId == id }.forEach {
             store.sync.upsertLinked(it.copy(accountId = null, historyFrom = null, lastSyncedDate = null, setStartBalance = false))
         }
     }
 
-    /** Soft delete: the transaction, its lines, and moves made for it (payday, ATM) become tombstones. */
-    suspend fun deleteTransaction(id: String) = store.write {
-        val old = dao.transaction(id) ?: return@write
+    /**
+     * Soft delete: the transaction, its lines, and moves made for it (payday, ATM) become tombstones. Its receipt goes
+     * back to the unmatched list, or is deleted too with [deleteReceipt]. Items it returned can be returned again.
+     */
+    suspend fun deleteTransaction(id: String, deleteReceipt: Boolean = false) {
+        val gone = mutableListOf<String>()
+        store.write {
+            dao.receiptsNow().filter { it.transactionId == id }.forEach { r ->
+                if (deleteReceipt) { Receipts.deleteRows(this, dao, r.id); gone += r.id } else put(r, r.copy(transactionId = null, updatedAt = now))
+            }
+            dao.itemReturnsNow().filter { it.transactionId == id }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+            deleteTransactionRows(this, id)
+        }
+        gone.forEach { receiptFiles?.delete(it) }
+    }
+
+    private suspend fun deleteTransactionRows(w: BudgetStore.Writer, id: String) = with(w) {
+        val old = dao.transaction(id) ?: return@with
         put(old, old.copy(deleted = true, updatedAt = now))
         dao.linesOf(id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
         (dao.movesOfPayday(id) + dao.movesLinkedTo(id)).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }

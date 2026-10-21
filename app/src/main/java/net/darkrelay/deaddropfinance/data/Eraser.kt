@@ -17,6 +17,8 @@ class Eraser(
     private val deleteKeystoreKey: (String) -> Unit,
     private val settings: List<SharedPreferences>,
     private val cancelScheduledWork: () -> Unit,
+    /** Receipt photos, the text recognition folder, the camera's capture folder. */
+    private val extraDirs: List<File> = emptyList(),
 ) {
     /** Everything that's left afterwards (should be empty): file paths and key aliases that couldn't be removed. */
     fun erase(): List<String> {
@@ -27,6 +29,7 @@ class Eraser(
             if (f.exists() && !f.delete()) left += f.name
         }
         if (keysDir.exists() && !keysDir.deleteRecursively()) left += keysDir.name
+        for (d in extraDirs) if (d.exists() && !d.deleteRecursively()) left += d.name
         for (alias in keystoreAliases) {
             try { deleteKeystoreKey(alias) } catch (t: Throwable) { left += alias }
         }

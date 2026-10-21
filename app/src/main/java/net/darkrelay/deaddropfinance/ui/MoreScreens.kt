@@ -58,6 +58,7 @@ fun MoreScreen(
     onErase: () -> Unit = {},
     /** Sorting (rules, auto-approve) and Alerts sections. */
     sortAlerts: (@Composable () -> Unit)? = null,
+    onReceipts: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
@@ -69,6 +70,9 @@ fun MoreScreen(
             }
         }
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        if (onReceipts != null) {
+            ListRow(onReceipts) { Column { Text("Receipts"); Text("Scanned receipts, and the ones waiting for their charge", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
         sortAlerts?.invoke()
         SectionTitle("Privacy")
         SettingRow(

@@ -26,6 +26,9 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Version 5 (0.8.0): adds the `rule` table (auto-categorize rules, change-logged like the budget tables), four
   nullable columns on `txn` (`sorted_by`, `sorted_at`, `rule_id`, `return_of`) and `everyday` on `envelope`
   (default 0). No existing value changes.
+- Version 6 (0.9.0): adds `receipt`, `receipt_item` and `item_return` (change-logged like the budget tables). No
+  existing table changes. Receipt photos are files, not rows: AES-256-GCM in the app's private `files/receipts`, with
+  their own random key kept in the encrypted credentials file (SecretStore), which a Keystore key wraps.
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
@@ -47,6 +50,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   reconnected.
 - Screens show only a masked hint (the last four characters), never a value.
 - Credentials are their own category: Stage 12 (backup) decides whether they travel. Nothing exports them today.
+- Stage 12's encrypted backup must include receipts: the three receipt tables and the encrypted photos in
+  `files/receipts` (with the photo key, or re-encrypted under the backup's key).
 - Disconnecting deletes that connection's credentials.
 - Erase everything deletes the database files, the keys folder, both Keystore keys and every settings file.
 - `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see

@@ -259,6 +259,8 @@ class SyncService(
             if (settings.autoApprove && total.newIds.isNotEmpty()) {
                 runCatching { net.darkrelay.deaddropfinance.domain.Sorting(store).autoApprove(total.newIds) }
             }
+            // receipts waiting for their charge: attached when the match is clear
+            if (total.newIds.isNotEmpty()) runCatching { net.darkrelay.deaddropfinance.domain.Receipts(store).matchWaiting() }
             // a new account's starting balance is set once the whole history is in
             for (l in latest.values) {
                 val acct = l.accountId ?: continue

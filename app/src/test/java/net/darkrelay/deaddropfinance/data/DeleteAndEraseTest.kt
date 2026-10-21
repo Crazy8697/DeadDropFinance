@@ -108,12 +108,23 @@ class DeleteAndEraseTest {
         val prefs = listOf("lock", "sync", "updates").map { ctx.getSharedPreferences("erase-$it", Context.MODE_PRIVATE).apply { edit().putBoolean("k", true).commit() } }
         val keystore = mutableSetOf(KeystoreWrapper.ALIAS, "secrets-alias")
         var workCancelled = false
+        // receipt photos (encrypted, their key in the secrets file), the text recognition folder, a camera capture
+        val receipts = File(dir, "files/receipts")
+        ReceiptImages(receipts) { ReceiptImages.keyFrom(SecretStore(File(keys, SecretStore.FILE_NAME), wrapper)) }.write("r1", 0, "invented photo".toByteArray())
+        val ocr = File(dir, "no_backup/ocr/tessdata").apply { mkdirs(); File(this, "eng.traineddata").writeText("model") }.parentFile!!
+        val capture = File(dir, "cache/scan").apply { mkdirs(); File(this, "capture-1.jpg").writeText("photo") }
 
-        val left = Eraser(dbFile, keys, listOf(KeystoreWrapper.ALIAS, "secrets-alias"), { keystore.remove(it) }, prefs, { workCancelled = true }).erase()
+        val left = Eraser(
+            dbFile, keys, listOf(KeystoreWrapper.ALIAS, "secrets-alias"), { keystore.remove(it) }, prefs, { workCancelled = true },
+            extraDirs = listOf(receipts, ocr, capture),
+        ).erase()
 
         assertEquals(emptyList<String>(), left)
         assertFalse(dbFile.exists() || File(dbFile.path + "-wal").exists() || File(dbFile.path + "-shm").exists())
         assertFalse(keys.exists())
+        assertFalse("receipt photos gone", receipts.exists())
+        assertFalse("text recognition files gone", ocr.exists())
+        assertFalse("camera captures gone", capture.exists())
         assertTrue("both Keystore keys deleted", keystore.isEmpty())
         assertTrue(prefs.all { it.all.isEmpty() })
         assertTrue(workCancelled)

@@ -25,6 +25,22 @@ class DdfApp : Application() {
     private val openLock = Mutex()
     @Volatile private var opened: DatabaseOpener.Opened? = null
     @Volatile private var service: SyncService? = null
+    @Volatile private var secretStore: SecretStore? = null
+
+    /** Bank credentials and the receipt photo key, each wrapped by its own Keystore key. */
+    fun secrets(): SecretStore = secretStore ?: synchronized(this) {
+        secretStore ?: SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS)).also { secretStore = it }
+    }
+
+    /** Receipt photos, encrypted in the app's private files. */
+    val receiptImages: net.darkrelay.deaddropfinance.data.ReceiptImages by lazy {
+        net.darkrelay.deaddropfinance.data.ReceiptImages(receiptDir()) { net.darkrelay.deaddropfinance.data.ReceiptImages.keyFrom(secrets()) }
+    }
+
+    fun receiptDir() = File(filesDir, "receipts")
+
+    /** The camera writes its photo here (cache), and the app deletes it as soon as it's read. */
+    fun captureDir() = File(cacheDir, "scan")
 
     override fun onCreate() {
         super.onCreate()
@@ -42,7 +58,7 @@ class DdfApp : Application() {
         val o = open() as? DatabaseOpener.Opened.Ok ?: return null
         return openLock.withLock {
             service ?: run {
-                val secrets = SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS))
+                val secrets = secrets()
                 val settings = SyncSettings(this)
                 // before anything reads the connection table: clear what the removed Teller provider left (0.7.0 installs)
                 runCatching { RemovedProviderCleanup(o.store, secrets, settings) { has -> SyncScheduler.apply(this, settings, has) }.run() }
@@ -68,7 +84,9 @@ class DdfApp : Application() {
             deleteKeystoreKey = { alias -> java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias) },
             settings = listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
             cancelScheduledWork = { androidx.work.WorkManager.getInstance(this).cancelAllWork() },
+            extraDirs = listOf(receiptDir(), net.darkrelay.deaddropfinance.scan.TesseractReader.ocrDir(this), captureDir()),
         ).erase()
+        secretStore = null
         left
     }
 

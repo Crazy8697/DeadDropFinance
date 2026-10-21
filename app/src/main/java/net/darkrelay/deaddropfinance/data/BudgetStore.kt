@@ -35,6 +35,9 @@ class BudgetStore(
                 is BillEntity -> dao.upsertBill(new)
                 is BillPaymentEntity -> dao.upsertBillPayment(new)
                 is RuleEntity -> dao.upsertRule(new)
+                is ReceiptEntity -> dao.upsertReceipt(new)
+                is ReceiptItemEntity -> dao.upsertReceiptItem(new)
+                is ItemReturnEntity -> dao.upsertItemReturn(new)
                 else -> error("not a synced table: ${new::class.simpleName}")
             }
             val op = when {
@@ -85,6 +88,9 @@ class BudgetStore(
             is BillEntity -> "bill"
             is BillPaymentEntity -> "bill_payment"
             is RuleEntity -> "rule"
+            is ReceiptEntity -> "receipt"
+            is ReceiptItemEntity -> "receipt_item"
+            is ItemReturnEntity -> "item_return"
             else -> error("not a synced table")
         }
 

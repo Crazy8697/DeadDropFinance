@@ -131,23 +131,25 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Rollover is excluded. It is not shown on the home screen.
 
 ## Receipt scanning (Stage 9)
-- Every card charge at a store gets a "Scan receipt" option, both on its approve-list entry and on its transaction screen. Transfers, deposits and payment-app transfers don't get one.
-- The To sort list also has a "Scan receipt" button at the top. It matches the receipt to a waiting charge by store, amount and date.
-- Take one or more photos of the same receipt, top to bottom, for long receipts. Photos can also be picked from the gallery, to sort a receipt later.
-- The photos are stitched by finding the lines that overlap between shots, so no item is counted twice.
-- Text recognition runs on the phone, offline, with no account. The candidate is Google ML Kit text recognition with the bundled model. This is a candidate, not a decision: its terms, licensing and offline behavior are confirmed in Stage 9.
-- Check: the item total plus tax is compared with the receipt's subtotal and total. On a mismatch, the app says a section is probably missing and asks for another photo.
-- Items are sorted into envelopes. Store shorthand item names (abbreviated register text) are matched by rules that learn from how the user sorts them. This is the same rule engine as transaction auto-categorize, and the rules live only on the phone.
-- The bank charge is split to match the sorted receipt.
-- Tax is spread only across the taxed items, in proportion to their price. Untaxed lines, like fuel, get no share of it.
-- The receipt is matched to its bank transaction by store, amount and date.
-- Gas stations: the receipt matches the final posted amount, not a pump pre-authorization hold. Pump and inside purchases are often two separate charges with two receipts; each receipt matches its own charge. Fuel lines go to the gas envelope.
-- Photos are deleted when the user taps Apply split (decided). The app keeps the result: the split, the item names and prices as text, the tax, and the learned item rules. A photo picked from the gallery is never deleted from the gallery; only the app's own copy is removed.
+- Scan receipt: from Activity (Scan, and "Scan a receipt for one of these" in To sort), from a transaction's screen (Add receipt), and from More, Receipts. A photo or PDF shared to the app from another app opens the scanner too.
+- Take a photo (the phone's camera app, through a private file the app deletes as soon as it's read; the app has no camera permission), or choose an image or a PDF (up to 10 pages). A long receipt can be several photos: the lines at the start of a photo that repeat the end of the one before are read once.
+- Before reading, the photo is cropped to the receipt, straightened and given more contrast.
+- Text recognition runs on the phone, offline, with no account: Tesseract OCR (through Tesseract4Android, Apache-2.0) with the English model in the app. It has no network code and the app asks for no permission for it. Google ML Kit was not used.
+- The store, date, total, tax and items (description, quantity, price) are read and shown as a form under the photo, to fix before saving. Fields the recognition wasn't sure of, or that don't add up (items plus tax against the total), are marked "check this".
+- Discounts and coupons are negative items. Quantities like "2 @ 1.99", "2 x" and weights ("1.25 lb @ 3.99/lb") are read.
+- Photos are stored encrypted in the app's private files (their own key, wrapped by the Android Keystore), never in shared storage or the gallery. A photo chosen from the phone stays where it was; only the app's encrypted copy is kept.
+- Items are kept as data (store, item text, cleaned name, quantity, unit price, date) for the price history later (Stage 23).
+- Matching: a receipt is matched to its bank transaction by total, date (the charge may post up to 5 days later, or a day before) and store name. One clear match is attached by itself; several possible ones show a short list; with none, the receipt waits in Receipts and is matched when its charge syncs in or is imported. A transaction has one receipt.
+- Restaurants and gas stations: the charge may be up to 30% more than the receipt (a tip, or a pump's final amount), and the app says so.
+- Split by items: each item to an envelope (a rule whose words are in the item's name suggests one; a discount goes with the item above it), tax and any tip shared out by what each envelope's items cost, and the transaction split to match. Applying the split deletes the photo (decided); the items, prices and tax stay as text.
+- Tax is shared over all items by price: receipts don't reliably say which items were taxed.
+- Delete a transaction: its receipt goes back to Receipts (waiting for a charge), or is deleted too when the user ticks that. Delete account: receipts on its transactions go with them, photos included. Erase everything: photos, the recognition files and any camera capture are wiped too.
+- Stage 12's encrypted backup must include receipts: the rows and the encrypted photos.
 
 ## Transaction detail screen (Stage 9)
 - Tapping a charge opens its own screen.
-- With a scanned receipt, it shows the items grouped by envelope, each group's total including its tax share, the tax line, "receipt scanned, photo deleted", and a Re-sort items action.
-- Without a receipt, it shows the envelope, with Change envelope and Split actions.
+- With a receipt, it shows a Receipt line that opens the receipt: the photo (until the split), the items with their envelopes and anything returned, Split by items, and Not this transaction.
+- Without a receipt, it has Add receipt, along with Edit and Split.
 
 ## Merchant page (Stage 23)
 - Part of reports. Reached from a transaction screen ("All <store> trips").
@@ -157,7 +159,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Returns and refunds (Stage 8 basic, Stage 9 item matching)
 - A store refund shows in the approve list marked as a return. It is never dropped into Ready to Assign by default.
 - The default suggestion is back to the envelope the original charge at that store went to. The options are that envelope or Ready to Assign.
-- If the original trip has a scanned receipt (Stage 9), "Match items" lists that receipt's items. The user picks what went back. Each item's tax share is included for taxed items only. The selected total has to equal the refund before it applies, and the money goes back to each item's own envelope.
+- Stage 9: when the purchase has a receipt, "What came back?" lists its items: tick what was returned (and how many, for several of one item). Each item counts its share of the tax. The ticked total has to match the refund (within 2% or 10 cents) before it applies, and the money goes back to each item's own envelope (or the purchase's envelopes, for an item that has none). Items already returned can't be returned again; "Not a return" frees them.
+- A scanned return receipt on the refund ticks the items for the user: matched to the purchase's items by name and price.
+- Without a receipt, the purchase-level return works as before.
 - Refunds aren't income and never trigger the payday sweep.
 - Stage 8: money in from a merchant with an earlier purchase (within 90 days, at or under what's left to return on it) is suggested as "Return of <purchase>". One tap confirms it and the money goes back to the purchase's envelopes, in proportion for a split purchase. Partial returns add up, never past the purchase.
 - Any money in can be marked "This is a return" on its own screen, with a list of likely purchases (the same merchant first). "Not a return" puts it back in To sort.

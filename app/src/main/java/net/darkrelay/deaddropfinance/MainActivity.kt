@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +50,29 @@ class MainActivity : ComponentActivity() {
     /** Rises each time a spend alert opens the app, so it goes to Activity (To sort). */
     private var openActivity by mutableIntStateOf(0)
     private var permissionDone: ((Boolean) -> Unit)? = null
+    /** Images shared to the app, to scan as a receipt. */
+    private var shared by mutableStateOf<net.darkrelay.deaddropfinance.ui.SharedReceipt?>(null)
+    private var photoDone: ((Uri?) -> Unit)? = null
+    private var captureFile: java.io.File? = null
+    private var fileDone: ((Uri?) -> Unit)? = null
+
+    /** The camera app writes the photo to a file in the app's cache (no camera permission); it's deleted once read. */
+    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val done = photoDone ?: return@registerForActivityResult
+        photoDone = null
+        val f = captureFile
+        if (ok && f != null && f.length() > 0) done(Uri.fromFile(f)) else { f?.delete(); done(null) }
+    }
+
+    private val receiptPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val done = fileDone ?: return@registerForActivityResult
+        fileDone = null
+        done(uri)
+    }
+
+    private val scanner by lazy {
+        net.darkrelay.deaddropfinance.scan.ReceiptScanner(this, app.receiptImages) { net.darkrelay.deaddropfinance.scan.TesseractReader(this) }
+    }
     private val app get() = application as DdfApp
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -73,6 +97,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applyHide()
         if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
+        takeShared(intent)
         locked = app.lock.locked
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
         lifecycleScope.launch {
@@ -92,6 +117,7 @@ class MainActivity : ComponentActivity() {
                                 o.store, sync!!, platform,
                                 startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
                                 openActivity = openActivity,
+                                shared = shared,
                             )
                             else -> {}
                         }
@@ -105,6 +131,17 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (intent.getStringExtra(EXTRA_OPEN) == OPEN_ACTIVITY) openActivity++
+        takeShared(intent)
+    }
+
+    /** A photo or PDF shared from another app: scanned as a receipt once the app is open and unlocked. */
+    private fun takeShared(intent: Intent?) {
+        val uris = when (intent?.action) {
+            Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
+            Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            else -> return
+        }
+        if (uris.isNotEmpty()) shared = net.darkrelay.deaddropfinance.ui.SharedReceipt(uris.take(10), (shared?.n ?: 0) + 1)
     }
 
     override fun onResume() {
@@ -207,6 +244,45 @@ class MainActivity : ComponentActivity() {
         override fun skipVersion(version: String) = Updates.skip(this@MainActivity, version)
 
         override fun notificationsAllowed() = alerts.allowed()
+
+        override fun takeReceiptPhoto(done: (Uri?) -> Unit) {
+            val dir = app.captureDir().apply { mkdirs() }
+            val f = java.io.File(dir, "capture-${java.util.UUID.randomUUID()}.jpg")
+            captureFile = f
+            photoDone = done
+            val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.capture", f)
+            try {
+                camera.launch(uri)
+            } catch (e: Exception) {
+                photoDone = null; f.delete(); done(null)
+            }
+        }
+
+        override fun pickReceiptFile(done: (Uri?) -> Unit) {
+            fileDone = done
+            receiptPicker.launch(arrayOf("image/*", "application/pdf"))
+        }
+
+        override suspend fun scanReceipt(uri: Uri, receiptId: String, firstPage: Int) = withContext(Dispatchers.Default) {
+            try {
+                scanner.scan(uri, receiptId, firstPage)
+            } finally {
+                // the camera's own file is the only copy in the clear: gone as soon as it's read
+                if (uri.scheme == "file") uri.path?.let { java.io.File(it).delete() }
+            }
+        }
+
+        override suspend fun receiptPage(receiptId: String, page: Int): androidx.compose.ui.graphics.ImageBitmap? = withContext(Dispatchers.IO) {
+            val bytes = app.receiptImages.read(receiptId, page) ?: return@withContext null
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }
+
+        override val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles get() = app.receiptImages
+
+        override fun sweepReceiptFiles(keep: Set<String>) {
+            runCatching { app.receiptImages.sweep(keep) }
+            runCatching { app.captureDir().listFiles()?.forEach { it.delete() } }
+        }
 
         override fun requestNotifications(done: (Boolean) -> Unit) {
             if (alerts.allowed()) { done(true); return }

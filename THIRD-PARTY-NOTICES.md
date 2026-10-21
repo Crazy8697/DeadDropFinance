@@ -2,14 +2,14 @@
 
 Dead Drop Finance is licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 
-The release app ships the components below: the release runtime classpath, checked against the contents of the built APK (including its native libraries). Each license was read from the component's own POM and from the license in its upstream repository or website. The full license texts are in the licenses folder (licenses/Apache-2.0.txt, licenses/BSD-3-Clause-SQLCipher.txt, licenses/BSD-3-Clause-ThreeTen-Backport.txt, licenses/BSL-1.0.txt, licenses/LibTom-Unlicense-LibTomCrypt.txt, licenses/SQLite-Public-Domain.txt), and the app carries copies of this file, NOTICE, LICENSE and those texts under assets/licenses.
+The release app ships the components below: the release runtime classpath, checked against the contents of the built APK (including its native libraries). Each license was read from the component's own POM and from the license in its upstream repository or website. The full license texts are in the licenses folder (licenses/Apache-2.0.txt, licenses/BSD-3-Clause-SQLCipher.txt, licenses/BSD-3-Clause-ThreeTen-Backport.txt, licenses/BSL-1.0.txt, licenses/LibTom-Unlicense-LibTomCrypt.txt, licenses/SQLite-Public-Domain.txt, licenses/BSD-2-Clause-Leptonica.txt, licenses/libpng-2.0.txt, licenses/IJG-libjpeg.txt), and the app carries copies of this file, NOTICE, LICENSE and those texts under assets/licenses.
 
 ## AndroidX, Jetpack Compose, Room and WorkManager (Google, The Android Open Source Project)
 
 License: Apache-2.0  
 Upstream: https://github.com/androidx/androidx
 
-Includes the native library libandroidx.graphics.path.so (androidx.graphics:graphics-path) for each CPU type.
+Includes the native library libandroidx.graphics.path.so (androidx.graphics:graphics-path) for each CPU type the app includes (arm64-v8a, armeabi-v7a and x86_64).
 
 | Component | Version | License (from its POM) |
 |---|---|---|
@@ -187,6 +187,22 @@ Its own POM names no license; the license comes from its parent POM (guava-paren
 | Component | Version | License (from its POM) |
 |---|---|---|
 | `com.google.guava:listenablefuture` | 1.0 | The Apache Software License, Version 2.0 |
+
+## Tesseract4Android: Tesseract OCR, Leptonica, libjpeg, libpng (receipt text recognition)
+
+License: Apache-2.0 (Tesseract4Android, Tesseract OCR, the English model), with Leptonica, libjpeg and libpng under their own licenses below
+Upstream: https://github.com/adaptech-cz/Tesseract4Android (published on JitPack)
+
+Its POM names no license; the license was read in the repository's LICENSE and README (Apache License 2.0). Version 4.9.0 builds Tesseract OCR 5.5.1 (https://github.com/tesseract-ocr/tesseract, Apache-2.0), Leptonica 1.85.0, libjpeg v9f and libpng 1.6.48, and its Java wrapper is based on tess-two (Apache-2.0). It ships, for each CPU type the app includes (arm64-v8a, armeabi-v7a and x86_64), the native libraries libtesseract.so, libleptonica.so, libjpeg.so and libpngx.so. The AAR asks for no permissions and has no network code; its native libraries link to no network library.
+
+- Leptonica: Copyright (C) 2001-2020 Leptonica. BSD 2-clause style license, full text in licenses/BSD-2-Clause-Leptonica.txt.
+- libjpeg: this software is based in part on the work of the Independent JPEG Group. License text (the README's LEGAL ISSUES section) in licenses/IJG-libjpeg.txt.
+- libpng: PNG Reference Library License version 2, full text in licenses/libpng-2.0.txt.
+- The English model eng.traineddata (assets/tessdata) is from https://github.com/tesseract-ocr/tessdata_fast, Apache-2.0.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `cz.adaptech.tesseract4android:tesseract4android` | 4.9.0 | (none in its POM; see above) |
 
 ## Version alignment only (no code shipped)
 
