@@ -29,8 +29,8 @@ class VersionTest {
 
     @Test
     fun currentVersionCode() {
-        // 0.5.0 (Stage 5, update check, first published build) -> 0 * 10000 + 5 * 100 + 0
-        if (BuildConfig.VERSION_NAME == "0.5.0") assertEquals(500, BuildConfig.VERSION_CODE)
+        // 0.6.0 (Stage 6, base: encrypted database and budgeting) -> 0 * 10000 + 6 * 100 + 0
+        if (BuildConfig.VERSION_NAME == "0.6.0") assertEquals(600, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

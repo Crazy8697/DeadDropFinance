@@ -1,0 +1,106 @@
+package net.darkrelay.deaddropfinance.data
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Upsert
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface BudgetDao {
+    // ---- reads (tombstones included only where a write path needs them) --------------------------------------
+    @Query("SELECT * FROM account WHERE deleted = 0 ORDER BY archived, sort_order, name")
+    fun accounts(): Flow<List<AccountEntity>>
+
+    @Query("SELECT * FROM envelope WHERE deleted = 0 ORDER BY archived, sort_order")
+    fun envelopes(): Flow<List<EnvelopeEntity>>
+
+    @Query("SELECT * FROM txn WHERE deleted = 0 ORDER BY date DESC, created_at DESC")
+    fun transactions(): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM txn_line WHERE deleted = 0")
+    fun lines(): Flow<List<TransactionLineEntity>>
+
+    @Query("SELECT * FROM envelope_move WHERE deleted = 0")
+    fun moves(): Flow<List<MoveEntity>>
+
+    @Query("SELECT * FROM bill WHERE deleted = 0")
+    fun bills(): Flow<List<BillEntity>>
+
+    @Query("SELECT * FROM bill_payment WHERE deleted = 0")
+    fun billPayments(): Flow<List<BillPaymentEntity>>
+
+    @Query("SELECT * FROM account WHERE deleted = 0")
+    suspend fun accountsNow(): List<AccountEntity>
+
+    @Query("SELECT * FROM envelope WHERE deleted = 0")
+    suspend fun envelopesNow(): List<EnvelopeEntity>
+
+    @Query("SELECT * FROM txn WHERE deleted = 0")
+    suspend fun transactionsNow(): List<TransactionEntity>
+
+    @Query("SELECT * FROM txn_line WHERE deleted = 0")
+    suspend fun linesNow(): List<TransactionLineEntity>
+
+    @Query("SELECT * FROM envelope_move WHERE deleted = 0")
+    suspend fun movesNow(): List<MoveEntity>
+
+    @Query("SELECT * FROM bill WHERE deleted = 0")
+    suspend fun billsNow(): List<BillEntity>
+
+    @Query("SELECT * FROM bill_payment WHERE deleted = 0")
+    suspend fun billPaymentsNow(): List<BillPaymentEntity>
+
+    @Query("SELECT * FROM account WHERE id = :id")
+    suspend fun account(id: String): AccountEntity?
+
+    @Query("SELECT * FROM envelope WHERE id = :id")
+    suspend fun envelope(id: String): EnvelopeEntity?
+
+    @Query("SELECT * FROM txn WHERE id = :id")
+    suspend fun transaction(id: String): TransactionEntity?
+
+    @Query("SELECT * FROM txn_line WHERE id = :id")
+    suspend fun line(id: String): TransactionLineEntity?
+
+    @Query("SELECT * FROM txn_line WHERE transaction_id = :transactionId AND deleted = 0 ORDER BY sort_order")
+    suspend fun linesOf(transactionId: String): List<TransactionLineEntity>
+
+    @Query("SELECT * FROM envelope_move WHERE id = :id")
+    suspend fun move(id: String): MoveEntity?
+
+    @Query("SELECT * FROM envelope_move WHERE payday_transaction_id = :transactionId AND deleted = 0")
+    suspend fun movesOfPayday(transactionId: String): List<MoveEntity>
+
+    @Query("SELECT * FROM envelope_move WHERE linked_transaction_id = :transactionId AND deleted = 0")
+    suspend fun movesLinkedTo(transactionId: String): List<MoveEntity>
+
+    @Query("SELECT * FROM bill WHERE id = :id")
+    suspend fun bill(id: String): BillEntity?
+
+    @Query("SELECT * FROM bill_payment WHERE id = :id")
+    suspend fun billPayment(id: String): BillPaymentEntity?
+
+    // ---- writes (only BudgetStore calls these, so every one gets its change log row) ------------------------
+    @Upsert suspend fun upsertAccount(e: AccountEntity)
+    @Upsert suspend fun upsertEnvelope(e: EnvelopeEntity)
+    @Upsert suspend fun upsertTransaction(e: TransactionEntity)
+    @Upsert suspend fun upsertLine(e: TransactionLineEntity)
+    @Upsert suspend fun upsertMove(e: MoveEntity)
+    @Upsert suspend fun upsertBill(e: BillEntity)
+    @Upsert suspend fun upsertBillPayment(e: BillPaymentEntity)
+
+    // ---- change log and meta ----------------------------------------------------------------------------------
+    @Insert suspend fun insertChange(e: ChangeLogEntity)
+
+    @Query("SELECT COALESCE(MAX(seq), 0) FROM change_log")
+    suspend fun lastSeq(): Long
+
+    @Query("SELECT * FROM change_log ORDER BY seq")
+    suspend fun changes(): List<ChangeLogEntity>
+
+    @Query("SELECT value FROM meta WHERE `key` = :key")
+    suspend fun meta(key: String): String?
+
+    @Upsert suspend fun putMeta(e: MetaEntity)
+}

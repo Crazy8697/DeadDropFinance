@@ -6,6 +6,7 @@ import org.gradle.api.artifacts.result.ResolvedDependencyResult
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 // Copies LICENSE, NOTICE, THIRD-PARTY-NOTICES.md and the texts in licenses/ from the repo root into the app's
@@ -84,11 +85,18 @@ android {
         targetSdk = 37
         versionCode = appVersionCode
         versionName = appVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        resValue("string", "app_name", "Dead Drop Finance")
     }
 
     buildFeatures {
         buildConfig = true
         compose = true
+        resValues = true
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
 
     signingConfigs {
@@ -110,6 +118,9 @@ android {
         // real GitHub URL and the real versionName. Only a debug build can be pointed elsewhere for testing, with
         // -Pddf.updateUrl=<https url> and -Pddf.fakeVersion=<x.y.z>.
         debug {
+            // installs beside the release app and never touches it or its data
+            applicationIdSuffix = ".debug"
+            resValue("string", "app_name", "DDF Debug")
             buildConfigField("String", "UPDATE_URL", "\"$debugUpdateUrl\"")
             buildConfigField("String", "VERSION_OVERRIDE", "\"$debugFakeVersion\"")
         }
@@ -242,20 +253,55 @@ tasks.configureEach {
 }
 privacyGateApk.configure { mustRunAfter("packageRelease") }
 
+// Room writes the schema of every database version to app/schemas (committed), so later stages can test
+// real migrations against it. Destructive migration is never allowed (docs/DATABASE.md).
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
+    // the encrypted database: Room on SQLCipher through its SupportOpenHelperFactory
+    implementation("androidx.room:room-runtime:2.8.5")
+    ksp("androidx.room:room-compiler:2.8.5")
+    implementation("net.zetetic:sqlcipher-android:4.19.1")
+    // app lock timing: how long the whole app has been in the background
+    implementation("androidx.lifecycle:lifecycle-process:2.11.0")
 
     // test only, never packaged into the app
     testImplementation("junit:junit:4.13.2")
     // the real org.json for the update tests (the one in android.jar is a stub off-device)
     testImplementation("org.json:json:20260814")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("androidx.room:room-testing:2.8.5")
+    testImplementation("androidx.test:core:1.7.0")
+    testImplementation("androidx.test.ext:junit:1.3.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.76.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.76.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // on-device encryption check (instrumented, run by hand on a phone; never shipped)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
 }
 
 // The live check against the real GitHub release runs only when asked for: -Pddf.liveCheck=true
 tasks.withType<Test>().configureEach {
     systemProperty("ddf.liveCheck", providers.gradleProperty("ddf.liveCheck").getOrElse("false"))
+    // Roborazzi screenshots of every screen, only when asked for: -Pddf.screens=true
+    val screens = providers.gradleProperty("ddf.screens").getOrElse("false")
+    systemProperty("ddf.screens", screens)
+    systemProperty("roborazzi.test.record", screens)
+    // Robolectric on JDK 21 reaches into these for SharedPreferences and files
+    jvmArgs(
+        "--add-opens=java.base/java.io=ALL-UNNAMED", "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+    )
 }

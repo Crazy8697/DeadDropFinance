@@ -310,8 +310,15 @@ def is_tld_list(s):
     return s.count("|") > 300 and "|com|" in s and "|org|" in s
 
 
+# third-party build paths inside the APK's native libraries, allowed one by one: SQLCipher's libsqlcipher.so keeps
+# the source paths of its vendor's own build machine (libtomcrypt files under a "sqlcipher-packages" source tree)
+APK_VENDOR_BUILD_PATHS = [re.compile(r"/Users/[^/\s]+/src/sqlcipher-packages/[^\s\x00]*")]
+
+
 def scan_apk_strings(sc, where, strings, patterns, local):
     for s in strings:
+        for v in APK_VENDOR_BUILD_PATHS:
+            s = v.sub("", s)
         for what, rx in patterns + local.patterns:
             if rx.search(s):
                 if (what, rx) in local.patterns and is_tld_list(s):

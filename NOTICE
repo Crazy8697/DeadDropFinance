@@ -7,6 +7,13 @@ The Android app includes third-party components, each under its own license. The
 THIRD-PARTY-NOTICES.md, and their license texts are in the licenses folder (inside the app, under
 assets/licenses).
 
+It includes SQLCipher for Android, which encrypts the app's database:
+
+   Copyright (c) 2008-2026, ZETETIC, LLC
+   Licensed under the SQLCipher Community Edition license (BSD style). The full license text is in
+   THIRD-PARTY-NOTICES.md and licenses/BSD-3-Clause-SQLCipher.txt. Its native library also contains SQLite and
+   LibTomCrypt, both in the public domain.
+
 It includes the kotlinx.coroutines and kotlinx.serialization libraries, which carry these notices
 under section 4(d) of the Apache License, Version 2.0:
 

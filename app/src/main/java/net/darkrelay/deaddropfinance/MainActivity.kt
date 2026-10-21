@@ -1,143 +1,156 @@
 package net.darkrelay.deaddropfinance
 
+import android.hardware.biometrics.BiometricManager
+import android.hardware.biometrics.BiometricPrompt
+import android.net.Uri
 import android.os.Bundle
+import android.os.CancellationSignal
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.darkrelay.deaddropfinance.data.DatabaseOpener
+import net.darkrelay.deaddropfinance.ui.AppRoot
+import net.darkrelay.deaddropfinance.ui.DataUnavailableScreen
+import net.darkrelay.deaddropfinance.ui.DdfTheme
+import net.darkrelay.deaddropfinance.ui.LockScreen
+import net.darkrelay.deaddropfinance.ui.MoreState
+import net.darkrelay.deaddropfinance.ui.Platform
 
-/** Stage 5: the app shows its name and version, and checks GitHub for a newer release. */
+/**
+ * The one activity. Opens the encrypted database off the main thread, shows the lock screen while locked (nothing
+ * of the budget is drawn behind it), applies Hide screen, and hosts the app.
+ */
 class MainActivity : ComponentActivity() {
+
+    private var opened by mutableStateOf<DatabaseOpener.Opened?>(null)
+    private var locked by mutableStateOf(true)
+    private var lockMessage by mutableStateOf<String?>(null)
+    private var pickCallback: ((String, String?) -> Unit)? = null
+    private val app get() = application as DdfApp
+
+    private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        val cb = pickCallback ?: return@registerForActivityResult
+        pickCallback = null
+        if (uri == null) return@registerForActivityResult
+        lifecycleScope.launch {
+            val text = withContext(Dispatchers.IO) { readText(uri) }
+            cb(uri.lastPathSegment?.substringAfterLast('/') ?: "file", text)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyHide()
+        locked = app.lock.locked
+        app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
+        lifecycleScope.launch { opened = withContext(Dispatchers.IO) { DatabaseOpener.open(this@MainActivity) } }
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    HomeScreen()
+            DdfTheme {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                        val o = opened
+                        when {
+                            locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
+                            o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
+                            o is DatabaseOpener.Opened.Ok -> AppRoot(o.store, platform, startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true })
+                            else -> {}
+                        }
+                    }
+                }
+            }
+        }
+        if (locked) promptUnlock()
+    }
+
+    private fun applyHide() {
+        if (app.lock.settings.hideScreen) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
+    private fun promptUnlock() {
+        if (!app.lock.locked) return
+        lockMessage = null
+        try {
+            BiometricPrompt.Builder(this)
+                .setTitle("Unlock Dead Drop Finance")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                .build()
+                .authenticate(CancellationSignal(), mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                        app.lock.unlocked()
+                        locked = false
+                    }
+
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                        lockMessage = "Not unlocked. Tap Unlock to try again."
+                    }
+                })
+        } catch (t: Throwable) {
+            lockMessage = "The phone's unlock prompt isn't available."
+        }
+    }
+
+    private fun readText(uri: Uri): String? = try {
+        contentResolver.openInputStream(uri)?.use { input ->
+            val bytes = input.readNBytes(MAX_CSV + 1)
+            if (bytes.size > MAX_CSV) null else String(bytes, Charsets.UTF_8)
+        }
+    } catch (t: Throwable) {
+        null
+    }
+
+    private val platform = object : Platform {
+        override fun openUrl(url: String) { Browsers.open(this@MainActivity, url) }
+
+        override fun pickCsv(onPicked: (String, String?) -> Unit) {
+            pickCallback = onPicked
+            picker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/csv", "application/vnd.ms-excel"))
+        }
+
+        override val more: MoreState
+            get() = MoreState(
+                lockEnabled = app.lock.settings.lockEnabled, lockAvailable = app.lock.deviceSecure(),
+                timeoutMinutes = app.lock.settings.timeoutMinutes, hideScreen = app.lock.settings.hideScreen,
+                checkAtStartup = Updates.checkAtStartup(this@MainActivity), checking = false, updateMessage = null,
+                version = BuildConfig.VERSION_NAME,
+            )
+
+        override fun setLock(on: Boolean) { app.lock.settings.lockEnabled = on }
+        override fun setTimeout(minutes: Int) { app.lock.settings.timeoutMinutes = minutes }
+        override fun setHide(on: Boolean) { app.lock.settings.hideScreen = on; applyHide() }
+        override fun setCheckAtStartup(on: Boolean) = Updates.setCheckAtStartup(this@MainActivity, on)
+        override fun skipVersion(version: String) = Updates.skip(this@MainActivity, version)
+
+        override fun checkForUpdates(manual: Boolean, done: (UpdateCheck.Release?, String?) -> Unit) {
+            Updates.check { r ->
+                when (r) {
+                    is UpdateCheck.Result.Available ->
+                        if (manual || (!Updates.laterThisLaunch && UpdateCheck.shouldOffer(r.release, Updates.skipped(this@MainActivity), manual = false))) done(r.release, null)
+                        else done(null, null)
+                    UpdateCheck.Result.UpToDate -> done(null, if (manual) "You're on the latest version" else null)
+                    UpdateCheck.Result.Failed -> done(null, if (manual) "Couldn't check for updates. Try again later." else null)
                 }
             }
         }
     }
-}
 
-@Composable
-fun HomeScreen() {
-    val ctx = LocalContext.current
-    var pending by remember { mutableStateOf<UpdateCheck.Release?>(null) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var checking by remember { mutableStateOf(false) }
-    var atStartup by remember { mutableStateOf(Updates.checkAtStartup(ctx)) }
-    val latest = stringResource(R.string.update_latest)
-    val failed = stringResource(R.string.update_failed)
-
-    LaunchedEffect(Unit) {
-        if (Updates.startupCheckDone || !Updates.checkAtStartup(ctx)) return@LaunchedEffect
-        Updates.startupCheckDone = true
-        delay(Updates.STARTUP_DELAY_MS)
-        Updates.check { r ->
-            // the startup check is silent on failure and respects Skip and Later
-            if (r is UpdateCheck.Result.Available && !Updates.laterThisLaunch &&
-                UpdateCheck.shouldOffer(r.release, Updates.skipped(ctx), manual = false)
-            ) pending = r.release
-        }
-    }
-
-    Column(
-        modifier = Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        pending?.let { release ->
-            UpdateBar(
-                version = release.version,
-                onNotes = { Browsers.open(ctx, release.notesUrl) },
-                onDownload = { Browsers.open(ctx, UpdateCheck.DOWNLOAD_URL) },
-                onSkip = { Updates.skip(ctx, release.version); pending = null },
-                onLater = { Updates.laterThisLaunch = true; pending = null },
-            )
-        } ?: Spacer(Modifier.height(1.dp))
-
-        NameAndVersion(BuildConfig.VERSION_NAME)
-
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.update_at_startup), modifier = Modifier.padding(end = 12.dp))
-                Switch(checked = atStartup, onCheckedChange = { atStartup = it; Updates.setCheckAtStartup(ctx, it) })
-            }
-            OutlinedButton(
-                enabled = !checking,
-                onClick = {
-                    checking = true
-                    message = null
-                    Updates.check { r ->
-                        checking = false
-                        // a manual check ignores Skip and Later, and always says something
-                        when (r) {
-                            is UpdateCheck.Result.Available -> { Updates.laterThisLaunch = false; pending = r.release }
-                            UpdateCheck.Result.UpToDate -> message = latest
-                            UpdateCheck.Result.Failed -> message = failed
-                        }
-                    }
-                },
-            ) { Text(stringResource(if (checking) R.string.update_checking else R.string.update_check_now)) }
-            Text(message ?: "", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
-        }
+    companion object {
+        /** Bank exports are small; anything bigger than this isn't one. */
+        const val MAX_CSV = 8 * 1024 * 1024
     }
 }
 
-@Composable
-fun UpdateBar(version: String, onNotes: () -> Unit, onDownload: () -> Unit, onSkip: () -> Unit, onLater: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(stringResource(R.string.update_available, version), style = MaterialTheme.typography.titleMedium)
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onNotes) { Text(stringResource(R.string.update_notes)) }
-                TextButton(onClick = onDownload) { Text(stringResource(R.string.update_download)) }
-            }
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onSkip) { Text(stringResource(R.string.update_skip)) }
-                TextButton(onClick = onLater) { Text(stringResource(R.string.update_later)) }
-            }
-        }
-    }
-}
-
-@Composable
-fun NameAndVersion(versionName: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium)
-        Text(
-            text = stringResource(R.string.version_label, versionName),
-            style = MaterialTheme.typography.bodyLarge,
-            textAlign = TextAlign.Center,
-        )
-    }
-}

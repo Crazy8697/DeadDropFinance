@@ -1,0 +1,9 @@
+Account Name: Sample Checking
+Export range: 01/01/2030 to 01/31/2030
+
+Posting Date,Payee,Debit,Credit,Running Balance,Memo
+01/02/2030,"Sample Payroll Co",,"$1,500.00","$1,500.00",Direct deposit
+01/03/2030,"Corner Grocer, Main St","$82.15",,"$1,417.85",
+01/10/2030,"Transfer from family member",,$50.00,"$1,467.85",Water bill
+01/12/2030,"Bookshop ""The Page""",$12.99,,"$1,454.86",
+01/13/2030,Missing Amount Co,,,"$1,454.86",

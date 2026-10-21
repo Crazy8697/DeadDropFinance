@@ -3,6 +3,8 @@
 
     <!-- Only for the update check: one anonymous GET of the GitHub releases page for this app. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App lock: fingerprint or the phone's PIN through the system prompt -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- To open release links in a real browser (Browsers.kt), the browsers have to be visible. -->
     <queries>
@@ -14,6 +16,7 @@
     </queries>
 
     <application
+        android:name=".DdfApp"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:label="@string/app_name"

@@ -1,0 +1,6 @@
+SQLite and the SQLite Android bindings are in the public domain.
+
+The authors of SQLite have dedicated all of its code and documentation to the public domain; see
+https://www.sqlite.org/copyright.html. SQLCipher for Android is based on the SQLite Android bindings
+(https://www.sqlite.org/android), also released to the public domain. No license text applies; this file
+records where that is stated.

@@ -1,0 +1,9 @@
+Date,Description,Amount,Balance
+2030-01-02,Sample Payroll Co,1500.00,1500.00
+2030-01-03,"Corner Grocer, Main St",-82.15,1417.85
+2030-01-04,City Water Utility,-40.00,1377.85
+2030-01-04,City Water Utility,-40.00,1337.85
+2030-01-05,ATM Fee Example Bank,-3.50,1334.35
+2030-13-05,Broken Date Row,-1.00,1333.35
+2030-01-06,Quick Fuel Stop,-35.20,1298.15
+2030-01-07,ATM Fee Rebate,3.50,1301.65

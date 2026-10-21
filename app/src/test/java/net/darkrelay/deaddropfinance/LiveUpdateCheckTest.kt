@@ -16,7 +16,7 @@ class LiveUpdateCheckTest {
 
     @Test fun olderInstallIsOfferedTheLiveRelease() {
         assumeTrue(live)
-        val r = UpdateClient.check(UpdateCheck.REAL_UPDATE_URL, "0.4.9")
+        val r = UpdateClient.check(UpdateCheck.REAL_UPDATE_URL, PREVIOUS)
         assertTrue("got $r", r is UpdateCheck.Result.Available)
         assertEquals(expected, (r as UpdateCheck.Result.Available).release.version)
     }
@@ -27,6 +27,8 @@ class LiveUpdateCheckTest {
     }
 
     companion object {
-        const val EXPECTED = "0.5.0"
+        const val EXPECTED = "0.6.0"
+        /** The release before it, which an installed copy updates from. */
+        const val PREVIOUS = "0.5.0"
     }
 }

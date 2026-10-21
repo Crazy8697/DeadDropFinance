@@ -1,0 +1,36 @@
+# Database
+
+The budget lives in one encrypted database on the phone: Room on SQLCipher.
+
+## Encryption
+
+- A random 256-bit database key is made on first launch. It is stored only wrapped (AES-256-GCM) by a key in the
+  Android Keystore, which never leaves the phone's secure hardware.
+- The database is opened with that key in SQLCipher's raw key form. The plain key is wiped from memory once the
+  database is open.
+- If the key can't be unwrapped (for example after the phone's screen lock is reset), the app says the budget
+  can't be opened. It never deletes or recreates the database.
+- Android backup is off for the app, so the database and key never leave the phone that way.
+
+## Schema
+
+- Version 1 (0.6.0). The schema is exported to `app/schemas` and committed, so every change is reviewable.
+- There is no destructive migration fallback. A test fails the build if one is added.
+- Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
+  database at the old version, migrates it and checks the data survived.
+
+## Rows
+
+- Every synced row has a random UUID as its id, `created_at` and `updated_at` (epoch milliseconds) and a `deleted`
+  flag. Deleting sets the flag (a tombstone); rows are not removed.
+- Money is stored as whole cents in 64-bit integers. No floating point is used for money anywhere.
+- Dates are stored as ISO text (`yyyy-mm-dd`).
+
+## Change log
+
+- Every write goes through one transaction that saves the rows and, for each one, a `change_log` row: entity type,
+  entity id, operation (INSERT, UPDATE or DELETE), the changed fields as JSON, a timestamp, the device id and an
+  increasing sequence number.
+- An update that changes nothing writes no change row.
+- The device id is a random UUID made once and stored in the `meta` table.
+- The change log is for later stages (sync between the user's own devices); nothing reads it yet.
