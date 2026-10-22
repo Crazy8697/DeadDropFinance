@@ -93,6 +93,7 @@ class BackupTest {
         actions.move(null, food, 250_00)
         store.ensureCategories()
         store.setBudgetStart(day.minusDays(7))
+        actions.saveAccount(acct, "Sample Checking", AccountType.BANK, 800_00, day.minusDays(30), showInActivity = false)
         net.darkrelay.deaddropfinance.domain.CategoryActions(store).setClaims(food, setOf(actions.snapshot().categories.first { it.name == "Groceries" }.id))
         val tx = store.write {
             val t = put(null, TransactionEntity(accountId = acct, date = day, payee = "SAMPLE MARKET", amount = -42_10, createdAt = now, updatedAt = now))
@@ -159,6 +160,7 @@ class BackupTest {
         assertEquals(17, budget.categories.size)
         assertEquals("Unplanned", budget.unplannedEnvelope!!.name)
         assertEquals("the budget start date comes back", day.minusDays(7), b.store.budgetStart())
+        assertEquals("Show in Activity comes back", false, budget.accounts.single().showInActivity)
         assertEquals(250_00L - 42_10, budget.envelopeBalance(budget.envelopes.first { it.name == "Sample Groceries" }.id))
     }
 

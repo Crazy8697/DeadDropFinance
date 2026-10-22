@@ -242,4 +242,18 @@ class SetupImportTest {
         val rin = SetupImport.parse("""{ "format": "deaddropfinance-setup", "version": 1, "rules": [ { "match": "sample", "category": "Gifts", "direction": "in" } ] }""")
         assertTrue(rin is SetupImport.Parsed.Bad)
     }
+
+    @Test fun accountsSetShowInActivityOnlyAndAreNeverMade() = world {
+        val plan = ok("""{ "format": "deaddropfinance-setup", "version": 1, "accounts": [ { "name": "sample checking", "showInActivity": false } ] }""")
+        val c = importer.check(plan) as SetupImporter.Checked.Ok
+        assertEquals(listOf("sample checking"), c.preview.update["Accounts"])
+        val before = b().accounts.single()
+        importer.apply(plan)
+        val after = b().accounts.single()
+        assertEquals(false, after.showInActivity)
+        assertEquals(before.copy(showInActivity = false, updatedAt = after.updatedAt), after)
+        val unknown = ok("""{ "format": "deaddropfinance-setup", "version": 1, "accounts": [ { "name": "Sample Nowhere", "showInActivity": true } ] }""")
+        assertTrue(importer.check(unknown) is SetupImporter.Checked.Bad)
+        assertTrue(SetupImport.parse("""{ "format": "deaddropfinance-setup", "version": 1, "accounts": [ { "name": "X", "colour": "red" } ] }""") is SetupImport.Parsed.Bad)
+    }
 }

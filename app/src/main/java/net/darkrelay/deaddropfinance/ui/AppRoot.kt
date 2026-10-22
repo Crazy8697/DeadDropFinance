@@ -65,7 +65,7 @@ sealed interface Nav {
     /** Move money; [backToReady] starts it as a move back into Ready to Assign (fixing an over-assigned budget). */
     data class MoveMoney(val fromId: String?, val backToReady: Boolean = false) : Nav
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
-    data class TxEdit(val id: String?, val split: Boolean = false) : Nav
+    data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null) : Nav
     data class TxDetail(val id: String) : Nav
     /** Bonus income: a new one ([id] null) or an existing one to edit or delete. */
     data class Bonus(val id: String?) : Nav
@@ -220,6 +220,8 @@ fun AppRoot(
     val sorting = remember(store) { Sorting(store, actions) }
     val categoryActions = remember(store) { CategoryActions(store) }
     var categoryMonth by remember { mutableIntStateOf(0) }
+    /** Activity's selected account tab; null is All, where Activity opens. */
+    var activityTab by remember { mutableStateOf<String?>(null) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
     val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
     val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
@@ -291,7 +293,7 @@ fun AppRoot(
 
     fun go(n: Nav) { error = null; message = null; stack.add(n) }
     fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    fun tab(n: Nav) { error = null; message = null; stack.clear(); stack.add(n) }
+    fun tab(n: Nav) { error = null; message = null; if (n == Nav.Activity) activityTab = null; stack.clear(); stack.add(n) }
     fun backTo(n: Nav) { while (stack.size > 1 && stack.last() != n) stack.removeAt(stack.lastIndex) }
     /**
      * Runs a user action: one at a time (a second tap while it runs is ignored, so nothing is saved twice), with the
@@ -598,6 +600,17 @@ fun AppRoot(
                         onKeepStale = { id -> run(scope) { net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).keep(id) } },
                         onDeleteStale = { id -> run(scope) { actions.deleteTransaction(id) } },
                     ),
+                    tabs = ActivityTabs(
+                        accounts = activityTabAccounts(b),
+                        selected = activityTab,
+                        onSelect = { activityTab = it },
+                        onAdd = { id -> go(Nav.TxEdit(null, accountId = id)) },
+                        onScan = { startScan(null) },
+                        onImport = { id -> importState = ImportState(accountId = id); go(Nav.Import) },
+                        lastSync = { id ->
+                            links.firstOrNull { it.accountId == id }?.let { l -> connections.firstOrNull { it.id == l.connectionId } }?.let { "Last sync ${syncTime(it.lastSyncAt)}" }
+                        },
+                    ),
                 )
             }
             Nav.More -> MoreScreen(
@@ -692,7 +705,7 @@ fun AppRoot(
                 shortfalls = top.shortfalls,
             )
             is Nav.TxEdit -> TransactionEditScreen(
-                b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back,
+                b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId,
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
             )
@@ -1077,7 +1090,7 @@ fun AppRoot(
                 val deleteCount by produceState(0, top.id, b.transactions.size) { value = top.id?.let { actions.deleteAccountCount(it) } ?: 0 }
                 AccountEditScreen(
                     a, error, ::back,
-                    onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount) } },
+                    onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount, f.showInActivity) } },
                     onArchive = { v -> run(scope, popAfter = true) { actions.setAccountArchived(a!!.id, v) } },
                     syncSection = if (a == null) null else {
                         {
@@ -1100,7 +1113,7 @@ fun AppRoot(
                 onPick = {
                     platform.pickCsv { name, text ->
                         importState = if (text == null) importState.copy(error = "That file couldn't be read.")
-                        else ImportState(fileName = name, text = text, layout = CsvImport.detect(text), accountId = b.accounts.firstOrNull { !it.archived }?.id)
+                        else ImportState(fileName = name, text = text, layout = CsvImport.detect(text), accountId = importState.accountId ?: b.accounts.firstOrNull { !it.archived }?.id)
                     }
                 },
                 onLayout = { importState = importState.copy(layout = it, skippedRows = emptySet()) },

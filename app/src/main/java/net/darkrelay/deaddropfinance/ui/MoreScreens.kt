@@ -177,7 +177,10 @@ fun AccountsScreen(budget: Budget, onBack: () -> Unit, onAccount: (String) -> Un
 }
 
 /** What the account screen saves. */
-data class AccountForm(val name: String, val type: AccountType, val startingBalance: Long, val startDate: LocalDate, val trackOnly: Boolean, val heldAmount: Long)
+data class AccountForm(
+    val name: String, val type: AccountType, val startingBalance: Long, val startDate: LocalDate, val trackOnly: Boolean, val heldAmount: Long,
+    val showInActivity: Boolean = true,
+)
 
 @Composable
 fun AccountEditScreen(
@@ -194,6 +197,7 @@ fun AccountEditScreen(
     var date by remember { mutableStateOf((existing?.startDate ?: LocalDate.now()).toString()) }
     var trackOnly by remember { mutableStateOf(existing?.trackOnly ?: false) }
     var held by remember { mutableStateOf(existing?.heldAmount?.takeIf { it > 0 }?.let { Money.plain(it) } ?: "") }
+    var showInActivity by remember { mutableStateOf(existing?.showInActivity ?: true) }
     var confirmArchive by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val balance = existing?.let { budget?.accountBalance(it.id) }
@@ -236,6 +240,13 @@ fun AccountEditScreen(
                 color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
             )
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Checkbox(showInActivity, { showInActivity = it })
+            Column {
+                Text("Show in Activity")
+                Text("Gives it a tab in Activity. Unticked, its transactions still show under All.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
         ErrorLine(error)
         Gap()
         Button(
@@ -243,7 +254,7 @@ fun AccountEditScreen(
                 onSave(
                     AccountForm(
                         name, type, Money.parse(start) ?: 0, parseDateOrNull(date) ?: LocalDate.now(), trackOnly,
-                        if (trackOnly) 0 else Money.parse(held) ?: 0,
+                        if (trackOnly) 0 else Money.parse(held) ?: 0, showInActivity,
                     ),
                 )
             },

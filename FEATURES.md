@@ -304,6 +304,27 @@ How the app behaves. Each section names the stage that builds it. Everything run
   Assign will be recalculated. Changing it never deletes or edits a transaction.
 - It travels in backup and restore. It isn't part of the JSON setup import.
 
+## Activity tabs (1.2.0)
+
+- Each account's screen (More, Accounts) has a "Show in Activity" checkbox, ticked for every account, old and new.
+  Delete account stays at the bottom.
+- Activity has a row of tabs across the top, scrolling when it's wider than the screen: All first, then one tab per
+  account with Show in Activity ticked (archived accounts have none), in the account order of More, Accounts.
+  Activity opens on All, as before.
+- All is the combined list as before (To sort, what rules sorted lately, Recent), view only: no Add and no Scan. A
+  transaction can still be opened, viewed and given a category from it. To sort lives only here; the All tab shows
+  its count.
+- An account's tab: "Current balance" at the top, with "Last sync ..." for an account linked to bank sync and
+  "Manual account" for the rest. Add, Scan and Import CSV, acting on that account (Add and Import CSV start with that
+  account picked; a synced account allows Add too). Then only that account's transactions, newest first, with the
+  same rows, categories and "before budget start" marking; a transfer in shows as "Transfer from ...".
+- A manual account (not linked to bank sync, such as a payment app or cash) ends its list with its starting balance
+  and that balance's date: its first entry, so it's clear how the balance is built.
+- Unticking Show in Activity only removes the account's tab. Its transactions, balance, envelopes and Categories
+  totals don't change, and they still show under All.
+- Show in Activity travels in backup and restore, goes with the account in Purge data and Erase everything, and the
+  JSON setup importer can set it on an account already in the app (docs/IMPORT.md, `accounts`).
+
 ## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
 - An update check (on by default; More, Check for updates) asks GitHub for the app's own latest
   release. No account, no telemetry: just an anonymous request, and nothing about the phone or the budget is sent.

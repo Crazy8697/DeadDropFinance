@@ -43,6 +43,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     suspend fun saveAccount(
         id: String?, name: String, type: AccountType, startingBalance: Long, startDate: LocalDate,
         trackOnly: Boolean? = null, heldAmount: Long? = null,
+        /** Activity has a tab for it (1.2.0); null keeps what it was (new accounts: yes). */
+        showInActivity: Boolean? = null,
     ): String {
         if (name.isBlank()) throw BudgetRuleException("Give the account a name.")
         if (heldAmount != null && heldAmount < 0) throw BudgetRuleException("A held amount can't be negative.")
@@ -50,11 +52,12 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             val old = id?.let { dao.account(it) }
             val new = old?.copy(
                 name = name.trim(), type = type, startingBalance = startingBalance, startDate = startDate,
-                trackOnly = trackOnly ?: old.trackOnly, heldAmount = heldAmount ?: old.heldAmount, updatedAt = now,
+                trackOnly = trackOnly ?: old.trackOnly, heldAmount = heldAmount ?: old.heldAmount,
+                showInActivity = showInActivity ?: old.showInActivity, updatedAt = now,
             )
                 ?: AccountEntity(
                     name = name.trim(), type = type, startingBalance = startingBalance, startDate = startDate,
-                    trackOnly = trackOnly ?: false, heldAmount = heldAmount ?: 0,
+                    trackOnly = trackOnly ?: false, heldAmount = heldAmount ?: 0, showInActivity = showInActivity ?: true,
                     sortOrder = dao.accountsNow().size, createdAt = now, updatedAt = now,
                 )
             put(old, new).id

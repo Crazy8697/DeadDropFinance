@@ -33,10 +33,18 @@ and bank sync bring those in).
 | `envelopes` | A list of envelopes. |
 | `bills` | A list of bills. |
 | `paydays` | `{ "next": "<date>" }`: the date the next payday is expected (the Bills tab's Change). Payday itself still starts only when the deposit lands. |
+| `accounts` | Accounts already in the app, by name: whether Activity shows a tab for each (the importer never makes accounts). |
 | `rules` | A list of auto-categorize rules. |
 | `subscriptions` | A list of subscriptions. |
 | `settings` | The app's settings. |
 | `transactions` | Not allowed: the file is refused if it has them. |
+
+### Accounts
+
+| Field | What it is |
+|---|---|
+| `name` | Required. An account already in the app; the importer never makes or changes anything else about accounts. |
+| `showInActivity` | `true` or `false`: whether Activity has a tab for the account. Its transactions show under All either way. |
 
 ### Envelopes
 
@@ -121,6 +129,9 @@ Every name and amount here is invented.
 {
   "format": "deaddropfinance-setup",
   "version": 1,
+  "accounts": [
+    { "name": "Sample Checking", "showInActivity": true }
+  ],
   "envelopes": [
     { "name": "Groceries", "mode": "fill_to_target", "target": "420.00", "everyday": true, "order": 1, "categories": [ "Groceries", "Snacks" ] },
     { "name": "Fuel", "mode": "fill_to_target", "target": "130.00", "everyday": true, "order": 2, "categories": [ "Car gas" ] },

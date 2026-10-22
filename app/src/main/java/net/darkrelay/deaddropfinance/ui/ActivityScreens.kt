@@ -41,6 +41,24 @@ import net.darkrelay.deaddropfinance.data.RuleEntity
 import net.darkrelay.deaddropfinance.data.SortedBy
 import androidx.compose.material3.AlertDialog
 
+/**
+ * Activity's tabs (1.2.0): All, then one per account shown in Activity, in account order. [selected] null is All.
+ * Add, Scan and Import CSV live on an account's tab and act on that account.
+ */
+data class ActivityTabs(
+    val accounts: List<net.darkrelay.deaddropfinance.data.AccountEntity> = emptyList(),
+    val selected: String? = null,
+    val onSelect: (String?) -> Unit = {},
+    val onAdd: (accountId: String) -> Unit = {},
+    val onScan: (accountId: String) -> Unit = {},
+    val onImport: (accountId: String) -> Unit = {},
+    /** "Last sync ..." for a bank-synced account; null for a manual one. */
+    val lastSync: (accountId: String) -> String? = { null },
+)
+
+/** The accounts with a tab in Activity: shown in Activity and not archived, in account order (More, Accounts). */
+fun activityTabAccounts(b: Budget): List<net.darkrelay.deaddropfinance.data.AccountEntity> = b.accounts.filter { !it.archived && it.showInActivity }
+
 /** What the To sort list needs for the approve flow; the defaults show a plain list. */
 data class SortingUi(
     val suggestions: Map<String, Suggest.Suggestion> = emptyMap(),
@@ -71,28 +89,99 @@ data class SortingUi(
 )
 
 /**
- * Activity: To sort with each transaction's suggestion (one tap approves it; picking an envelope changes it; Split
- * opens the split), Approve all suggested (with the count first), what rules sorted lately, and recent transactions.
+ * Activity: a tab row (All, then each account shown in Activity). All is the combined list, view only: To sort with
+ * each transaction's suggestion (one tap approves it; picking a category or envelope sorts it; Split opens the split),
+ * Approve all suggested, what rules sorted lately, and recent transactions. An account's tab has its balance, Add,
+ * Scan and Import CSV, and only its own transactions.
  */
 @Composable
 fun ActivityScreen(
     budget: Budget,
-    onAdd: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") onAdd: () -> Unit,
     onTransaction: (String) -> Unit,
     onSort: (String, String?, Boolean) -> Unit,
     onSplit: (String) -> Unit,
     syncNotes: List<String> = emptyList(),
     sorting: SortingUi = SortingUi(),
+    tabs: ActivityTabs = ActivityTabs(),
+) {
+    val selected = tabs.accounts.firstOrNull { it.id == tabs.selected }
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Activity", onBack = null) }
+        ActivityTabRow(tabs, budget.toSort.size)
+        if (selected != null) AccountActivity(selected, budget, tabs, onTransaction)
+        else AllActivity(budget, onTransaction, onSort, onSplit, syncNotes, sorting)
+    }
+}
+
+/** The tab row: All (with the To sort count), then each account's name. Scrolls when it's wider than the screen. */
+@Composable
+private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
+    val index = tabs.accounts.indexOfFirst { it.id == tabs.selected } + 1
+    androidx.compose.material3.ScrollableTabRow(
+        selectedTabIndex = index, edgePadding = 16.dp, containerColor = DdfColors.Background, contentColor = DdfColors.Cyan,
+    ) {
+        androidx.compose.material3.Tab(selected = index == 0, onClick = { tabs.onSelect(null) }, text = {
+            Row(verticalAlignment = Alignment.CenterVertically) { Text("All"); if (toSort > 0) Pill("$toSort") }
+        })
+        tabs.accounts.forEachIndexed { i, a ->
+            androidx.compose.material3.Tab(selected = index == i + 1, onClick = { tabs.onSelect(a.id) }, text = { Text(a.name, maxLines = 1) })
+        }
+    }
+}
+
+/** One account's tab: its current balance, Add, Scan and Import CSV, and only its transactions, newest first. */
+@Composable
+private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity, budget: Budget, tabs: ActivityTabs, onTransaction: (String) -> Unit) {
+    val sync = tabs.lastSync(a.id)
+    val txs = budget.transactions.filter { it.accountId == a.id || it.transferAccountId == a.id }
+        .sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Current balance", color = DdfColors.Muted)
+                MoneyText(budget.accountBalance(a.id), bold = true)
+                Text(sync ?: "Manual account", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Row {
+            TextButton(onClick = { tabs.onAdd(a.id) }) { Text("Add") }
+            TextButton(onClick = { tabs.onScan(a.id) }) { Text("Scan") }
+            TextButton(onClick = { tabs.onImport(a.id) }) { Text("Import CSV") }
+        }
+        if (txs.isEmpty() && sync != null) EmptyState("No transactions in this account yet.")
+        txs.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }, forAccount = a.id) }
+        // a manual account's balance is built from its starting balance: shown as its first (oldest) entry
+        if (sync == null) {
+            ListRow(onClick = null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Starting balance")
+                        Text(a.startDate.toString(), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    MoneyText(a.startingBalance)
+                }
+            }
+        }
+        Gap(24)
+    }
+}
+
+/** All: the combined list as before 1.2.0, view only (no Add, no Scan). */
+@Composable
+private fun AllActivity(
+    budget: Budget,
+    onTransaction: (String) -> Unit,
+    onSort: (String, String?, Boolean) -> Unit,
+    onSplit: (String) -> Unit,
+    syncNotes: List<String>,
+    sorting: SortingUi,
 ) {
     val accounts = budget.accounts.associateBy { it.id }
     val envelopes = budget.envelopes.associateBy { it.id }
     var confirmAll by remember { mutableStateOf(false) }
     val suggested = budget.toSort.count { it.id in sorting.suggestions }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ScreenTitle("Activity", onBack = null) {
-            sorting.onScan?.let { TextButton(onClick = it) { Text("Scan") } }
-            TextButton(onClick = onAdd, enabled = budget.accounts.any { !it.archived }) { Text("Add") }
-        }
         if (budget.accounts.none { !it.archived }) EmptyState("No accounts yet. Add one in More to get started.")
         if (syncNotes.isNotEmpty()) {
             SectionTitle("From bank sync")
@@ -102,9 +191,6 @@ fun ActivityScreen(
         sorting.offer?.let { o -> OfferCard(o, budget, sorting.onOffer) }
         SectionTitle("To sort") {
             if (suggested > 0) TextButton(onClick = { confirmAll = true }) { Text("Approve all suggested ($suggested)") }
-        }
-        if (sorting.onScan != null && budget.toSort.isNotEmpty()) {
-            TextButton(onClick = sorting.onScan) { Text("Scan a receipt for one of these") }
         }
         if (sorting.waitingReceipts > 0) {
             ListRow(onClick = sorting.onReceipts) {
@@ -254,10 +340,12 @@ private fun targetName(target: String, budget: Budget) = when (target) {
 }
 
 @Composable
-fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
+fun TransactionRow(t: TransactionEntity, budget: Budget, forAccount: String? = null, onClick: () -> Unit) {
+    val incoming = t.kind == TransactionKind.TRANSFER && forAccount != null && t.transferAccountId == forAccount
     val accounts = budget.accounts.associateBy { it.id }
     val envelopes = budget.envelopes.associateBy { it.id }
     val sub = when {
+        incoming -> "Transfer from ${accounts[t.accountId]?.name ?: "?"}"
         t.kind == TransactionKind.TRANSFER -> "Transfer to ${accounts[t.transferAccountId]?.name ?: "?"}"
         t.kind == TransactionKind.BONUS -> t.memo.ifBlank { "Ready to assign" }
         t.isWash -> "Wash (pass-through)"
@@ -290,7 +378,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
                 }
                 Text("${t.date}, " + (if (budget.beforeBudgetStart(t)) "before budget start, " else "") + sub, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
-            MoneyText(if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null)
+            MoneyText(if (incoming) t.amount else if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null)
         }
     }
 }
@@ -311,6 +399,8 @@ fun TransactionEditScreen(
     onBack: () -> Unit,
     onSave: (BudgetActions.TransactionDraft) -> Unit,
     onSaveTransfer: (from: String, to: String, amount: Long, date: LocalDate, memo: String, fromEnvelope: String?) -> Unit,
+    /** Started from an account's Activity tab: that account is picked. */
+    presetAccount: String? = null,
 ) {
     val accounts = budget.accounts.filter { !it.archived || it.id == existing?.accountId }
     val existingLines = existing?.let { e -> budget.lines.filter { it.transactionId == e.id }.sortedBy { it.sortOrder } } ?: emptyList()
@@ -323,7 +413,7 @@ fun TransactionEditScreen(
             },
         )
     }
-    var account by remember { mutableStateOf(existing?.accountId ?: accounts.firstOrNull()?.id) }
+    var account by remember { mutableStateOf(existing?.accountId ?: presetAccount?.takeIf { id -> accounts.any { it.id == id } } ?: accounts.firstOrNull()?.id) }
     var toAccount by remember { mutableStateOf(existing?.transferAccountId ?: accounts.getOrNull(1)?.id) }
     var date by remember { mutableStateOf((existing?.date ?: LocalDate.now()).toString()) }
     var payee by remember { mutableStateOf(existing?.payee ?: "") }

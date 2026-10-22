@@ -42,6 +42,9 @@ object SetupImport {
         val category: String? = null,
     )
 
+    /** An account already in the app (matched by name): only whether Activity shows a tab for it (1.2.0). */
+    data class AccountIn(val name: String, val showInActivity: Boolean?, val given: Set<String>)
+
     data class SubscriptionIn(val name: String, val payees: List<String>, val status: SubscriptionStatus?, val bill: String?, val given: Set<String>)
 
     /** Only what the file sets; null is "leave it". [parkingLotWait] is in days. */
@@ -70,6 +73,7 @@ object SetupImport {
         val rules: List<RuleIn> = emptyList(),
         val subscriptions: List<SubscriptionIn> = emptyList(),
         val settings: SettingsIn? = null,
+        val accounts: List<AccountIn> = emptyList(),
     )
 
     sealed interface Parsed {
@@ -92,7 +96,8 @@ object SetupImport {
     val STATUSES = mapOf("new" to SubscriptionStatus.NEW, "confirmed" to SubscriptionStatus.CONFIRMED, "not_a_subscription" to SubscriptionStatus.DISMISSED)
     val WAITS = mapOf("1 day" to 1, "2 days" to 2, "1 week" to 7)
 
-    private val TOP = setOf("format", "version", "envelopes", "bills", "paydays", "rules", "subscriptions", "settings")
+    private val TOP = setOf("format", "version", "accounts", "envelopes", "bills", "paydays", "rules", "subscriptions", "settings")
+    private val ACCOUNT_KEYS = setOf("name", "showInActivity")
     private val ENVELOPE_KEYS = setOf("name", "mode", "target", "perPayday", "goal", "goalDate", "everyday", "owed", "requiredPayment", "dueDate", "remind", "remindDays", "order", "categories")
     private val BILL_KEYS = setOf("name", "amount", "due", "repeats", "envelope", "autopay", "payeeWords", "anyAmount", "amountChanges", "reminder", "reminderDays")
     private val RULE_KEYS = setOf("match", "account", "direction", "min", "max", "envelope", "splits", "transfer", "alwaysAsk", "bill", "category")
@@ -187,6 +192,10 @@ object SetupImport {
         if (root.optString("format") != FORMAT) errors += "\"format\" must be \"$FORMAT\"."
         if (root.opt("version") != 1) errors += "\"version\" must be 1."
 
+        val accounts = objects(root, "accounts", errors).mapIndexed { i, o ->
+            val r = Reader(o, label("accounts", i, o), errors, ACCOUNT_KEYS)
+            AccountIn(r.text("name", required = true).orEmpty(), r.bool("showInActivity"), r.given)
+        }
         val envelopes = objects(root, "envelopes", errors).mapIndexed { i, o ->
             val r = Reader(o, label("envelopes", i, o), errors, ENVELOPE_KEYS)
             val name = r.text("name", required = true)
@@ -291,11 +300,12 @@ object SetupImport {
         fun dupes(kind: String, names: List<String>) {
             names.filter { it.isNotBlank() }.groupBy { it.lowercase() }.filterValues { it.size > 1 }.keys.forEach { errors += "$kind: \"$it\" is in the file more than once." }
         }
+        dupes("accounts", accounts.map { it.name })
         dupes("envelopes", envelopes.map { it.name })
         dupes("bills", bills.map { it.name })
         dupes("rules", rules.map { Payees.clean(it.match) })
         dupes("subscriptions", subs.map { it.name })
-        return if (errors.isEmpty()) Parsed.Ok(Plan(envelopes, bills, nextPayday, rules, subs, settings)) else Parsed.Bad(errors)
+        return if (errors.isEmpty()) Parsed.Ok(Plan(envelopes, bills, nextPayday, rules, subs, settings, accounts)) else Parsed.Bad(errors)
     }
 }
 
@@ -364,6 +374,10 @@ class SetupImporter(
             b.envelope?.let { if (it.lowercase() !in known) errors += "bills (\"${b.name}\"): there's no envelope called \"$it\" in the file or the app." }
         }
         val accounts = dao.accountsNow().filter { !it.deleted }
+        // accounts are never made by the importer: the file can only say whether a known one has its Activity tab
+        for (a in plan.accounts) {
+            if (accounts.none { it.name.equals(a.name, true) }) errors += "accounts (\"${a.name}\"): there's no account called \"${a.name}\" in the app. The importer doesn't make accounts."
+        }
         for (r in plan.rules) {
             r.account?.let { a -> if (accounts.none { it.name.equals(a, true) }) errors += "rules (\"${r.match}\"): there's no account called \"$a\" in the app." }
             r.bill?.let { if (it.lowercase() !in billNames) errors += "rules (\"${r.match}\"): there's no bill called \"$it\" in the file or the app." }
@@ -391,6 +405,7 @@ class SetupImporter(
         }
         val wanted = (plan.envelopes.flatMap { it.categories.orEmpty() } + plan.rules.mapNotNull { it.category }).distinct()
         put("Categories", wanted.map { c -> c to catsHere.any { it.name.equals(c, true) } }.filter { !it.second })
+        put("Accounts", plan.accounts.filter { "showInActivity" in it.given }.map { it.name to true })
         put("Envelopes", plan.envelopes.map { e -> e.name to envs.any { it.name.equals(e.name, true) } })
         put("Bills", plan.bills.map { b -> b.name to billsHere.any { it.name.equals(b.name, true) } })
         val rulesHere = dao.rulesNow().filter { !it.deleted }
@@ -406,6 +421,12 @@ class SetupImporter(
      */
     suspend fun apply(plan: SetupImport.Plan): Preview {
         val preview = (check(plan) as? Checked.Ok)?.preview ?: throw BudgetRuleException((check(plan) as Checked.Bad).errors.first())
+        // accounts: only Show in Activity
+        for (a in plan.accounts) {
+            val show = a.showInActivity ?: continue
+            val old = dao.accountsNow().firstOrNull { !it.deleted && it.name.equals(a.name, true) } ?: continue
+            actions.saveAccount(old.id, old.name, old.type, old.startingBalance, old.startDate, showInActivity = show)
+        }
         // categories the file names that don't exist yet are created
         val categoryActions = CategoryActions(store)
         for (c in (plan.envelopes.flatMap { it.categories.orEmpty() } + plan.rules.mapNotNull { it.category }).distinct()) {

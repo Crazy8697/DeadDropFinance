@@ -111,5 +111,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9)
+    /** 9 to 10 (1.2.0): `show_in_activity` on `account`, default 1, so every existing account keeps its Activity tab. */
+    val V9_V10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `account` ADD COLUMN `show_in_activity` INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10)
 }

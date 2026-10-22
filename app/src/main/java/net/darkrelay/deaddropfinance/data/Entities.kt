@@ -44,6 +44,8 @@ data class AccountEntity(
     @ColumnInfo(name = "track_only", defaultValue = "0") val trackOnly: Boolean = false,
     /** A minimum that stays put: Ready to Assign counts the balance minus this (never more than the balance). */
     @ColumnInfo(name = "held_amount", defaultValue = "0") val heldAmount: Long = 0,
+    /** Activity has a tab for this account (1.2.0). Off only removes the tab; nothing else about the account changes. */
+    @ColumnInfo(name = "show_in_activity", defaultValue = "1") val showInActivity: Boolean = true,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -53,7 +55,8 @@ data class AccountEntity(
 
     override fun fields() = mapOf(
         "name" to name, "type" to type.name, "starting_balance" to startingBalance, "start_date" to startDate.toString(),
-        "archived" to archived, "sort_order" to sortOrder, "track_only" to trackOnly, "held_amount" to heldAmount, "deleted" to deleted,
+        "archived" to archived, "sort_order" to sortOrder, "track_only" to trackOnly, "held_amount" to heldAmount,
+        "show_in_activity" to showInActivity, "deleted" to deleted,
     )
 }
 

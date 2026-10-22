@@ -330,4 +330,35 @@ class MigrationTest {
             db.close()
         }
     }
+
+    @Test fun nineToTenTicksShowInActivityForEveryAccountAndKeepsEveryRow() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-9.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 9)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        // a 1.1.x budget: a second (archived, track only) account, a category with its claim, a categorized purchase
+        raw.execSQL("INSERT INTO account (id, name, type, starting_balance, start_date, archived, sort_order, track_only, held_amount, created_at, updated_at, deleted) VALUES ('a2','Sample Wallet','PAYMENT_APP',2500,'2030-01-01',1,1,1,0,1,1,0)")
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, everyday, reminder, reminder_days, is_unplanned, created_at, updated_at, deleted) VALUES ('e1', 'Food', 'FILL_TO_TARGET', 0, 1, 1, 0, 2, 0, 1, 1, 0)")
+        raw.execSQL("INSERT INTO category (id, name, envelope_id, sort_order, created_at, updated_at, deleted) VALUES ('c1', 'Groceries', 'e1', 0, 1, 1, 0)")
+        raw.execSQL("UPDATE txn_line SET bucket = 'ENVELOPE', envelope_id = 'e1', category_id = 'c1' WHERE id = 'l1'")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            val a1 = d.account("a1")!!
+            val a2 = d.account("a2")!!
+            assertEquals("Sample Account", a1.name)
+            assertTrue("ticked", a1.showInActivity)
+            assertTrue("ticked, archived or not", a2.showInActivity)
+            assertEquals(true, a2.trackOnly)
+            assertEquals(2500L, a2.startingBalance)
+            assertEquals(-1234L, d.transaction("t1")!!.amount)
+            val l = d.linesOf("t1").single()
+            assertEquals("c1", l.categoryId)
+            assertEquals("e1", d.categoriesNow().single().envelopeId)
+            assertEquals(1, d.changes().size)
+        } finally {
+            db.close()
+        }
+    }
 }

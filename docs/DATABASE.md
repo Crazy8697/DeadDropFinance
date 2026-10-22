@@ -45,6 +45,10 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   row survived, and checks that the first start creates the default set and Unplanned. The `meta` row
   `categories_seeded` records that the default set was created once. Version 1.0.1 (Bonus income) needed no schema
   change: it is a transaction kind (`BONUS`, with an empty account id and one Ready to Assign line).
+- Version 10 (1.2.0): `show_in_activity` on `account` (default 1), whether Activity has a tab for the account.
+  Migration 9 to 10 only adds; `MigrationTest` builds a version 9 database from `9.json`, migrates it and checks every
+  row survived and every account is ticked. It is an ordinary account column, so backup carries it and Purge and
+  Erase remove it with the account.
 - The budget start date (1.1.1) needed no schema change: it is the `meta` row `budget_start` (an ISO date), so the
   backup carries it, and Purge data (which empties `meta` but the device id) and Erase everything reset it. Changing
   it never writes a budget row: only what counts in the budget is worked out again.

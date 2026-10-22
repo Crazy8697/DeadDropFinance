@@ -784,6 +784,38 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun activityBeforeBudgetStart() = shot("152-activity-before-budget-start") {
         ActivityScreen(Budget(catBudget.accounts, catBudget.envelopes, catBudget.transactions, catBudget.lines, catBudget.moves, categories = catBudget.categories, budgetStart = today.minusDays(1)), {}, {}, { _, _, _ -> }, {})
     }
+    // ---- 1.2.0: Activity tabs -------------------------------------------------------------------------------------
+    private val tabsBudget: Budget by lazy {
+        val wallet = acct("wal", "Sample Wallet", AccountType.PAYMENT_APP, 40_00).copy(sortOrder = 1)
+        val cash = acct("cash", "Cash", AccountType.CASH, 60_00).copy(sortOrder = 2)
+        val w1 = TransactionEntity(id = "w1", accountId = "wal", date = today.minusDays(2), payee = "SAMPLE CAFE", amount = -6_50, createdAt = 2, updatedAt = 2)
+        val w2 = TransactionEntity(id = "w2", accountId = "chk", kind = net.darkrelay.deaddropfinance.data.TransactionKind.TRANSFER, transferAccountId = "wal", date = today.minusDays(5), memo = "", amount = 25_00, createdAt = 1, updatedAt = 1)
+        Budget(
+            catBudget.accounts + wallet + cash, catBudget.envelopes, catBudget.transactions + w1 + w2,
+            catBudget.lines + TransactionLineEntity(transactionId = "w1", bucket = LineBucket.ENVELOPE, envelopeId = "e-unp", amount = -6_50, categoryId = "c-out", createdAt = 0, updatedAt = 0),
+            catBudget.moves, categories = catBudget.categories,
+        )
+    }
+    private fun tabs(selected: String?) = ActivityTabs(
+        accounts = activityTabAccounts(tabsBudget), selected = selected, lastSync = { if (it == "chk") "Last sync Mar 15, 9:30 AM" else null },
+    )
+    @Test @Config(qualifiers = TALL) fun activityTabsAll() = shot("160-activity-tabs-all") {
+        val unsorted = TransactionEntity(id = "u1", accountId = "chk", date = today, payee = "SAMPLE BAKERY", amount = -12_40, createdAt = 1, updatedAt = 1)
+        val b = Budget(
+            tabsBudget.accounts, tabsBudget.envelopes, tabsBudget.transactions + unsorted,
+            tabsBudget.lines + TransactionLineEntity(transactionId = "u1", bucket = LineBucket.UNSORTED, amount = -12_40, createdAt = 1, updatedAt = 1), tabsBudget.moves, categories = tabsBudget.categories,
+        )
+        Column { Box(Modifier.weight(1f)) { ActivityScreen(b, {}, {}, { _, _, _ -> }, {}, tabs = tabs(null)) }; BottomTabs(Nav.Activity) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun activityTabsSyncedAccount() = shot("161-activity-tab-synced-account") {
+        Column { Box(Modifier.weight(1f)) { ActivityScreen(tabsBudget, {}, {}, { _, _, _ -> }, {}, tabs = tabs("chk")) }; BottomTabs(Nav.Activity) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun activityTabsManualAccount() = shot("162-activity-tab-manual-account") {
+        Column { Box(Modifier.weight(1f)) { ActivityScreen(tabsBudget, {}, {}, { _, _, _ -> }, {}, tabs = tabs("wal")) }; BottomTabs(Nav.Activity) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun accountEditShowInActivity() = shot("163-account-edit-show-in-activity") {
+        AccountEditScreen(tabsBudget.accounts.first { it.id == "wal" }, null, {}, {}, {}, budget = tabsBudget, onDelete = {}, deleteCount = 2)
+    }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)
