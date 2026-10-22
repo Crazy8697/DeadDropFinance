@@ -62,6 +62,22 @@ object UpdateDownloader {
         }
     }
 
+    /** The release file's size in bytes as the server reports it (a HEAD request), or null if it can't be told. Never throws. */
+    fun size(apkUrl: String, userAgent: String, connectMs: Int = 15_000, readMs: Int = 15_000): Long? = try {
+        val conn = URL(apkUrl).openConnection() as HttpURLConnection
+        try {
+            conn.requestMethod = "HEAD"
+            conn.connectTimeout = connectMs
+            conn.readTimeout = readMs
+            conn.setRequestProperty("User-Agent", userAgent)
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) conn.contentLengthLong.takeIf { it > 0 } else null
+        } finally {
+            conn.disconnect()
+        }
+    } catch (t: Throwable) {
+        null
+    }
+
     private fun fetchExpectedHash(url: String, userAgent: String, connectMs: Int, readMs: Int): String? {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {

@@ -479,6 +479,17 @@ class MainActivity : ComponentActivity() {
             }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
         }
 
+        override fun isMeteredNetwork(): Boolean =
+            runCatching { (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager).isActiveNetworkMetered }.getOrDefault(false)
+
+        override fun updateDownloadSize(onSize: (Long?) -> Unit) {
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
+            Thread {
+                val bytes = UpdateDownloader.size(UpdateCheck.DOWNLOAD_URL, UpdateClient.userAgent(Updates.installedVersion))
+                main.post { onSize(bytes) }
+            }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        }
+
         override fun openInstallPermissionSettings() {
             runCatching {
                 startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:$packageName".toUri()))

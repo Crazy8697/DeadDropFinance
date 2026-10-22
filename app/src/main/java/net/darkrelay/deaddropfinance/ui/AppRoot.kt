@@ -125,6 +125,10 @@ interface Platform {
      * PackageInstaller). Never throws, never touches budget data; every step is reported through [onEvent].
      */
     fun downloadAndInstallUpdate(onEvent: (net.darkrelay.deaddropfinance.UpdateInstallEvent) -> Unit)
+    /** The phone is on a metered network (mobile data, or a Wi-Fi marked metered). */
+    fun isMeteredNetwork(): Boolean
+    /** The release file's size in bytes (null if it can't be told); [onSize] runs on the main thread. */
+    fun updateDownloadSize(onSize: (Long?) -> Unit)
     /** Opens Android's "install unknown apps" screen for this app. */
     fun openInstallPermissionSettings()
     /** Puts the background sync job in line with the settings. */
@@ -249,6 +253,7 @@ fun AppRoot(
     var message by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<UpdateCheck.Release?>(null) }
     var updateInstall by remember { mutableStateOf(UpdateInstallState()) }
+    var mobileDataAsk by remember { mutableStateOf<net.darkrelay.deaddropfinance.MobileDataAsk?>(null) }
     var more by remember { mutableStateOf(platform.more) }
     var importState by remember { mutableStateOf(ImportState()) }
     var washCandidates by remember { mutableStateOf<List<TransactionEntity>>(emptyList()) }
@@ -487,12 +492,23 @@ fun AppRoot(
                                 r, updateInstall, onNotes = { platform.openUrl(r.notesUrl) },
                                 onDownload = {
                                     updateInstall = UpdateInstallState(working = true)
-                                    platform.downloadAndInstallUpdate(::handleUpdateEvent)
+                                    net.darkrelay.deaddropfinance.UpdateStart.begin(
+                                        platform.isMeteredNetwork(),
+                                        ask = { platform.updateDownloadSize { bytes -> mobileDataAsk = net.darkrelay.deaddropfinance.MobileDataAsk(bytes) } },
+                                        start = { platform.downloadAndInstallUpdate(::handleUpdateEvent) },
+                                    )
                                 },
                                 onAllowInstalls = { platform.openInstallPermissionSettings() },
                                 onSkip = { platform.skipVersion(r.version); release = null; updateInstall = UpdateInstallState() },
                                 onLater = { release = null; updateInstall = UpdateInstallState() },
                             )
+                            mobileDataAsk?.let { ask ->
+                                MobileDataDialog(
+                                    ask.bytes,
+                                    onDownload = { mobileDataAsk = null; platform.downloadAndInstallUpdate(::handleUpdateEvent) },
+                                    onCancel = { mobileDataAsk = null; updateInstall = UpdateInstallState() },
+                                )
+                            }
                         }
                     }
                 }

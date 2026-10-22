@@ -14,6 +14,7 @@ import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.KeyWrapper
 import net.darkrelay.deaddropfinance.data.SecretStore
+import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.BudgetActions
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -118,6 +119,34 @@ class BalanceBugTest {
         assertEquals(5, b.toSort.size)
         assertEquals(day.minusYears(1), store.dao.account(acct)!!.startDate)
         assertEquals(0L, b.sortedCheck)
+    }
+
+    private suspend fun linkNew(balance: String, negative: Boolean): Triple<Budget, String, String> {
+        val m = bridge(balance, listOf(SimpleFinMock.txn("S1", e(day.minusDays(10)), "-10.00", "SAMPLE STORE")))
+        val s = service()
+        val id = s.connectSimpleFin(m.setupToken())
+        val l = store.sync.linkedOf(id).single()
+        s.link(listOf(SyncService.LinkChoice(l.id, SyncService.Target.New("Everyday", actuallyNegative = negative), SyncService.History.DAYS_90)))
+        assertTrue(s.syncConnection(id).ok)
+        val acct = store.sync.linkedOf(id).single().accountId!!
+        return Triple(actions.snapshot(), acct, l.id)
+    }
+
+    @Test fun theActuallyNegativeSwitchOffGivesTodaysResult() = runBlocking<Unit> {
+        val (b, acct, _) = linkNew("10.00", negative = false)
+        assertEquals(10_00L, b.accountBalance(acct))
+        assertEquals("the history in To sort is taken out of the bank's number", 20_00L, b.readyToAssign)
+        assertEquals(0L, b.sortedCheck)
+    }
+
+    @Test fun theActuallyNegativeSwitchOnCountsABankPlusTenAsMinusTen() = runBlocking<Unit> {
+        val (b, acct, linkedId) = linkNew("10.00", negative = true)
+        assertEquals(-10_00L, b.accountBalance(acct))
+        assertEquals(0L, b.readyToAssign)
+        assertEquals(-10_00L, b.toSortTotal)
+        assertEquals(0L, b.sortedCheck)
+        assertTrue("the flag is spent once the starting balance is set", linkedId !in SyncSettings(
+            ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("bal-test", Context.MODE_PRIVATE)).flipStartIds)
     }
 
     @Test fun newerTransactionsAfterTheStartDateStillCount() = runBlocking<Unit> {

@@ -61,4 +61,15 @@ class UpdateBarTest {
         }
         compose.onNodeWithText("The install couldn't be started. Try again.").assertExists()
     }
+
+    @Test fun mobileDataDialogAsksWithTheSizeAndRoutesBothButtons() {
+        var downloaded = false
+        var cancelled = false
+        compose.setContent { MobileDataDialog(41_165_299L, onDownload = { downloaded = true }, onCancel = { cancelled = true }) }
+        compose.onNodeWithText("You're on mobile data. This download is about 41 MB.").assertExists()
+        compose.onNodeWithText("Cancel").performClick()
+        assert(cancelled && !downloaded)
+        compose.onNodeWithText("Download").performClick()
+        assert(downloaded)
+    }
 }

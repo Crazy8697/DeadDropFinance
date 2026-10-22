@@ -260,6 +260,16 @@ class ScreenshotTest {
             LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, today, null)
         }
     }
+    @Test @Config(qualifiers = TALL) fun linkActuallyNegativeOn() = shot("53b-link-actually-negative-on") {
+        val od = listOf(LinkedAccountEntity("o1", "c1", "ACT-O", "Sample Overdrawn Checking", "", null, 42_17, at))
+        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
+            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new", actuallyNegative = true)), { _, _ -> }, false, null, today, null)
+        }
+    }
+    @Test fun homeMobileDataQuestion() = shot("02d-home-mobile-data-question") {
+        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {})
+        MobileDataDialog(41_165_299L, {}, {})
+    }
     @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}); UnlinkDialog("Everyday Checking", {}, {}) }
     private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
     private val shareTrack = acct("share", "Membership Share", AccountType.BANK, 5_00).copy(trackOnly = true)

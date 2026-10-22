@@ -112,17 +112,35 @@ class SyncResilienceTest {
         assertTrue(r.message, r.ok)
         assertEquals(rows.size, r.outcome.added)
         assertEquals(rows.size, synced().size)
-        assertEquals("89-day windows over a year", 5, windows(m))
+        assertEquals("45-day windows over a year", 9, windows(m))
         assertEquals(rows.size, synced().map { it.externalId }.distinct().size)
         assertEquals(0, s.syncConnection(id).outcome.added)
         assertEquals(day, store.sync.linkedOf(id).single().lastSyncedDate)
+    }
+
+    @Test fun noRequestSpansMoreThan45DaysAndNinetyDaysTakesTwo() = runBlocking<Unit> {
+        val m = SimpleFinMock().also { closers += it }
+        val rows = year(count = 90)
+        bridge(m, rows)
+        val s = service()
+        val id = connect(s, m, SyncService.History.DAYS_90)
+        val r = s.syncConnection(id)
+        assertTrue(r.message, r.ok)
+        assertEquals("90 days of history in two requests", 2, windows(m))
+        val spans = synchronized(m.queries) { m.queries.filter { it.contains("start-date=") } }
+            .map { (param(it, "end-date")!!.toLong() - param(it, "start-date")!!.toLong()) / 86_400 }
+        assertTrue("spans were $spans", spans.all { it <= 45 })
+        // a later sync reaches back 5 days and is one request
+        val before = windows(m)
+        assertTrue(s.syncConnection(id).ok)
+        assertEquals(1, windows(m) - before)
     }
 
     @Test fun theRequestCapMidHistoryStopsCleanlyAndTheNextSyncResumes() = runBlocking<Unit> {
         val m = SimpleFinMock().also { closers += it }
         val rows = year()
         bridge(m, rows)
-        val s = service(limiterMax = 3)                       // the account list, then only 2 of the 5 windows
+        val s = service(limiterMax = 3)                       // the account list, then only 2 of the 9 windows
         val id = connect(s, m, SyncService.History.YEAR)
         val first = s.syncConnection(id)
         assertFalse(first.ok)
@@ -133,10 +151,13 @@ class SyncResilienceTest {
         val stoppedAt = store.sync.linkedOf(id).single().lastSyncedDate!!
         assertTrue(stoppedAt.isBefore(day))
         assertTrue("the starting balance waits for the whole history", store.sync.linkedOf(id).single().setStartBalance)
-        // a day later the budget frees up: it picks up at the last saved window, and nothing doubles
+        // a day later the budget frees up: it picks up at the last saved window, and nothing doubles (the 45-day windows
+        // need a few days of this small budget to finish a year)
         now += RequestLimiter.DAY_MS + 60_000
         val before = synchronized(m.queries) { m.queries.size }
-        val second = s.syncConnection(id)
+        var second = s.syncConnection(id)
+        var days = 0
+        while (!second.ok && days++ < 5) { now += RequestLimiter.DAY_MS + 60_000; second = s.syncConnection(id) }
         assertTrue(second.message, second.ok)
         val resumedFrom = param(synchronized(m.queries) { m.queries[before] }, "start-date")!!.toLong()
         assertTrue("resumes near where it stopped", resumedFrom >= stoppedAt.minusDays(10).atStartOfDay(ZoneOffset.UTC).toEpochSecond())

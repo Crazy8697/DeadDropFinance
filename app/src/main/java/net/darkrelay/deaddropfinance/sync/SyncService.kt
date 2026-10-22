@@ -129,8 +129,11 @@ class SyncService(
 
     sealed class Target {
         data class Existing(val accountId: String) : Target()
-        /** A new account; [trackOnly] makes it "Track only, not in the budget". */
-        data class New(val name: String, val type: AccountType = AccountType.BANK, val trackOnly: Boolean = false) : Target()
+        /**
+         * A new account; [trackOnly] makes it "Track only, not in the budget". [actuallyNegative]: the bank reports an
+         * overdrawn balance as positive, so the starting balance is worked out as if the balance were negative.
+         */
+        data class New(val name: String, val type: AccountType = AccountType.BANK, val trackOnly: Boolean = false, val actuallyNegative: Boolean = false) : Target()
         /** Don't sync this one. If it was linked, [removeFromBudget] archives its app account (taking it off the budget). */
         data class Ignore(val removeFromBudget: Boolean = true) : Target()
     }
@@ -142,7 +145,7 @@ class SyncService(
         val t = today()
         return when (history) {
             History.DAYS_30 -> t.minusDays(30)
-            History.DAYS_90 -> t.minusDays(90)
+            History.DAYS_90 -> t.minusDays(89)       // 90 days counting today: two 45-day requests (the end date is exclusive)
             History.YEAR -> t.minusYears(1)
             History.NEWEST -> accountId?.let { id -> store.sync.transactionsOf(id).maxOfOrNull { it.date } } ?: t.minusDays(30)
         }
@@ -152,6 +155,8 @@ class SyncService(
     suspend fun link(choices: List<LinkChoice>) = withContext(Dispatchers.IO) {
         for (c in choices) {
             val l = store.sync.linkedNow().firstOrNull { it.id == c.linkedId } ?: continue
+            val flipped = (c.target as? Target.New)?.actuallyNegative == true
+            settings.flipStartIds = if (flipped) settings.flipStartIds + l.id else settings.flipStartIds - l.id
             when (val t = c.target) {
                 is Target.Ignore -> {
                     store.sync.upsertLinked(l.copy(accountId = null))
@@ -273,8 +278,9 @@ class SyncService(
                 val acct = l.accountId ?: continue
                 val bal = l.providerBalance ?: continue
                 if (l.setStartBalance && l.lastSyncedDate == today) {
-                    setStartingBalance(acct, bal)
+                    setStartingBalance(acct, if (l.id in settings.flipStartIds) -bal else bal)
                     store.sync.upsertLinked(l.copy(setStartBalance = false))
+                    settings.flipStartIds = settings.flipStartIds - l.id
                 }
             }
             return finish(conn, true, total, summary(total), messages.toList())

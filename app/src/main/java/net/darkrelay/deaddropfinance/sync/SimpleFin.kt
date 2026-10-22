@@ -28,7 +28,7 @@ class SimpleFinSource(
     /** The Bridge's developer notes recommend overlapping fetch windows by about 5 days. */
     override val overlapDays = 5L
 
-    /** The Bridge allows at most 90 days between start-date and end-date. */
+    /** Each request asks for 45 days at most: the Bridge's own notes recommend that range and warn it may be capped. */
     override val maxRangeDays = WINDOW_DAYS
 
     private val parsed = parseAccessUrl(accessUrl, allowLoopbackHttp)
@@ -45,7 +45,7 @@ class SimpleFinSource(
         val byAccount = LinkedHashMap<String, MutableList<ProviderTxn>>()
         val accountsSeen = LinkedHashMap<String, ProviderAccount>()
         val incomplete = mutableSetOf<String>()
-        // the Bridge allows at most 90 days between start-date and end-date, so a long history goes in windows
+        // each request spans 45 days at most, so a long history goes in windows
         var from = start
         val last = to.plusDays(1)                              // end-date is exclusive
         while (from.isBefore(last)) {
@@ -91,7 +91,7 @@ class SimpleFinSource(
     class Parsed(val base: String, val basicAuth: String)
 
     companion object {
-        const val WINDOW_DAYS = 89L
+        const val WINDOW_DAYS = 45L
 
         private fun secure(u: URI, allowLoopbackHttp: Boolean) =
             u.scheme.equals("https", true) ||

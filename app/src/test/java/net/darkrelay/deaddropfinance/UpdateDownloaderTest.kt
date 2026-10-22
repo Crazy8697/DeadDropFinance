@@ -34,6 +34,13 @@ class UpdateDownloaderTest {
         server = HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0)
         server.createContext("/apk") { ex ->
             if (apkDelayMs > 0) Thread.sleep(apkDelayMs)
+            if (ex.requestMethod == "HEAD") {
+                // a HEAD answer carries the length and no body
+                ex.responseHeaders.add("Content-Length", apkBytes.size.toString())
+                ex.sendResponseHeaders(apkStatus, -1)
+                ex.close()
+                return@createContext
+            }
             ex.sendResponseHeaders(apkStatus, apkBytes.size.toLong().coerceAtLeast(1))
             ex.responseBody.use { if (apkBytes.isNotEmpty()) it.write(apkBytes) else it.write(' '.code) }
         }
@@ -131,5 +138,12 @@ class UpdateDownloaderTest {
         val r = download(dest)
         assertTrue(r is Result.Ok)
         assertEquals(hex(apkBytes), hex(dest.readBytes()))
+    }
+
+    @Test fun sizeReportsTheServersContentLengthAndNullOnFailure() {
+        assertEquals(apkBytes.size.toLong(), UpdateDownloader.size(apkUrl, "DeadDropFinance/0.0.0-test", 2000, 2000))
+        apkStatus = 500
+        assertEquals(null, UpdateDownloader.size(apkUrl, "DeadDropFinance/0.0.0-test", 2000, 2000))
+        assertEquals(null, UpdateDownloader.size("http://127.0.0.1:1/none", "DeadDropFinance/0.0.0-test", 500, 500))
     }
 }

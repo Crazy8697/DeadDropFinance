@@ -9,6 +9,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Erase everything and start over (in More): wipes every account, transaction, envelope, bank connection and setting from the phone, after a confirmation that lists what's lost, says there's no backup, and needs the word ERASE typed. The app then starts like a fresh install, at the setup wizard. The last screen explains that a SimpleFIN connection for the app still exists on the Bridge and how to delete it there.
 - Archiving an account takes its balance out of Ready to Assign, after a confirmation that says so, as if the account was never in the budget. Its transactions stay as history. Unarchiving puts it back.
 - Track only, not in the budget: an account can hold money that must never be budgeted (for example a membership share that has to stay in a savings account). Its balance shows on the account list and syncs normally, but it never counts in Ready to Assign, and its transactions never land in To sort: they're recorded as already handled. Bank sync's link screen offers it as a choice. Moving money between a budget account and a track-only one comes out of, or goes into, Ready to Assign.
+- Some banks report an overdrawn balance as positive through SimpleFIN. When the link screen's choice is Create a new account, an "It's actually negative (overdrawn)" switch (off by default) works the new account's starting balance out as if the bank's balance were negative, the same number with the other sign (0.15.2). Linking into an existing account doesn't show it.
 - Held amount: any budget account can have a minimum that stays put. Ready to Assign counts the balance minus the held amount, shown on the account as "Held". If the balance drops below the held amount, the account shows a warning and only the actual balance is held, so Ready to Assign never goes lower than the real balance would make it.
 - Account types: bank account, payment app balance, and cash.
 - Moving money between the user's own accounts is a transfer, never spending or income.
@@ -238,6 +239,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
   checks it against the release's own published checksum before anything is installed; a mismatch deletes the file
   and nothing is installed. The download always comes from this app's own fixed GitHub release path, never a URL a
   server answer supplies.
+- On mobile data (or any metered network) Download and install first asks: "You're on mobile data. This download is about X MB." with Download and Cancel (0.15.2). On an unmetered network it starts right away. This needs Android's read-only network state permission, nothing else.
 - Installing goes through Android's own installer (PackageInstaller): no browser, no file manager. The first time,
   if the app isn't yet allowed to install updates, a short message and a button open Android's "Install unknown
   apps" screen for it; once allowed, the same verified download continues straight to installing, with no
@@ -250,7 +252,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Help (More): Licenses, Support DarkRelay, Check for updates.
 - Licenses shows the app's license, NOTICE, the third-party notices and every license text, all carried in the app.
 - The privacy policy (PRIVACY.md) and end user agreement (TERMS.md) are in the repository and in the app.
-- SimpleFIN's terms (read on SimpleFIN's own site for 0.15.0) ask for no attribution. They require staying within the published usage limits (24 requests a day or fewer, 90-day date ranges), showing SimpleFIN's errors to the user, handling access tokens securely, and not using SimpleFIN's branding or logos. The app sends at most 20 requests a day per connection, asks for 89 days at a time with a 5-day overlap, shows SimpleFIN's messages on the Bank sync screen, keeps the access in its own encrypted file, and uses SimpleFIN's name only in text.
+- SimpleFIN's terms (read on SimpleFIN's own site for 0.15.0) ask for no attribution. They require staying within the published usage limits (24 requests a day or fewer, 90-day date ranges), showing SimpleFIN's errors to the user, handling access tokens securely, and not using SimpleFIN's branding or logos. The app sends at most 20 requests a day per connection, asks for 45 days at a time (the Bridge's own recommended range; a first 90-day sync is two requests) with a 5-day overlap, shows SimpleFIN's messages on the Bank sync screen, keeps the access in its own encrypted file, and uses SimpleFIN's name only in text.
 - The launcher icon is built from the locked master (design/deaddropfinance-icon.svg): an adaptive icon with background and foreground, and a one-colour version for themed icons. The launch screen and window behind the app are the DarkRelay near-black.
 
 ## Price history (Stage 20)

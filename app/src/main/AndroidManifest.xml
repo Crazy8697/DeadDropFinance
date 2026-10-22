@@ -10,6 +10,8 @@
     <!-- Download and install (0.15.1): installing the verified release APK through PackageInstaller. Android asks
          the user to turn this on the first time; the app never installs anything unverified. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Read-only: whether the network is metered, to warn before an update downloads over mobile data. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- To open release links in a real browser (Browsers.kt), the browsers have to be visible. -->
     <queries>

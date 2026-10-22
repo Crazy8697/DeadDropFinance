@@ -12,6 +12,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -116,7 +117,13 @@ fun OldSchoolDoor(hasAccounts: Boolean, onAddAccount: () -> Unit, onImport: () -
  * One provider account's link choice: "new", "track" (a new track-only account), "ignore" or an app account id.
  * [removeFromBudget]: when an account that was linked is set to "ignore", take its app account off the budget.
  */
-data class LinkPick(val target: String, val history: SyncService.History = SyncService.History.NEWEST, val removeFromBudget: Boolean = true)
+data class LinkPick(
+    val target: String,
+    val history: SyncService.History = SyncService.History.NEWEST,
+    val removeFromBudget: Boolean = true,
+    /** For a new account: the bank reports an overdrawn balance as positive. */
+    val actuallyNegative: Boolean = false,
+)
 
 fun defaultPick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick {
     val open = accounts.filter { !it.archived }
@@ -204,6 +211,12 @@ fun LinkPanel(
                         }
                     }
                 }
+                if (p.target == "new" && l.providerBalance != null && l.lastSyncedDate == null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("It's actually negative (overdrawn)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = p.actuallyNegative, onCheckedChange = { onPick(l.id, p.copy(actuallyNegative = it)) })
+                    }
+                }
                 Picker("Goes to", targets, p.target, { t ->
                     onPick(l.id, p.copy(target = t))
                     if (t == "ignore" && l.accountId != null) asking = l
@@ -259,7 +272,7 @@ fun UnlinkDialog(accountName: String, onChoice: (removeFromBudget: Boolean) -> U
 fun toChoices(links: List<LinkedAccountEntity>, accounts: List<AccountEntity>, picks: Map<String, LinkPick>): List<SyncService.LinkChoice> = links.map { l ->
     val p = picks[l.id] ?: defaultPick(l, accounts)
     val target = when (p.target) {
-        "new" -> SyncService.Target.New(l.providerName)
+        "new" -> SyncService.Target.New(l.providerName, actuallyNegative = p.actuallyNegative)
         "track" -> SyncService.Target.New(l.providerName, trackOnly = true)
         "ignore" -> SyncService.Target.Ignore(p.removeFromBudget)
         else -> SyncService.Target.Existing(p.target)
