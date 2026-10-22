@@ -124,8 +124,9 @@ class Receipts(
         val txId = r.transactionId ?: throw BudgetRuleException("Match the receipt to its transaction first.")
         val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
         val items = dao.itemsOf(receiptId)
-        val lines = ItemSplit.lines(tx.amount, items, pick)
-        actions.setLines(txId, lines, SortedBy.HAND)
+        val had = dao.linesOf(txId).filter { it.categoryId != null && it.envelopeId != null }.associate { it.envelopeId to it.categoryId }
+        val lines = ItemSplit.lines(tx.amount, items, pick).map { l -> l.copy(categoryId = had[l.envelopeId]) }
+        actions.setLines(txId, lines, SortedBy.HAND, requireCategory = false)
         store.write {
             for (i in items) {
                 val e = pick[i.id]
@@ -162,7 +163,9 @@ class Receipts(
             throw BudgetRuleException("The items come to ${Money.format(selected)}; the refund is ${Money.format(credit.amount)}. Pick the items that match it.")
         }
         val (lines, perItem) = ItemReturns.lines(credit.amount, chosen, items, tax, ItemReturns.purchaseLines(b, purchaseId))
-        actions.setLines(creditId, lines, SortedBy.RETURN, returnOf = purchaseId)
+        // the refund takes its amount back off the category the purchase's money was in
+        val catOf = b.lines.filter { it.transactionId == purchaseId && it.categoryId != null && it.envelopeId != null }.associate { it.envelopeId to it.categoryId }
+        actions.setLines(creditId, lines.map { it.copy(categoryId = catOf[it.envelopeId]) }, SortedBy.RETURN, returnOf = purchaseId)
         store.write {
             returns.filter { it.transactionId == creditId }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             for ((item, q) in chosen) {

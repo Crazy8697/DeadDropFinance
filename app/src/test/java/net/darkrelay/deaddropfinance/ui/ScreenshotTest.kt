@@ -699,11 +699,82 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun moreFull() = shot("130-more-backup-import-purge-about") {
         MoreScreen(
             more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {}, onParked = {}, onBackup = {},
-            backupLine = "Last backup Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", onSetupImport = {}, onPurge = {}, onHelp = {}, onAbout = {},
+            backupLine = "Last backup Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", onSetupImport = {}, onPurge = {}, onAbout = {},
         )
     }
-    @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("0.15.0", {}, {}, {}, {}) }
-    @Test fun help() = shot("132-help") { HelpScreen(false, "You're on the latest version", {}, {}, {}, {}) }
+
+    // ---- 1.1.0: categories -------------------------------------------------------------------------------------
+    private fun cat(id: String, name: String, order: Int, envelope: String? = null) =
+        net.darkrelay.deaddropfinance.data.CategoryEntity(id = id, name = name, envelopeId = envelope, sortOrder = order, createdAt = 0, updatedAt = 0)
+
+    /** A budget with two paydays, categorized and old uncategorized spending, claims, Unplanned, and this month's assigning. */
+    private val catBudget: Budget by lazy {
+        val a = acct("chk", "Sample Checking", AccountType.BANK, 800_00)
+        val groceries = env("e-groc", "Groceries", EnvelopeMode.FILL_TO_TARGET, 1, target = 300_00).copy(everyday = true)
+        val housing = env("e-house", "Housing", EnvelopeMode.FILL_TO_TARGET, 2, target = 700_00)
+        val unplanned = env("e-unp", "Unplanned", EnvelopeMode.FILL_TO_TARGET, 3).copy(everyday = true, unplanned = true)
+        val cats = listOf(
+            cat("c-rent", "Rent", 0, "e-house"), cat("c-util", "Utilities", 1, "e-house"), cat("c-groc", "Groceries", 2, "e-groc"), cat("c-snack", "Snacks", 3, "e-groc"),
+            cat("c-out", "Eating out", 4), cat("c-gas", "Car gas", 5), cat("c-gift", "Gifts", 6), cat("c-other", "Other", 7),
+        )
+        val p1 = today.minusDays(14)
+        val p2 = today.minusDays(1)
+        fun t(id: String, d: LocalDate, amount: Long, payee: String, payday: Boolean = false) =
+            TransactionEntity(id = id, accountId = "chk", date = d, payee = payee, amount = amount, isPayday = payday, createdAt = 0, updatedAt = 0)
+        fun l(tx: String, amount: Long, bucket: LineBucket, env: String? = null, c: String? = null) =
+            TransactionLineEntity(transactionId = tx, bucket = bucket, envelopeId = env, amount = amount, categoryId = c, createdAt = 0, updatedAt = 0)
+        val txs = listOf(
+            t("p1", p1, 1500_00, "SAMPLE PAYROLL", payday = true), t("p2", p2, 1500_00, "SAMPLE PAYROLL", payday = true),
+            t("r1", p1.plusDays(2), -700_00, "SAMPLE LANDLORD"), t("g1", p1.plusDays(4), -86_40, "SAMPLE MARKET"), t("o1", p1.plusDays(6), -18_25, "SAMPLE TACO TRUCK"),
+            t("old", p1.plusDays(5), -22_10, "SAMPLE HARDWARE"),
+            t("g2", today, -54_12, "SAMPLE MARKET"), t("s1", today, -3_75, "SAMPLE VENDING"), t("f1", today, -41_00, "SAMPLE FUEL STOP"),
+        )
+        val lines = listOf(
+            l("p1", 1500_00, LineBucket.READY_TO_ASSIGN), l("p2", 1500_00, LineBucket.READY_TO_ASSIGN),
+            l("r1", -700_00, LineBucket.ENVELOPE, "e-house", "c-rent"), l("g1", -86_40, LineBucket.ENVELOPE, "e-groc", "c-groc"),
+            l("o1", -18_25, LineBucket.ENVELOPE, "e-unp", "c-out"), l("old", -22_10, LineBucket.ENVELOPE, "e-groc", null),
+            l("g2", -54_12, LineBucket.ENVELOPE, "e-groc", "c-groc"), l("s1", -3_75, LineBucket.ENVELOPE, "e-groc", "c-snack"), l("f1", -41_00, LineBucket.ENVELOPE, "e-unp", "c-gas"),
+        )
+        val moves = listOf(
+            MoveEntity(fromEnvelopeId = null, toEnvelopeId = "e-groc", amount = 300_00, date = today, kind = MoveKind.ASSIGN, createdAt = 0, updatedAt = 0),
+            MoveEntity(fromEnvelopeId = null, toEnvelopeId = "e-house", amount = 700_00, date = today, kind = MoveKind.ASSIGN, createdAt = 0, updatedAt = 0),
+            MoveEntity(fromEnvelopeId = "e-groc", toEnvelopeId = null, amount = 50_00, date = today, kind = MoveKind.MOVE, createdAt = 0, updatedAt = 0),
+        )
+        Budget(listOf(a), listOf(groceries, housing, unplanned), txs, lines, moves, categories = cats)
+    }
+
+    @Test @Config(qualifiers = TALL) fun categoriesTab() = shot("140-categories-tab") {
+        Column { Box(Modifier.weight(1f)) { CategoriesScreen(catBudget, today, 0, {}, {}, {}) }; BottomTabs(Nav.Categories) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun categoriesOlderMonth() = shot("140b-categories-older-month") {
+        Column { Box(Modifier.weight(1f)) { CategoriesScreen(catBudget, today, 1, {}, {}, {}) }; BottomTabs(Nav.Categories) {} }
+    }
+    @Test fun categoryPurchases() = shot("141-category-purchases") { CategoryPurchasesScreen(catBudget, today, 0, "c-groc", {}, {}) }
+    @Test @Config(qualifiers = TALL) fun envelopeEditorClaims() = shot("142-envelope-editor-claims") {
+        val groceries = catBudget.envelopes.first { it.id == "e-groc" }
+        EnvelopeEditScreen(
+            groceries, null, {}, {},
+            ClaimsUi(catBudget.categories, mapOf("c-rent" to "Housing", "c-util" to "Housing"), setOf("c-groc", "c-snack"), {}),
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun purchaseWithCategory() = shot("143-purchase-with-category") {
+        TransactionDetailScreen(catBudget.transactions.first { it.id == "g2" }, catBudget, emptyList(), null, {}, {}, {}, {}, {}, {}, onSetCategory = { _, _ -> })
+    }
+    @Test @Config(qualifiers = TALL) fun activityWithCategories() = shot("143b-activity-with-categories") {
+        val unsorted = TransactionEntity(id = "u1", accountId = "chk", date = today, payee = "SAMPLE BAKERY", amount = -12_40, createdAt = 1, updatedAt = 1)
+        val b = Budget(
+            catBudget.accounts, catBudget.envelopes, catBudget.transactions + unsorted,
+            catBudget.lines + TransactionLineEntity(transactionId = "u1", bucket = LineBucket.UNSORTED, amount = -12_40, createdAt = 1, updatedAt = 1), catBudget.moves, categories = catBudget.categories,
+        )
+        ActivityScreen(b, {}, {}, { _, _, _ -> }, {})
+    }
+    @Test @Config(qualifiers = TALL) fun envelopesWithAssignedLine() = shot("144-envelopes-assigned-line") {
+        EnvelopesScreen(catBudget, {}, {}, {}, {}, today)
+    }
+    @Test @Config(qualifiers = TALL) fun manageCategories() = shot("145-manage-categories") {
+        ManageCategoriesScreen(catBudget.categories, { 0 }, null, {}, {}, { _, _ -> }, { _, _ -> })
+    }
+    @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)
     }

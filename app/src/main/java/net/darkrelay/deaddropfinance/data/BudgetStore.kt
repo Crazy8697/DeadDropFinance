@@ -40,6 +40,7 @@ class BudgetStore(
                 is ItemReturnEntity -> dao.upsertItemReturn(new)
                 is SubscriptionEntity -> dao.upsertSubscription(new)
                 is ParkedBuyEntity -> dao.upsertParkedBuy(new)
+                is CategoryEntity -> dao.upsertCategory(new)
                 else -> error("not a synced table: ${new::class.simpleName}")
             }
             val op = when {
@@ -78,6 +79,41 @@ class BudgetStore(
         }
     }
 
+    /**
+     * First run and upgrade (1.1.0): the default categories exist (once: ones the user deletes don't come back), and
+     * the Unplanned envelope exists exactly once. An envelope the user already named Unplanned is used as it is.
+     * Returns true when an existing envelope was adopted as Unplanned.
+     */
+    suspend fun ensureCategories(): Boolean {
+        var adopted = false
+        write {
+            if (dao.meta(DefaultCategories.META_SEEDED) == null) {
+                val have = dao.categoriesNow().map { it.name.lowercase() }.toSet()
+                DefaultCategories.NAMES.forEachIndexed { i, n ->
+                    if (n.lowercase() !in have) put(null, CategoryEntity(name = n, sortOrder = i, createdAt = now, updatedAt = now))
+                }
+                dao.putMeta(MetaEntity(DefaultCategories.META_SEEDED, "1"))
+            }
+            val envs = dao.envelopesNow()
+            if (envs.none { it.unplanned }) {
+                val existing = envs.firstOrNull { it.name.equals(DefaultCategories.UNPLANNED, ignoreCase = true) }
+                if (existing != null) {
+                    put(existing, existing.copy(unplanned = true, updatedAt = now))
+                    adopted = true
+                } else {
+                    put(
+                        null,
+                        EnvelopeEntity(
+                            name = DefaultCategories.UNPLANNED, mode = EnvelopeMode.FILL_TO_TARGET, everyday = true, unplanned = true,
+                            sortOrder = (envs.maxOfOrNull { it.sortOrder } ?: 0) + 1, createdAt = now, updatedAt = now,
+                        ),
+                    )
+                }
+            }
+        }
+        return adopted
+    }
+
     companion object {
         const val META_DEVICE_ID = "device_id"
 
@@ -95,6 +131,7 @@ class BudgetStore(
             is ItemReturnEntity -> "item_return"
             is SubscriptionEntity -> "subscription"
             is ParkedBuyEntity -> "parked_buy"
+            is CategoryEntity -> "category"
             else -> error("not a synced table")
         }
 

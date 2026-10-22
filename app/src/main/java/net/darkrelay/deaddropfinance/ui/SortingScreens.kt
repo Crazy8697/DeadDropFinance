@@ -56,7 +56,7 @@ fun RulesScreen(rules: List<RuleEntity>, budget: Budget, onBack: () -> Unit, onR
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Row { Text("\"${r.matchText}\""); if (r.origin == RuleOrigin.LEARNED) Pill("learned") }
-                        Text(Rules.describe(r, envName), color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
+                        Text(Rules.describe(r, envName) { id -> budget.category(id)?.name }, color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
                         Text(Rules.conditions(r, acctName), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                     TextButton(onClick = { onMove(r.id, true) }, enabled = i > 0) { Text("Up") }
@@ -81,6 +81,7 @@ fun RuleEditScreen(
     onBack: () -> Unit, onSave: (Sorting.RuleDraft) -> Unit, onDelete: (() -> Unit)?,
 ) {
     var billId by remember { mutableStateOf(existing?.billId) }
+    var categoryId by remember { mutableStateOf(existing?.categoryId) }
     val firstSplits = existing?.let { Rules.splits(it) } ?: listOfNotNull(prefill?.target?.takeIf { it != Sorting.TRANSFER }?.let { Rules.Split(it, 1) })
     var text by remember { mutableStateOf(existing?.matchText ?: prefill?.matchText ?: "") }
     var direction by remember { mutableIntStateOf(existing?.direction ?: prefill?.direction ?: -1) }
@@ -91,6 +92,7 @@ fun RuleEditScreen(
         mutableStateOf(
             when {
                 existing?.action == RuleAction.TRANSFER || prefill?.target == Sorting.TRANSFER -> "transfer"
+                existing?.categoryId != null && firstSplits.isEmpty() -> "category"
                 firstSplits.size > 1 -> "split"
                 else -> "envelope"
             },
@@ -118,7 +120,9 @@ fun RuleEditScreen(
         },
         alwaysAsk = alwaysAsk,
         billId = billId,
+        categoryId = categoryId.takeIf { does != "transfer" },
     )
+    val categoryChoices: List<Pair<String?, String>> = budget.categories.map { it.id to it.name }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New rule" else "Edit rule", onBack)
         TextFieldRow("Payee has", text, { text = it })
@@ -134,8 +138,21 @@ fun RuleEditScreen(
             Box(Modifier.weight(1f)) { AmountField("To (optional)", max, { max = it }) }
         }
         Picker("Account", listOf<Pair<String?, String>>(null to "Any account") + budget.accounts.filter { it.onBudget }.map { it.id to it.name }, account, { account = it })
-        Picker("Does", listOf("envelope" to "Puts it in an envelope", "split" to "Splits it across envelopes", "transfer" to "Marks it a transfer between my accounts"), does, { does = it })
+        Picker(
+            "Does",
+            listOf(
+                "category" to "Sorts it by a category",
+                "envelope" to "Puts it in an envelope",
+                "split" to "Splits it across envelopes",
+                "transfer" to "Marks it a transfer between my accounts",
+            ),
+            does, { does = it },
+        )
         when (does) {
+            "category" -> {
+                Picker("Category", categoryChoices, categoryId, { categoryId = it })
+                Text("It goes to the envelope that claims the category, or to Unplanned if none does.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
             "envelope" -> Picker("Envelope", targets, single, { single = it })
             "split" -> {
                 Text("A different amount is split in the same proportions.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -157,6 +174,9 @@ fun RuleEditScreen(
                 color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
             )
         }
+        if ((does == "envelope" || does == "split") && direction < 0) {
+            Picker("Category (optional)", listOf<Pair<String?, String>>(null to "No category") + categoryChoices, categoryId, { categoryId = it })
+        }
         SettingRow("Always ask", "Suggests, but never sorts by itself, even with auto-approve on. For stores that sell everything.", alwaysAsk, true, { alwaysAsk = it })
         if (budget.bills.isNotEmpty()) {
             Picker("Counts toward bill", listOf<Pair<String?, String>>(null to "No bill") + budget.bills.filter { !it.deleted }.map { it.id to it.name }, billId, { billId = it })
@@ -167,7 +187,7 @@ fun RuleEditScreen(
         SectionTitle("What it matches")
         val probe = RuleEntity(
             id = existing?.id ?: "preview", matchText = clean, accountId = account, direction = direction, minAmount = draft.minAmount, maxAmount = draft.maxAmount,
-            action = draft.action, splits = Rules.format(draft.splits), createdAt = 0, updatedAt = 0,
+            action = draft.action, splits = Rules.format(draft.splits), categoryId = draft.categoryId, createdAt = 0, updatedAt = 0,
         )
         val inToSort = budget.toSort.filter { Rules.matches(probe, it) }
         // a new rule goes first; an existing one can be beaten by the rules above it

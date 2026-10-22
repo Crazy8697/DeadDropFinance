@@ -63,6 +63,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "1.0.1") assertEquals(10001, BuildConfig.VERSION_CODE)
         // 1.0.2 (update bar on More) -> 1 * 10000 + 0 * 100 + 2
         if (BuildConfig.VERSION_NAME == "1.0.2") assertEquals(10002, BuildConfig.VERSION_CODE)
+        // 1.1.0 (categories, Unplanned, assigned total, Help folded into About) -> 1 * 10000 + 1 * 100 + 0
+        if (BuildConfig.VERSION_NAME == "1.1.0") assertEquals(10100, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

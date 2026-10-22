@@ -41,15 +41,20 @@ object Rules {
      * The lines a rule gives [t], or null if it can't apply (an envelope it names is gone or archived, Ready to
      * Assign for spending). A split shares the amount in proportion to its weights, to the cent.
      */
-    fun linesFor(r: RuleEntity, t: TransactionEntity, liveEnvelopes: Set<String>): List<LineDraft>? {
+    fun linesFor(r: RuleEntity, t: TransactionEntity, liveEnvelopes: Set<String>, categoryEnvelope: (String) -> String? = { null }): List<LineDraft>? {
         if (r.action == RuleAction.TRANSFER) return listOf(LineDraft(null, t.amount, transfer = true))
         val s = splits(r)
-        if (s.isEmpty()) return null
+        val cat = r.categoryId?.takeIf { t.amount < 0 }
+        if (s.isEmpty()) {
+            // a category and no envelope: it sorts by the category's claim (the claiming envelope, or Unplanned)
+            val env = cat?.let(categoryEnvelope)?.takeIf { it in liveEnvelopes } ?: return null
+            return listOf(LineDraft(env, t.amount, categoryId = cat))
+        }
         if (s.any { it.target != RTA && it.target !in liveEnvelopes }) return null
         if (t.amount < 0 && s.any { it.target == RTA }) return null
         val amounts = allocate(t.amount, s.map { it.weight })
         return s.zip(amounts).filter { it.second != 0L }.map { (sp, a) ->
-            if (sp.target == RTA) LineDraft(null, a, toReadyToAssign = true) else LineDraft(sp.target, a)
+            if (sp.target == RTA) LineDraft(null, a, toReadyToAssign = true) else LineDraft(sp.target, a, categoryId = cat)
         }.takeIf { it.isNotEmpty() }
     }
 
@@ -72,12 +77,20 @@ object Rules {
     }
 
     /** The rule's destinations in words, for lists and notices. */
-    fun describe(r: RuleEntity, envelopeName: (String) -> String?): String = when (r.action) {
+    fun describe(r: RuleEntity, envelopeName: (String) -> String?): String = describe(r, envelopeName) { null }
+
+    /** [describe] with the rule's category named too. */
+    fun describe(r: RuleEntity, envelopeName: (String) -> String?, categoryName: (String) -> String?): String = when (r.action) {
         RuleAction.TRANSFER -> "Transfer between your accounts"
         RuleAction.ENVELOPE -> {
             val s = splits(r)
             fun name(t: String) = if (t == RTA) "Ready to assign" else envelopeName(t) ?: "a removed envelope"
-            if (s.size == 1) name(s[0].target) else "Split: " + s.joinToString(", ") { name(it.target) }
+            val cat = r.categoryId?.let { categoryName(it) }
+            when {
+                s.isEmpty() -> "Category $cat, by its envelope"
+                s.size == 1 -> name(s[0].target) + (cat?.let { ", category $it" } ?: "")
+                else -> "Split: " + s.joinToString(", ") { name(it.target) } + (cat?.let { ", category $it" } ?: "")
+            }
         }
     }
 

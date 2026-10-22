@@ -5,6 +5,7 @@ import java.time.temporal.ChronoUnit
 import net.darkrelay.deaddropfinance.data.AccountEntity
 import net.darkrelay.deaddropfinance.data.BillEntity
 import net.darkrelay.deaddropfinance.data.BillPaymentEntity
+import net.darkrelay.deaddropfinance.data.CategoryEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
@@ -35,6 +36,7 @@ class Budget(
     val moves: List<MoveEntity>,
     val bills: List<BillEntity> = emptyList(),
     val billPayments: List<BillPaymentEntity> = emptyList(),
+    val categories: List<CategoryEntity> = emptyList(),
 ) {
     private val txById = transactions.associateBy { it.id }
 
@@ -166,6 +168,80 @@ class Budget(
     /** Envelopes in fill order (Rollover included, archived left out). */
     val fillOrder: List<EnvelopeEntity> get() = envelopes.filter { !it.archived }.sortedBy { it.sortOrder }
 
+    // ---- categories (1.1.0) ----------------------------------------------------------------------------------
+
+    /** The built-in Unplanned envelope, where a purchase in a category no envelope claims goes. */
+    val unplannedEnvelope: EnvelopeEntity? get() = envelopes.firstOrNull { it.unplanned && !it.archived }
+
+    fun category(id: String?): CategoryEntity? = id?.let { i -> categories.firstOrNull { it.id == i } }
+
+    fun categoryName(id: String?): String = category(id)?.name ?: UNCATEGORIZED
+
+    /** Where a purchase in [categoryId] goes: the envelope that claims it, or Unplanned. Null only if neither exists. */
+    fun envelopeForCategory(categoryId: String): String? {
+        val claim = category(categoryId)?.envelopeId?.takeIf { id -> envelopes.any { it.id == id && !it.archived } }
+        return claim ?: unplannedEnvelope?.id
+    }
+
+    /** The categories an envelope claims. */
+    fun claimsOf(envelopeId: String): List<CategoryEntity> = categories.filter { it.envelopeId == envelopeId }.sortedBy { it.sortOrder }
+
+    /**
+     * A budget month: payday to payday. [start] null: before the first payday; [end] null: the open month (the one
+     * now). With no paydays at all there is one month, with neither.
+     */
+    data class Month(val start: LocalDate?, val end: LocalDate?) {
+        fun contains(d: LocalDate) = (start == null || !d.isBefore(start)) && (end == null || d.isBefore(end))
+    }
+
+    /** Budget months newest first: the open month, then each closed one back to before the first payday (when anything is). */
+    fun months(today: LocalDate): List<Month> {
+        val p = paydayDates.filter { !it.isAfter(today) }
+        if (p.isEmpty()) return listOf(Month(null, null))
+        val out = mutableListOf(Month(p.last(), null))
+        for (i in p.indices.reversed().drop(1)) out += Month(p[i], p[i + 1])
+        val first = p.first()
+        if (transactions.any { it.date.isBefore(first) } || moves.any { it.date.isBefore(first) }) out += Month(null, first)
+        return out
+    }
+
+    /** What a purchase line adds to its category's spending (positive: spent; a return's line is negative). */
+    private fun spendLines(m: Month): List<Pair<net.darkrelay.deaddropfinance.data.TransactionLineEntity, TransactionEntity>> =
+        budgetLines.mapNotNull { l ->
+            val t = txById[l.transactionId] ?: return@mapNotNull null
+            if (t.kind != TransactionKind.NORMAL || !m.contains(t.date)) return@mapNotNull null
+            if (!(t.amount < 0 || t.returnOf != null)) return@mapNotNull null
+            if (l.bucket != LineBucket.ENVELOPE && l.bucket != LineBucket.UNSORTED) return@mapNotNull null
+            l to t
+        }
+
+    /** Spending per category in [m], biggest first; the key null is Uncategorized. Returns take their amount back off. */
+    fun categoryTotals(m: Month): List<Pair<CategoryEntity?, Long>> =
+        spendLines(m).groupBy { (l, _) -> category(l.categoryId) }.map { (c, ls) -> c to -ls.sumOf { it.first.amount } }
+            .filter { it.second != 0L }.sortedWith(compareByDescending<Pair<CategoryEntity?, Long>> { it.second }.thenBy { it.first?.name ?: "" })
+
+    fun categoryTotal(m: Month): Long = categoryTotals(m).sumOf { it.second }
+
+    /** The purchases (and returns) behind one category's total in [m], newest first, each with its amount in that category. */
+    fun categoryPurchases(m: Month, categoryId: String?): List<Pair<TransactionEntity, Long>> =
+        spendLines(m).filter { (l, _) -> category(l.categoryId)?.id == categoryId }
+            .groupBy { it.second }.map { (t, ls) -> t to -ls.sumOf { it.first.amount } }
+            .sortedWith(compareByDescending<Pair<TransactionEntity, Long>> { it.first.date }.thenByDescending { it.first.createdAt })
+
+    /** Income that came in during [m]: money into Ready to Assign (the payday deposit, other deposits, bonus income). */
+    fun incomeIn(m: Month): Long = budgetLines.filter { l ->
+        l.bucket == LineBucket.READY_TO_ASSIGN && l.amount > 0 && txById[l.transactionId]?.let { m.contains(it.date) } == true
+    }.sumOf { it.amount }
+
+    /** What was assigned to envelopes in [m]: out of Ready to Assign, less what was moved back into it. */
+    fun assignedIn(m: Month): Long = moves.filter { m.contains(it.date) }.sumOf { mv ->
+        when {
+            mv.fromEnvelopeId == null && mv.toEnvelopeId != null -> mv.amount
+            mv.toEnvelopeId == null && mv.fromEnvelopeId != null -> -mv.amount
+            else -> 0L
+        }
+    }
+
     // ---- budget months: payday to payday ---------------------------------------------------------------------
 
     /** The dates of the deposits marked as payday, oldest first. */
@@ -265,6 +341,8 @@ class Budget(
     }
 
     companion object {
+        const val UNCATEGORIZED = "Uncategorized"
+
         fun ceilDiv(a: Long, b: Long): Long = if (b <= 0) a else (a + b - 1) / b
     }
 }

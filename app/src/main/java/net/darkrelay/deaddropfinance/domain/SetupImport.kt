@@ -24,6 +24,8 @@ object SetupImport {
         val name: String, val mode: EnvelopeMode?, val target: Long?, val perPayday: Long?, val goal: Long?, val goalDate: LocalDate?,
         val everyday: Boolean?, val owed: Long?, val requiredPayment: Long?, val dueDate: LocalDate?, val remind: Boolean?,
         val remindDays: Int?, val order: Int?, val given: Set<String>,
+        /** The categories it claims (names), or null when the file doesn't say. */
+        val categories: List<String>? = null,
     )
 
     data class BillIn(
@@ -36,6 +38,8 @@ object SetupImport {
     data class RuleIn(
         val match: String, val account: String?, val direction: Int?, val min: Long?, val max: Long?, val transfer: Boolean,
         val splits: List<Pair<String, Long>>, val alwaysAsk: Boolean?, val bill: String?, val given: Set<String>,
+        /** The category a match gets (a name; money out only), or null. */
+        val category: String? = null,
     )
 
     data class SubscriptionIn(val name: String, val payees: List<String>, val status: SubscriptionStatus?, val bill: String?, val given: Set<String>)
@@ -89,9 +93,9 @@ object SetupImport {
     val WAITS = mapOf("1 day" to 1, "2 days" to 2, "1 week" to 7)
 
     private val TOP = setOf("format", "version", "envelopes", "bills", "paydays", "rules", "subscriptions", "settings")
-    private val ENVELOPE_KEYS = setOf("name", "mode", "target", "perPayday", "goal", "goalDate", "everyday", "owed", "requiredPayment", "dueDate", "remind", "remindDays", "order")
+    private val ENVELOPE_KEYS = setOf("name", "mode", "target", "perPayday", "goal", "goalDate", "everyday", "owed", "requiredPayment", "dueDate", "remind", "remindDays", "order", "categories")
     private val BILL_KEYS = setOf("name", "amount", "due", "repeats", "envelope", "autopay", "payeeWords", "anyAmount", "amountChanges", "reminder", "reminderDays")
-    private val RULE_KEYS = setOf("match", "account", "direction", "min", "max", "envelope", "splits", "transfer", "alwaysAsk", "bill")
+    private val RULE_KEYS = setOf("match", "account", "direction", "min", "max", "envelope", "splits", "transfer", "alwaysAsk", "bill", "category")
     private val SUB_KEYS = setOf("name", "payees", "status", "bill")
     private val ALERT_KEYS = setOf("spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings")
     private val SETTING_KEYS = setOf(
@@ -187,10 +191,24 @@ object SetupImport {
             val r = Reader(o, label("envelopes", i, o), errors, ENVELOPE_KEYS)
             val name = r.text("name", required = true)
             if (name != null && (name.equals("Rollover", true) || name.equals("Cash", true))) errors += "${r.where}: $name is made by the app and can't be imported."
+            var claimed: List<String>? = null
+            if (r.has("categories")) {
+                val a = o.opt("categories") as? JSONArray
+                if (a == null) errors += "${r.where}: \"categories\" must be a list of category names."
+                else {
+                    val names = mutableListOf<String>()
+                    for (j in 0 until a.length()) {
+                        val c = (a.opt(j) as? String)?.trim()?.takeIf { it.isNotEmpty() }
+                        if (c == null) errors += "${r.where}: categories[${j + 1}] must be a category name." else names += c
+                    }
+                    if (names.map { it.lowercase() }.distinct().size != names.size) errors += "${r.where}: a category is in \"categories\" twice."
+                    claimed = names
+                }
+            }
             EnvelopeIn(
                 name.orEmpty(), r.choice("mode", MODES), r.amount("target"), r.amount("perPayday"), r.amount("goal"), r.date("goalDate"),
                 r.bool("everyday"), r.amount("owed"), r.amount("requiredPayment"), r.date("dueDate"), r.bool("remind"),
-                r.int("remindDays", 0..30, "a number of days from 0 to 30"), r.int("order", 1..9999, "a position from 1 up"), r.given,
+                r.int("remindDays", 0..30, "a number of days from 0 to 30"), r.int("order", 1..9999, "a position from 1 up"), r.given, claimed,
             )
         }
         val bills = objects(root, "bills", errors).mapIndexed { i, o ->
@@ -224,15 +242,19 @@ object SetupImport {
                     if (env != null && share != null) splits += env to share.toLong()
                 }
             }
+            val category = r.text("category")
             if (transfer && splits.isNotEmpty()) errors += "${r.where}: a transfer rule has no envelope."
-            if (!transfer && splits.isEmpty()) errors += "${r.where}: give an \"envelope\", \"splits\", or \"transfer\": true."
+            if (transfer && category != null) errors += "${r.where}: a transfer rule has no category."
+            if (!transfer && splits.isEmpty() && category == null) errors += "${r.where}: give an \"envelope\", \"splits\", a \"category\", or \"transfer\": true."
             if (r.has("envelope") && r.has("splits")) errors += "${r.where}: give \"envelope\" or \"splits\", not both."
             val min = r.amount("min")
             val max = r.amount("max")
             if (min != null && max != null && min > max) errors += "${r.where}: \"min\" is above \"max\"."
             val match = r.text("match", required = true)
             if (match != null && Payees.words(match).isEmpty()) errors += "${r.where}: \"match\" needs words from the payee's name."
-            RuleIn(match.orEmpty(), r.text("account"), r.choice("direction", DIRECTIONS), min, max, transfer, splits, r.bool("alwaysAsk"), r.text("bill"), r.given)
+            val direction = r.choice("direction", DIRECTIONS)
+            if (category != null && direction != null && direction != -1) errors += "${r.where}: a category is for money out (\"direction\": \"out\")."
+            RuleIn(match.orEmpty(), r.text("account"), direction, min, max, transfer, splits, r.bool("alwaysAsk"), r.text("bill"), r.given, category)
         }
         val subs = objects(root, "subscriptions", errors).mapIndexed { i, o ->
             val r = Reader(o, label("subscriptions", i, o), errors, SUB_KEYS)
@@ -316,6 +338,23 @@ class SetupImporter(
             if (mode == EnvelopeMode.GOAL && (e.goal ?: old?.goalAmount) == null) errors += "envelopes (\"${e.name}\"): a goal envelope needs \"goal\" and \"goalDate\"."
             if (mode == EnvelopeMode.GOAL && (e.goalDate ?: old?.goalDate) == null && (e.goal ?: old?.goalAmount) != null) errors += "envelopes (\"${e.name}\"): a goal envelope needs \"goalDate\"."
         }
+        // categories (1.1.0): an envelope's claims can't take a category another envelope keeps, or two file envelopes' claim
+        val catsHere = dao.categoriesNow()
+        val inFileClaiming = plan.envelopes.filter { it.categories != null }.map { it.key() }.toSet()
+        val claimedInFile = mutableMapOf<String, String>()
+        for (e in plan.envelopes) {
+            val list = e.categories ?: continue
+            val old = envs.firstOrNull { it.name.equals(e.name, true) }
+            if (old?.unplanned == true && list.isNotEmpty()) errors += "envelopes (\"${e.name}\"): Unplanned takes every category no envelope claims, so it can't claim any."
+            for (c in list) {
+                claimedInFile[c.lowercase()]?.let { errors += "categories: \"$c\" is claimed by both \"$it\" and \"${e.name}\" in the file." }
+                claimedInFile[c.lowercase()] = e.name
+                val holder = catsHere.firstOrNull { it.name.equals(c, true) }?.envelopeId?.let { id -> envs.firstOrNull { it.id == id } }
+                if (holder != null && !holder.name.equals(e.name, true) && holder.name.lowercase() !in inFileClaiming) {
+                    errors += "envelopes (\"${e.name}\"): the category \"$c\" is already claimed by \"${holder.name}\"."
+                }
+            }
+        }
         val billsHere = dao.billsNow().filter { !it.deleted }
         val billNames = (billsHere.map { it.name.lowercase() } + plan.bills.map { it.name.lowercase() }).toSet()
         for (b in plan.bills) {
@@ -329,6 +368,7 @@ class SetupImporter(
             r.account?.let { a -> if (accounts.none { it.name.equals(a, true) }) errors += "rules (\"${r.match}\"): there's no account called \"$a\" in the app." }
             r.bill?.let { if (it.lowercase() !in billNames) errors += "rules (\"${r.match}\"): there's no bill called \"$it\" in the file or the app." }
             val direction = r.direction ?: -1
+            if (r.category != null && direction != -1) errors += "rules (\"${r.match}\"): a category is for money out."
             for ((env, _) in r.splits) {
                 if (env.equals(SetupImport.READY, true)) {
                     if (direction <= 0) errors += "rules (\"${r.match}\"): only a rule for money in (\"direction\": \"in\") can go to $env."
@@ -349,6 +389,8 @@ class SetupImporter(
             names.filter { !it.second }.map { it.first }.takeIf { it.isNotEmpty() }?.let { add[kind] = it }
             names.filter { it.second }.map { it.first }.takeIf { it.isNotEmpty() }?.let { update[kind] = it }
         }
+        val wanted = (plan.envelopes.flatMap { it.categories.orEmpty() } + plan.rules.mapNotNull { it.category }).distinct()
+        put("Categories", wanted.map { c -> c to catsHere.any { it.name.equals(c, true) } }.filter { !it.second })
         put("Envelopes", plan.envelopes.map { e -> e.name to envs.any { it.name.equals(e.name, true) } })
         put("Bills", plan.bills.map { b -> b.name to billsHere.any { it.name.equals(b.name, true) } })
         val rulesHere = dao.rulesNow().filter { !it.deleted }
@@ -364,6 +406,12 @@ class SetupImporter(
      */
     suspend fun apply(plan: SetupImport.Plan): Preview {
         val preview = (check(plan) as? Checked.Ok)?.preview ?: throw BudgetRuleException((check(plan) as Checked.Bad).errors.first())
+        // categories the file names that don't exist yet are created
+        val categoryActions = CategoryActions(store)
+        for (c in (plan.envelopes.flatMap { it.categories.orEmpty() } + plan.rules.mapNotNull { it.category }).distinct()) {
+            if (dao.categoriesNow().none { it.name.equals(c, true) }) categoryActions.add(c)
+        }
+        suspend fun categoryId(name: String) = dao.categoriesNow().first { it.name.equals(name, true) }.id
         // envelopes
         for (e in plan.envelopes) {
             val old = dao.envelopesNow().firstOrNull { !it.deleted && it.name.equals(e.name, true) }
@@ -379,6 +427,16 @@ class SetupImporter(
                 ),
                 today(),
             )
+        }
+        // each envelope's claims: first release what the file takes away, then claim what it lists
+        val claimers = plan.envelopes.filter { it.categories != null }
+        for (pass in 1..2) {
+            for (e in claimers) {
+                val id = dao.envelopesNow().firstOrNull { !it.deleted && it.name.equals(e.name, true) }?.id ?: continue
+                val want = e.categories!!.map { categoryId(it) }.toSet()
+                val now = if (pass == 1) dao.categoriesNow().filter { it.envelopeId == id }.map { it.id }.toSet().intersect(want) else want
+                categoryActions.setClaims(id, now)
+            }
         }
         val ordered = plan.envelopes.filter { it.order != null }.sortedBy { it.order }
         if (ordered.isNotEmpty()) {
@@ -415,7 +473,7 @@ class SetupImporter(
             val old = dao.rulesNow().firstOrNull { !it.deleted && it.matchText == Payees.clean(r.match) }
             fun <T> pick(k: String, v: T?, keep: T?): T? = if (k in r.given) v else keep
             val splits = r.splits.map { (env, share) -> Rules.Split(if (env.equals(SetupImport.READY, true)) Rules.RTA else envId(env)!!, share) }
-            val hasDest = "envelope" in r.given || "splits" in r.given || "transfer" in r.given
+            val hasDest = "envelope" in r.given || "splits" in r.given || "transfer" in r.given || "category" in r.given
             sorting.saveRule(
                 old?.id,
                 Sorting.RuleDraft(
@@ -427,6 +485,7 @@ class SetupImporter(
                     splits = if (hasDest) splits else old?.let { Rules.splits(it) }.orEmpty(),
                     alwaysAsk = pick("alwaysAsk", r.alwaysAsk, old?.alwaysAsk) ?: false,
                     billId = if ("bill" in r.given) r.bill?.let { billId(it) } else old?.billId,
+                    categoryId = if ("category" in r.given) r.category?.let { categoryId(it) } else if (hasDest) null else old?.categoryId,
                 ),
             )
         }

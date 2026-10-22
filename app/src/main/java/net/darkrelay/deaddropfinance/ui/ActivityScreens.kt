@@ -48,6 +48,8 @@ data class SortingUi(
     val onApproveAll: () -> Unit = {},
     /** Sort by hand as a transfer between the user's own accounts. */
     val onTransfer: (String) -> Unit = {},
+    /** Sort a purchase by hand by its category: into the envelope that claims it, or Unplanned. */
+    val onCategory: (txId: String, categoryId: String) -> Unit = { _, _ -> },
     /** The "Always put this payee there?" offer after a choice by hand. */
     val offer: Sorting.Learned.Offer? = null,
     val onOffer: (accept: Boolean) -> Unit = {},
@@ -168,14 +170,23 @@ private fun ToSortRow(
                 Button(onClick = { sorting.onApprove(t.id) }) { Text(if (s.basis == Suggest.Basis.RETURN) "Confirm" else "Approve") }
             }
         }
+        // a purchase is sorted by its category (the envelope follows from it); money in is sorted into an envelope as before
+        val purchase = t.amount < 0
         val options: List<Pair<String?, String>> =
             (if (t.amount > 0) listOf<Pair<String?, String>>(null to "Ready to assign") else emptyList()) +
-                budget.fillOrder.map { it.id to it.name } + listOf<Pair<String?, String>>(TRANSFER_PICK to "Transfer between my accounts")
+                (if (purchase) budget.categories.map { it.id to it.name } else budget.fillOrder.map { it.id to it.name }) +
+                listOf<Pair<String?, String>>(TRANSFER_PICK to "Transfer between my accounts")
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) {
-                Picker(if (s == null) "Put it in" else "Or put it in", options, selected = "unset-${t.id}", onSelect = { id ->
-                    if (id == TRANSFER_PICK) sorting.onTransfer(t.id) else onSort(t.id, id, id == null)
-                })
+                Picker(
+                    if (purchase) (if (s == null) "Category" else "Or choose a category") else if (s == null) "Put it in" else "Or put it in",
+                    options, selected = "unset-${t.id}",
+                    onSelect = { id ->
+                        if (id == TRANSFER_PICK) sorting.onTransfer(t.id)
+                        else if (purchase && id != null) sorting.onCategory(t.id, id)
+                        else onSort(t.id, id, id == null)
+                    },
+                )
             }
             TextButton(onClick = { onSplit(t.id) }) { Text("Split") }
         }
@@ -267,6 +278,11 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
                 Row {
                     Text(if (t.kind == TransactionKind.BONUS) "Bonus income" else t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "No description" })
                     if (t.kind == TransactionKind.BONUS) Pill(t.payee)
+                    if (t.kind == TransactionKind.NORMAL && !t.isWash && (t.amount < 0 || t.returnOf != null)) {
+                        val names = budget.lines.filter { it.transactionId == t.id && (it.bucket == LineBucket.ENVELOPE || it.bucket == LineBucket.UNSORTED) }
+                            .map { budget.categoryName(it.categoryId) }.distinct()
+                        if (names.isNotEmpty()) Pill(names.joinToString(", "))
+                    }
                     if (t.isPayday) Pill("payday")
                     if (t.pending) Pill("pending")
                     if (t.fee) Pill("fee")
@@ -322,18 +338,21 @@ fun TransactionEditScreen(
                 ?: if (existing == null && kind == EditKind.INCOME) "rta" else null,
         )
     }
-    data class SplitLine(val envelope: String?, val amount: String)
+    // a spending line's category (1.1.0): picking it sets the envelope to the one that claims it (Unplanned if none), which can still be changed
+    var singleCat by remember { mutableStateOf(existingLines.singleOrNull()?.categoryId) }
+    data class SplitLine(val envelope: String?, val amount: String, val category: String? = null)
     val splitLines = remember {
         mutableStateListOf<SplitLine>().apply {
-            if (existingLines.size > 1) existingLines.forEach { add(SplitLine(if (it.bucket == LineBucket.READY_TO_ASSIGN) "rta" else it.envelopeId, Money.plain(kotlin.math.abs(it.amount)))) }
-            else { add(SplitLine(single, "")); add(SplitLine(null, "")) }
+            if (existingLines.size > 1) existingLines.forEach { add(SplitLine(if (it.bucket == LineBucket.READY_TO_ASSIGN) "rta" else it.envelopeId, Money.plain(kotlin.math.abs(it.amount)), it.categoryId)) }
+            else { add(SplitLine(single, "", singleCat)); add(SplitLine(null, "")) }
         }
     }
+    val categoryOptions: List<Pair<String?, String>> = budget.categories.map { it.id to it.name }
     var atmEnvelope by remember { mutableStateOf<String?>(null) }
     val envelopeOptions: List<Pair<String?, String>> = budget.fillOrder.map { it.id to it.name }
     val destOptions: List<Pair<String?, String>> =
         (if (kind == EditKind.INCOME) listOf<Pair<String?, String>>("rta" to "Ready to assign") else emptyList()) + envelopeOptions +
-            listOf<Pair<String?, String>>(null to "Not sorted yet (To sort)")
+            (if (kind == EditKind.SPEND) emptyList() else listOf<Pair<String?, String>>(null to "Not sorted yet (To sort)"))
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New transaction" else "Edit transaction", onBack)
         if (existing == null) {
@@ -359,8 +378,9 @@ fun TransactionEditScreen(
         if (kind != EditKind.TRANSFER) {
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(pending, { pending = it }); Text("Pending (the bank hasn't posted it yet)") }
             if (!split) {
-                Picker("Goes to", destOptions, single, { single = it })
-                TextButton(onClick = { split = true; splitLines[0] = splitLines[0].copy(envelope = single) }) { Text("Split across envelopes") }
+                if (kind == EditKind.SPEND) Picker("Category", categoryOptions, singleCat, { c -> singleCat = c; c?.let { budget.envelopeForCategory(it) }?.let { single = it } })
+                Picker(if (kind == EditKind.SPEND) "Envelope" else "Goes to", destOptions, single, { single = it })
+                TextButton(onClick = { split = true; splitLines[0] = splitLines[0].copy(envelope = single, category = singleCat) }) { Text(if (kind == EditKind.SPEND) "Split across categories" else "Split across envelopes") }
             } else {
                 SectionTitle("Split")
                 val total = Money.parse(amount)?.let { kotlin.math.abs(it) } ?: 0
@@ -369,6 +389,7 @@ fun TransactionEditScreen(
                 splitLines.forEachIndexed { i, l ->
                     Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         Column(Modifier.padding(8.dp)) {
+                            if (kind == EditKind.SPEND) Picker("Category", categoryOptions, l.category, { c -> splitLines[i] = l.copy(category = c, envelope = c?.let { budget.envelopeForCategory(it) } ?: l.envelope) })
                             Picker("Envelope", destOptions, l.envelope, { splitLines[i] = l.copy(envelope = it) })
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(Modifier.weight(1f)) { AmountField("Amount", l.amount, { splitLines[i] = l.copy(amount = it) }) }
@@ -393,8 +414,8 @@ fun TransactionEditScreen(
                 if (kind == EditKind.TRANSFER) {
                     onSaveTransfer(account ?: "", toAccount ?: "", cents, d, memo, atmEnvelope)
                 } else {
-                    fun line(dest: String?, a: Long) = BudgetActions.LineDraft(dest?.takeIf { it != "rta" }, a, toReadyToAssign = dest == "rta")
-                    val lines = if (!split) listOf(line(single, sign * cents)) else splitLines.map { line(it.envelope, sign * (Money.parse(it.amount)?.let { a -> kotlin.math.abs(a) } ?: 0)) }
+                    fun line(dest: String?, a: Long, cat: String?) = BudgetActions.LineDraft(dest?.takeIf { it != "rta" }, a, toReadyToAssign = dest == "rta", categoryId = cat.takeIf { kind == EditKind.SPEND })
+                    val lines = if (!split) listOf(line(single, sign * cents, singleCat)) else splitLines.map { line(it.envelope, sign * (Money.parse(it.amount)?.let { a -> kotlin.math.abs(a) } ?: 0), it.category) }
                     onSave(BudgetActions.TransactionDraft(account ?: "", d, payee, memo, sign * cents, lines, pending))
                 }
             },
@@ -432,6 +453,8 @@ fun TransactionDetailScreen(
     onPickItems: (() -> Unit)? = null,
     /** Delete, and whether its receipt goes too (only asked when it has one). */
     onDeleteWithReceipt: ((deleteReceipt: Boolean) -> Unit)? = null,
+    /** Give a purchase's line a category (or none) from here. Null shows the category as text. */
+    onSetCategory: ((lineId: String, categoryId: String?) -> Unit)? = null,
 ) {
     val accounts = budget.accounts.associateBy { it.id }
     val envelopes = budget.envelopes.associateBy { it.id }
@@ -464,6 +487,19 @@ fun TransactionDetailScreen(
                     Text(if (budget.beforeStart(t)) "History, not counted" else when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort"; LineBucket.OFF_BUDGET -> "Outside the budget (track only)"; LineBucket.TRANSFER -> "Transfer between your accounts" }, Modifier.weight(1f))
                     MoneyText(l.amount)
                 }
+                if (t.amount < 0 && !t.isWash && !budget.beforeStart(t) && (l.bucket == LineBucket.ENVELOPE || l.bucket == LineBucket.UNSORTED)) {
+                    if (onSetCategory != null) {
+                        Picker(
+                            "Category", listOf<Pair<String?, String>>(null to Budget.UNCATEGORIZED) + budget.categories.map { it.id to it.name }, l.categoryId,
+                            { onSetCategory(l.id, it) },
+                        )
+                    } else Text("Category: ${budget.categoryName(l.categoryId)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                } else if (t.returnOf != null && l.bucket == LineBucket.ENVELOPE) {
+                    Text("Category: ${budget.categoryName(l.categoryId)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (onSetCategory != null && t.amount < 0 && !t.isWash && budget.lines.any { it.transactionId == t.id && it.bucket == LineBucket.ENVELOPE }) {
+                Text("Changing the category doesn't move the money; change the envelope in Edit.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
             if (t.sortedBy == SortedBy.AUTO) Text("Sorted by a rule as it arrived (auto-approve). Edit to change it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             if (budget.lines.any { it.transactionId == t.id && it.bucket == LineBucket.TRANSFER }) {

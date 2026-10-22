@@ -57,7 +57,6 @@ fun MoreScreen(
     syncLine: String? = null,
     onErase: () -> Unit = {},
     onPurge: (() -> Unit)? = null,
-    onHelp: (() -> Unit)? = null,
     onAbout: (() -> Unit)? = null,
     /** Sorting (rules, auto-approve) and Alerts sections. */
     sortAlerts: (@Composable () -> Unit)? = null,
@@ -133,8 +132,7 @@ fun MoreScreen(
             }
         }
         SectionTitle("About")
-        if (onHelp != null) ListRow(onHelp) { Column { Text("Help"); Text("Licenses, support DarkRelay, check for updates", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
-        if (onAbout != null) ListRow(onAbout) { Column { Text("About"); Text("Version ${s.version}, credits, licenses, darkrelay.net", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        if (onAbout != null) ListRow(onAbout) { Column { Text("About"); Text("Version ${s.version}, credits, licenses, support DarkRelay, darkrelay.net", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         else Text("Dead Drop Finance, version ${s.version}", color = DdfColors.Muted)
         Gap(24)
     }

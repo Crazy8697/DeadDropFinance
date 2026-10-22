@@ -189,7 +189,7 @@ class SetupImportTest {
         assertTrue(e.toString(), e.any { it.startsWith("envelopes[3] (\"X\"): \"mode\" must be one of") })
         assertTrue(e.toString(), "envelopes[3] (\"X\"): \"colour\" isn't a field here." in e)
         assertTrue(e.toString(), "bills[1] (\"Sample Phone\"): \"due\" must be a date like \"2030-05-17\"." in e)
-        assertTrue(e.toString(), "rules[1] (\"sample shop\"): give an \"envelope\", \"splits\", or \"transfer\": true." in e)
+        assertTrue(e.toString(), "rules[1] (\"sample shop\"): give an \"envelope\", \"splits\", a \"category\", or \"transfer\": true." in e)
         assertTrue(e.toString(), "settings: \"syncEveryHours\" must be 6, 12 or 24." in e)
         // a name that's in neither the file nor the app: checked against the app, refused, nothing applied
         val plan = ok("""{ "format": "deaddropfinance-setup", "version": 1, "envelopes": [ { "name": "Fuel", "mode": "fill_to_target" } ], "bills": [ { "name": "Sample Phone", "amount": "40.00", "due": "2030-05-20", "envelope": "Phone" } ] }""")
@@ -208,5 +208,38 @@ class SetupImportTest {
         assertTrue(c.toString(), c is SetupImporter.Checked.Ok)
         importer.apply(plan)
         assertEquals(6 + 1, b().envelopes.count { it.name in setOf("Groceries", "Fuel", "Power", "Rainy Day", "Weekend Trip", "Sample Card Catch-up", "Sample Old Fund") })
+        // the example's categories and claims came in with it
+        val b = b()
+        val groceries = b.envelopes.first { it.name == "Groceries" }.id
+        assertEquals(setOf("Groceries", "Snacks"), b.claimsOf(groceries).map { it.name }.toSet())
+        assertEquals(setOf("Car gas"), b.claimsOf(b.envelopes.first { it.name == "Fuel" }.id).map { it.name }.toSet())
+        assertEquals(b.categories.first { it.name == "Eating out" }.id, store.dao.rulesNow().first { it.matchText == "sample pizza" }.categoryId)
+    }
+
+    @Test fun categoriesAndClaimsImportAndNewNamesAreCreated() = world {
+        store.ensureCategories()
+        val plan = ok("""{ "format": "deaddropfinance-setup", "version": 1,
+            "envelopes": [ { "name": "Food", "mode": "fill_to_target", "categories": [ "Groceries", "Brand New Category" ] } ],
+            "rules": [ { "match": "sample cafe", "category": "Eating out" }, { "match": "sample gift shop", "envelope": "Food", "category": "Gifts" } ] }""")
+        val c = importer.check(plan) as SetupImporter.Checked.Ok
+        assertEquals(listOf("Brand New Category"), c.preview.add["Categories"])
+        importer.apply(plan)
+        val b = b()
+        val food = b.envelopes.first { it.name == "Food" }.id
+        assertEquals(setOf("Groceries", "Brand New Category"), b.claimsOf(food).map { it.name }.toSet())
+        val cafe = store.dao.rulesNow().first { it.matchText == "sample cafe" }
+        assertEquals(b.categories.first { it.name == "Eating out" }.id, cafe.categoryId)
+        assertEquals("", cafe.splits)
+        val gift = store.dao.rulesNow().first { it.matchText == "sample gift shop" }
+        assertEquals(b.categories.first { it.name == "Gifts" }.id, gift.categoryId)
+        assertTrue(Rules.splits(gift).single().target == food)
+        // a category two envelopes both claim, or one for money in, is refused whole
+        val twice = ok("""{ "format": "deaddropfinance-setup", "version": 1, "envelopes": [ { "name": "A", "mode": "fill_to_target", "categories": [ "Rent" ] }, { "name": "B", "mode": "fill_to_target", "categories": [ "Rent" ] } ] }""")
+        assertTrue(importer.check(twice) is SetupImporter.Checked.Bad)
+        val taken = ok("""{ "format": "deaddropfinance-setup", "version": 1, "envelopes": [ { "name": "Other", "mode": "fill_to_target", "categories": [ "Groceries" ] } ] }""")
+        val bad = importer.check(taken) as SetupImporter.Checked.Bad
+        assertTrue(bad.errors.toString(), bad.errors.any { it.contains("already claimed by \"Food\"") })
+        val rin = SetupImport.parse("""{ "format": "deaddropfinance-setup", "version": 1, "rules": [ { "match": "sample", "category": "Gifts", "direction": "in" } ] }""")
+        assertTrue(rin is SetupImport.Parsed.Bad)
     }
 }

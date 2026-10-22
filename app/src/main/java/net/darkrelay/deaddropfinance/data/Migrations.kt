@@ -96,5 +96,20 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8)
+    /**
+     * 8 to 9 (1.1.0): categories. A new `category` table (change-logged like the budget tables), a nullable
+     * `category_id` on `txn_line` and on `rule`, and `is_unplanned` on `envelope` (default 0). Nothing existing
+     * changes: every purchase keeps its envelope and simply has no category yet.
+     */
+    val V8_V9 = object : Migration(8, 9) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `category` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `envelope_id` TEXT, `sort_order` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_category_envelope_id` ON `category` (`envelope_id`)")
+            db.execSQL("ALTER TABLE `txn_line` ADD COLUMN `category_id` TEXT")
+            db.execSQL("ALTER TABLE `rule` ADD COLUMN `category_id` TEXT")
+            db.execSQL("ALTER TABLE `envelope` ADD COLUMN `is_unplanned` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9)
 }

@@ -91,6 +91,8 @@ class BackupTest {
         val food = actions.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Groceries", EnvelopeMode.FILL_TO_TARGET, target = 300_00, everyday = true))
         actions.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Loan", EnvelopeMode.DEBT, debtOwed = 1200_00, requiredPayment = 60_00, dueDate = day.plusDays(9)))
         actions.move(null, food, 250_00)
+        store.ensureCategories()
+        net.darkrelay.deaddropfinance.domain.CategoryActions(store).setClaims(food, setOf(actions.snapshot().categories.first { it.name == "Groceries" }.id))
         val tx = store.write {
             val t = put(null, TransactionEntity(accountId = acct, date = day, payee = "SAMPLE MARKET", amount = -42_10, createdAt = now, updatedAt = now))
             put(null, TransactionLineEntity(transactionId = t.id, bucket = LineBucket.ENVELOPE, envelopeId = food, amount = -42_10, createdAt = now, updatedAt = now))
@@ -151,6 +153,10 @@ class BackupTest {
         val budget = b.actions.snapshot()
         assertEquals(0L, budget.sortedCheck)
         assertEquals("bonus income comes back", 30_00L, budget.bonusTotal)
+        val food = budget.envelopes.first { it.name == "Sample Groceries" }.id
+        assertEquals("categories, the claim and Unplanned come back", listOf("Groceries"), budget.claimsOf(food).map { it.name })
+        assertEquals(17, budget.categories.size)
+        assertEquals("Unplanned", budget.unplannedEnvelope!!.name)
         assertEquals(250_00L - 42_10, budget.envelopeBalance(budget.envelopes.first { it.name == "Sample Groceries" }.id))
     }
 

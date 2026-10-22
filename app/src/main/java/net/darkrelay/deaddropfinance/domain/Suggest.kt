@@ -82,7 +82,7 @@ object Suggest {
         val ls = b.lines.filter { it.transactionId == purchase.id && it.bucket == LineBucket.ENVELOPE }.sortedBy { it.sortOrder }
         if (ls.isEmpty()) return null
         val parts = Rules.allocate(credit.amount, ls.map { -it.amount })
-        return ls.zip(parts).filter { it.second != 0L }.map { (l, a) -> LineDraft(l.envelopeId, a) }
+        return ls.zip(parts).filter { it.second != 0L }.map { (l, a) -> LineDraft(l.envelopeId, a, categoryId = l.categoryId) }
     }
 
     private class Context(val b: Budget, rules: List<RuleEntity>) {
@@ -98,7 +98,7 @@ object Suggest {
                     val ls = linesByTx[t.id].orEmpty()
                     val l = ls.singleOrNull() ?: return@mapNotNull null
                     val d = when (l.bucket) {
-                        LineBucket.ENVELOPE -> if (l.envelopeId in live) LineDraft(l.envelopeId, 0) else null
+                        LineBucket.ENVELOPE -> if (l.envelopeId in live) LineDraft(l.envelopeId, 0, categoryId = l.categoryId) else null
                         LineBucket.READY_TO_ASSIGN -> if (t.amount > 0) LineDraft(null, 0, toReadyToAssign = true) else null
                         LineBucket.TRANSFER -> LineDraft(null, 0, transfer = true)
                         else -> null
@@ -114,7 +114,7 @@ object Suggest {
             val forms = Payees.forms(t)
             for (r in rules) {
                 if (!Rules.matches(r, t, forms)) continue
-                val lines = Rules.linesFor(r, t, live) ?: continue
+                val lines = Rules.linesFor(r, t, live) { b.envelopeForCategory(it) } ?: continue
                 return r to lines
             }
             return null

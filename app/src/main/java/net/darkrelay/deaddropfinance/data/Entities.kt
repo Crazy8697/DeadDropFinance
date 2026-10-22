@@ -89,6 +89,8 @@ data class EnvelopeEntity(
     /** Debt with a required payment and due date: remind like a bill ([reminderDays] ahead). Off by default. */
     @ColumnInfo(name = "reminder", defaultValue = "0") val reminder: Boolean = false,
     @ColumnInfo(name = "reminder_days", defaultValue = "2") val reminderDays: Int = 2,
+    /** The built-in Unplanned envelope (1.1.0): where a purchase in a category no envelope claims goes. Can't be deleted. */
+    @ColumnInfo(name = "is_unplanned", defaultValue = "0") val unplanned: Boolean = false,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -100,7 +102,7 @@ data class EnvelopeEntity(
         "goal_amount" to goalAmount, "goal_date" to goalDate?.toString(), "debt_owed" to debtOwed,
         "debt_owed_since" to debtOwedSince?.toString(), "required_payment" to requiredPayment,
         "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "reminder" to reminder,
-        "reminder_days" to reminderDays, "deleted" to deleted,
+        "reminder_days" to reminderDays, "is_unplanned" to unplanned, "deleted" to deleted,
     )
 }
 
@@ -190,14 +192,33 @@ data class TransactionLineEntity(
     /** Signed like the transaction's amount. */
     val amount: Long,
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    /** What the purchase was (1.1.0): a category, separate from the envelope its money comes from. Null: none (before 1.1.0, or not a purchase). */
+    @ColumnInfo(name = "category_id") val categoryId: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
     override fun fields() = mapOf(
         "transaction_id" to transactionId, "bucket" to bucket.name, "envelope_id" to envelopeId, "amount" to amount,
-        "sort_order" to sortOrder, "deleted" to deleted,
+        "sort_order" to sortOrder, "category_id" to categoryId, "deleted" to deleted,
     )
+}
+
+/**
+ * A label for what a purchase was (Rent, Groceries). An envelope can claim categories ([envelopeId] is the one that
+ * claims this one, at most one); a purchase in a category goes to the claiming envelope, or to Unplanned.
+ */
+@Entity(tableName = "category", indices = [Index("envelope_id")])
+data class CategoryEntity(
+    @PrimaryKey override val id: String = newId(),
+    val name: String,
+    @ColumnInfo(name = "envelope_id") val envelopeId: String? = null,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    @ColumnInfo(name = "created_at") override val createdAt: Long,
+    @ColumnInfo(name = "updated_at") override val updatedAt: Long,
+    override val deleted: Boolean = false,
+) : Synced {
+    override fun fields() = mapOf("name" to name, "envelope_id" to envelopeId, "sort_order" to sortOrder, "deleted" to deleted)
 }
 
 /** Why money moved between envelopes or Ready to Assign. */
@@ -405,12 +426,14 @@ data class RuleEntity(
     val acknowledged: Boolean = true,
     /** A match counts as a payment toward this bill (whatever the amount, unless the rule has an amount range). */
     @ColumnInfo(name = "bill_id") val billId: String? = null,
+    /** The category a match gets (1.1.0). With no envelope in [splits], the match sorts by the category's claim. */
+    @ColumnInfo(name = "category_id") val categoryId: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
     override fun fields() = mapOf(
-        "match_text" to matchText, "account_id" to accountId, "direction" to direction, "min_amount" to minAmount,
+        "category_id" to categoryId, "match_text" to matchText, "account_id" to accountId, "direction" to direction, "min_amount" to minAmount,
         "max_amount" to maxAmount, "action" to action.name, "splits" to splits, "always_ask" to alwaysAsk,
         "priority" to priority, "origin" to origin.name, "acknowledged" to acknowledged, "bill_id" to billId, "deleted" to deleted,
     )
@@ -444,3 +467,14 @@ data class MetaEntity(
     @PrimaryKey val key: String,
     val value: String,
 )
+
+/** The categories every install starts with (1.1.0), and the built-in envelope's name. */
+object DefaultCategories {
+    val NAMES = listOf(
+        "Rent", "Utilities", "Phone and internet", "Insurance", "Groceries", "Snacks", "Eating out", "Car gas", "Car upkeep",
+        "Household", "Subscriptions", "Kids", "Medical", "Debt payments", "Gifts", "Paid a friend", "Other",
+    )
+    const val UNPLANNED = "Unplanned"
+    /** meta key: the default set was created once (so categories the user deleted don't come back). */
+    const val META_SEEDED = "categories_seeded"
+}

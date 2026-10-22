@@ -59,6 +59,13 @@ object TabIcons {
         line { moveTo(4f, 13f); lineTo(6f, 5f); lineTo(18f, 5f); lineTo(20f, 13f); lineTo(20f, 19f); lineTo(4f, 19f); close() }
     }
 
+    val Categories = icon("categories") {
+        line { moveTo(4f, 4f); lineTo(10.5f, 4f); lineTo(10.5f, 10.5f); lineTo(4f, 10.5f); close() }
+        line { moveTo(13.5f, 4f); lineTo(20f, 4f); lineTo(20f, 10.5f); lineTo(13.5f, 10.5f); close() }
+        line { moveTo(4f, 13.5f); lineTo(10.5f, 13.5f); lineTo(10.5f, 20f); lineTo(4f, 20f); close() }
+        line { moveTo(13.5f, 13.5f); lineTo(20f, 13.5f); lineTo(20f, 20f); lineTo(13.5f, 20f); close() }
+    }
+
     val Hourglass = icon("hourglass") {
         line { moveTo(7f, 3f); lineTo(17f, 3f) }
         line { moveTo(7f, 21f); lineTo(17f, 21f) }
@@ -78,7 +85,7 @@ object TabIcons {
     }
 }
 
-/** The five tabs, each with its icon and its name. The selected one is cyan, the others muted, as in the mockup. */
+/** The six tabs, each with its icon and its name. The selected one is cyan, the others muted, as in the mockup. */
 @Composable
 fun BottomTabs(selected: Nav, onTab: (Nav) -> Unit) {
     val tabs = listOf(
@@ -86,6 +93,7 @@ fun BottomTabs(selected: Nav, onTab: (Nav) -> Unit) {
         Triple(Nav.Envelopes, "Envelopes", TabIcons.Envelope),
         Triple(Nav.Activity, "Activity", TabIcons.List),
         Triple(Nav.Bills, "Bills", TabIcons.Calendar),
+        Triple(Nav.Categories, "Categories", TabIcons.Categories),
         Triple(Nav.More, "More", TabIcons.More),
     )
     NavigationBar(containerColor = DdfColors.Background) {

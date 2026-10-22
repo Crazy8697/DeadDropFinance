@@ -46,6 +46,7 @@ import net.darkrelay.deaddropfinance.data.MoveKind
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.BudgetActions
+import net.darkrelay.deaddropfinance.domain.CategoryActions
 import net.darkrelay.deaddropfinance.domain.BudgetRuleException
 import net.darkrelay.deaddropfinance.domain.CsvImport
 import net.darkrelay.deaddropfinance.domain.Money
@@ -69,6 +70,11 @@ sealed interface Nav {
     /** Bonus income: a new one ([id] null) or an existing one to edit or delete. */
     data class Bonus(val id: String?) : Nav
     data object Accounts : Nav
+    /** Spending per category by budget month (a tab). */
+    data object Categories : Nav
+    /** One category's purchases ([categoryId] null: Uncategorized) in a budget month ([monthIndex] 0 is the current one). */
+    data class CategoryPurchases(val categoryId: String?, val monthIndex: Int) : Nav
+    data object ManageCategories : Nav
     data class AccountEdit(val id: String?) : Nav
     data object Import : Nav
     data object Erase : Nav
@@ -101,7 +107,6 @@ sealed interface Nav {
     data object Backup : Nav
     data object SetupImport : Nav
     data object About : Nav
-    data object Help : Nav
     data object Licenses : Nav
     data class Document(val name: String) : Nav
     /** Which envelopes Safe to Spend counts. */
@@ -192,12 +197,12 @@ interface Platform {
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
     val d = store.dao
-    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments()) { a ->
+    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments(), d.categories()) { a ->
         @Suppress("UNCHECKED_CAST")
         Budget(a[0] as List<net.darkrelay.deaddropfinance.data.AccountEntity>, a[1] as List<net.darkrelay.deaddropfinance.data.EnvelopeEntity>,
             a[2] as List<TransactionEntity>, a[3] as List<net.darkrelay.deaddropfinance.data.TransactionLineEntity>,
             a[4] as List<net.darkrelay.deaddropfinance.data.MoveEntity>, a[5] as List<net.darkrelay.deaddropfinance.data.BillEntity>,
-            a[6] as List<net.darkrelay.deaddropfinance.data.BillPaymentEntity>)
+            a[6] as List<net.darkrelay.deaddropfinance.data.BillPaymentEntity>, a[7] as List<net.darkrelay.deaddropfinance.data.CategoryEntity>)
     }
 }
 
@@ -210,8 +215,10 @@ fun AppRoot(
     /** Rises each time the app comes back to the front: what Android's settings may have changed is read again. */
     resumeTick: Int = 0,
 ) {
-    val actions = remember(store) { BudgetActions(store, platform.receiptFiles) }
+    val actions = remember(store) { BudgetActions(store, platform.receiptFiles).also { it.requireCategories = true } }
     val sorting = remember(store) { Sorting(store, actions) }
+    val categoryActions = remember(store) { CategoryActions(store) }
+    var categoryMonth by remember { mutableIntStateOf(0) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
     val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
     val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
@@ -356,6 +363,7 @@ fun AppRoot(
     }
     LaunchedEffect(Unit) {
         store.ensureSystemEnvelopes()
+        store.ensureCategories()
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
         val afterPurge = sync.settings.setupAfterPurge
         val mode = setupMode(sync.settings.setupDone, sync.settings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), store.sync.connectionsNow().isNotEmpty(), afterPurge)
@@ -572,6 +580,7 @@ fun AppRoot(
                         },
                         onApproveAll = { run(scope) { sorting.approveAll() } },
                         onTransfer = { id -> handSort(id, null, rta = false, transfer = true) },
+                        onCategory = { id, c -> run(scope) { offer = sorting.sortByCategory(id, c) as? Sorting.Learned.Offer } },
                         offer = offer,
                         onOffer = { yes -> val o = offer; offer = null; if (o != null) run(scope) { if (yes) sorting.acceptOffer(o) else sorting.declineOffer(o) } },
                         learned = rules.filter { it.origin == net.darkrelay.deaddropfinance.data.RuleOrigin.LEARNED && !it.acknowledged },
@@ -605,7 +614,6 @@ fun AppRoot(
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
                 onPurge = { go(Nav.Purge) },
-                onHelp = { go(Nav.Help) },
                 onAbout = { go(Nav.About) },
                 onReceipts = { go(Nav.Receipts) },
                 onParked = { go(Nav.ParkedBuys) },
@@ -653,8 +661,23 @@ fun AppRoot(
                     onArchive = { a -> run(scope) { actions.setEnvelopeArchived(e.id, a) } }, onTransaction = { go(Nav.TxDetail(it)) },
                 )
             }
-            is Nav.EnvelopeEdit -> EnvelopeEditScreen(b.envelopes.firstOrNull { it.id == top.id }, error, ::back) { d ->
-                run(scope, popAfter = true) { actions.saveEnvelope(top.id, d) }
+            is Nav.EnvelopeEdit -> {
+                var chosen by remember(top.id) { mutableStateOf<Set<String>?>(null) }
+                val claims = ClaimsUi(
+                    b.categories,
+                    b.categories.filter { it.envelopeId != null && it.envelopeId != top.id }.associate { c -> c.id to (b.envelopes.firstOrNull { it.id == c.envelopeId }?.name ?: "another envelope") },
+                    b.categories.filter { it.envelopeId == top.id && top.id != null }.map { it.id }.toSet(),
+                ) { chosen = it }
+                EnvelopeEditScreen(
+                    b.envelopes.firstOrNull { it.id == top.id }, error, ::back,
+                    onSave = { d ->
+                        run(scope, popAfter = true) {
+                            val id = actions.saveEnvelope(top.id, d)
+                            chosen?.let { categoryActions.setClaims(id, it) }
+                        }
+                    },
+                    claims = claims,
+                )
             }
             is Nav.MoveMoney -> MoveMoneyScreen(b, top.fromId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
             is Nav.Assign -> AssignScreen(
@@ -699,6 +722,13 @@ fun AppRoot(
                     onReturn = { p -> returnOf(t.id, p) },
                     onNotReturn = { run(scope) { sorting.notAReturn(t.id) } },
                     onMakeRule = { go(Nav.RuleEdit(null, fromTx = t.id)) },
+                    onSetCategory = { lineId, c ->
+                        run(scope) {
+                            val line = b.lines.firstOrNull { it.id == lineId }
+                            if (line?.bucket == net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED && c != null) actions.sortIntoCategory(t.id, c)
+                            else if (line?.bucket != net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED) actions.setLineCategory(lineId, c)
+                        }
+                    },
                     receipt = receipts.firstOrNull { it.transactionId == t.id },
                     onReceipt = { receipts.firstOrNull { it.transactionId == t.id }?.let { go(Nav.Receipt(it.id)) } },
                     onAddReceipt = if (t.kind == net.darkrelay.deaddropfinance.data.TransactionKind.NORMAL) { { startScan(t.id) } } else null,
@@ -770,6 +800,23 @@ fun AppRoot(
                 }
             }
             Nav.Receipts -> ReceiptsScreen(receipts, b, ::back, onReceipt = { go(Nav.Receipt(it)) }, onScan = { startScan(null) })
+            Nav.Categories -> CategoriesScreen(
+                b, today, categoryMonth, { categoryMonth = it },
+                onCategory = { c -> go(Nav.CategoryPurchases(c, categoryMonth)) },
+                onManage = { go(Nav.ManageCategories) },
+            )
+            is Nav.CategoryPurchases -> CategoryPurchasesScreen(b, today, top.monthIndex, top.categoryId, ::back) { go(Nav.TxDetail(it)) }
+            Nav.ManageCategories -> {
+                val usage by produceState(emptyMap<String, Int>(), b.categories, b.lines.size, rules.size) {
+                    value = b.categories.associate { it.id to categoryActions.usage(it.id) }
+                }
+                ManageCategoriesScreen(
+                    b.categories, { usage[it] ?: 0 }, error, ::back,
+                    onAdd = { n -> run(scope) { categoryActions.add(n) } },
+                    onRename = { id, n -> run(scope) { categoryActions.rename(id, n) } },
+                    onDelete = { id, to -> run(scope) { categoryActions.delete(id, to) } },
+                )
+            }
             Nav.Bills -> BillsScreen(
                 b, today, prediction, series, onBill = { go(Nav.Bill(it)) }, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.BillEdit(null)) },
                 onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { d -> run(scope) { billActions.correctPayday(d); planTick++ } },
@@ -929,16 +976,6 @@ fun AppRoot(
                 )
             }
             Nav.About -> AboutScreen(more.version, ::back, platform::openUrl, onLicenses = { go(Nav.Licenses) }, onDoc = { go(Nav.Document(it)) })
-            Nav.Help -> HelpScreen(
-                more.checking, more.updateMessage, ::back, onLicenses = { go(Nav.Licenses) }, onSupport = { platform.openUrl(DarkRelayLinks.CHEESE) },
-                onCheck = {
-                    more = more.copy(checking = true, updateMessage = null)
-                    platform.checkForUpdates(manual = true) { r, msg ->
-                        if (r != null) release = r
-                        more = platform.more.copy(updateMessage = if (r != null) "Version ${r.version} is available. See Home." else msg)
-                    }
-                },
-            )
             Nav.Licenses -> {
                 val files = remember { platform.docs() }
                 LicensesScreen(files, ::back) { go(Nav.Document(it)) }
@@ -1169,7 +1206,7 @@ fun AppRoot(
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             // screens that don't show errors themselves get them here, so a failed action never goes unsaid
-            val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Reading, Nav.Receipts)
+            val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Reading, Nav.Receipts)
             val e = error
             if (shown && e != null) {
                 androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

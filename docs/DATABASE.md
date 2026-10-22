@@ -37,6 +37,14 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Version 8 (0.11.0): adds the `parked_buy` table (parked buys: name, price, wait, when it's ready, bought,
   dropped, the envelope it's bought from and its matched charge; change-logged like the budget tables). No existing
   table changes. `MigrationTest` checks 7 to 8 and 1 to the latest.
+- Version 9 (1.1.0): categories. A new `category` table (name, the envelope that claims it, order; change-logged like
+  the budget tables), a nullable `category_id` on `txn_line` (a purchase's category, per line) and on `rule`, and
+  `is_unplanned` on `envelope` (default 0; marks the built-in Unplanned envelope, which may be one the user already
+  had). Nothing existing changes: every purchase keeps its envelope and has no category until it is given one.
+  Migration 8 to 9 only adds; `MigrationTest` builds a version 8 database from `8.json`, migrates it, checks every
+  row survived, and checks that the first start creates the default set and Unplanned. The `meta` row
+  `categories_seeded` records that the default set was created once. Version 1.0.1 (Bonus income) needed no schema
+  change: it is a transaction kind (`BONUS`, with an empty account id and one Ready to Assign line).
 - Every version's schema is exported to `app/schemas` and committed, so every change is reviewable.
 - There is no destructive migration fallback. A test fails the build if one is added.
 - Every later schema change adds a Room `Migration` from the previous version and a migration test that opens a
@@ -63,6 +71,7 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   restore) and the receipt photos, decrypted from `files/receipts` and sealed under the backup's own key. Restore
   re-encrypts them under the phone's photo key. A backup from an older schema restores into the current one (every
   migration only adds, so its columns are a subset); one from a newer schema is refused.
+- Categories, claims and a purchase's category are ordinary rows, so the backup carries them (1.1.0).
 - Purge data (0.15.0) empties every table but `connection` and `linked_account` (whose accounts are unlinked), keeps
   this phone's device id and the database key, deletes the receipt photos and every saved secret but the bank
   access, and clears every settings file.

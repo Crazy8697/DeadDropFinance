@@ -20,7 +20,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import net.darkrelay.deaddropfinance.R
 
-/** Where About and Help link. */
+/** Where About links. */
 object DarkRelayLinks {
     const val SITE = "https://darkrelay.net"
     const val CHEESE = "https://buymeacoffee.com/crazy8697"
@@ -58,7 +58,7 @@ fun AboutScreen(version: String, onBack: () -> Unit, onOpen: (String) -> Unit, o
             Gap(4)
             Text("Free and open source under the Apache License 2.0. Copyright 2026 DarkRelay.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = { onOpen(DarkRelayLinks.SITE) }) { Text("darkrelay.net", color = DdfColors.Cyan) }
-            OutlinedButton(onClick = { onOpen(DarkRelayLinks.CHEESE) }) { Text("Buy DarkRelay some cheese 🧀") }
+            OutlinedButton(onClick = { onOpen(DarkRelayLinks.CHEESE) }) { Text("Support DarkRelay: buy some cheese 🧀") }
         }
         SectionTitle("Credits")
         CREDITS.forEach { (what, who) ->
@@ -70,23 +70,6 @@ fun AboutScreen(version: String, onBack: () -> Unit, onOpen: (String) -> Unit, o
         ListRow(onLicenses) { Column { Text("Licenses"); Text("Full license texts for the app and everything it ships", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         ListRow({ onDoc("PRIVACY.md") }) { Text("Privacy policy") }
         ListRow({ onDoc("TERMS.md") }) { Text("End user agreement") }
-        Gap(24)
-    }
-}
-
-/** Help: Licenses, Support DarkRelay, and Check for updates. */
-@Composable
-fun HelpScreen(checking: Boolean, updateMessage: String?, onBack: () -> Unit, onLicenses: () -> Unit, onSupport: () -> Unit, onCheck: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ScreenTitle("Help", onBack)
-        ListRow(onLicenses) { Column { Text("Licenses"); Text("The app's license and every component's", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
-        ListRow(onSupport) { Column { Text("Support DarkRelay"); Text("Buy DarkRelay some cheese 🧀", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
-        ListRow(if (checking) null else onCheck) {
-            Column {
-                Text(if (checking) "Checking..." else "Check for updates")
-                Text(updateMessage ?: "Asks GitHub for a newer version. Nothing about you is sent.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-        }
         Gap(24)
     }
 }

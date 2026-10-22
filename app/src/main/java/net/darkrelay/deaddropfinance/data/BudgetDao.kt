@@ -30,6 +30,15 @@ interface BudgetDao {
     @Query("SELECT * FROM bill_payment WHERE deleted = 0")
     fun billPayments(): Flow<List<BillPaymentEntity>>
 
+    @Query("SELECT * FROM category WHERE deleted = 0 ORDER BY sort_order, name")
+    fun categories(): Flow<List<CategoryEntity>>
+
+    @Query("SELECT * FROM category WHERE deleted = 0 ORDER BY sort_order, name")
+    suspend fun categoriesNow(): List<CategoryEntity>
+
+    @Query("SELECT * FROM category WHERE id = :id")
+    suspend fun category(id: String): CategoryEntity?
+
     @Query("SELECT * FROM rule WHERE deleted = 0 ORDER BY priority, created_at")
     fun rules(): Flow<List<RuleEntity>>
 
@@ -155,6 +164,7 @@ interface BudgetDao {
     @Upsert suspend fun upsertBill(e: BillEntity)
     @Upsert suspend fun upsertBillPayment(e: BillPaymentEntity)
     @Upsert suspend fun upsertRule(e: RuleEntity)
+    @Upsert suspend fun upsertCategory(e: CategoryEntity)
     @Upsert suspend fun upsertReceipt(e: ReceiptEntity)
     @Upsert suspend fun upsertReceiptItem(e: ReceiptItemEntity)
     @Upsert suspend fun upsertItemReturn(e: ItemReturnEntity)

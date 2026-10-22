@@ -280,4 +280,54 @@ class MigrationTest {
         assertEquals(versions.last() - 1, Migrations.ALL.size)
         Migrations.ALL.forEachIndexed { i, m -> assertEquals(i + 1, m.startVersion); assertEquals(i + 2, m.endVersion) }
     }
+
+    @Test fun eightToNineAddsCategoriesWithEveryPurchaseKeepingItsEnvelope() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-8.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 8)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        // a 1.0.x budget: an envelope named like a default category, a purchase sorted into it, a rule, a bonus income
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, everyday, reminder, reminder_days, created_at, updated_at, deleted) VALUES ('e1', 'Groceries', 'FILL_TO_TARGET', 0, 1, 1, 0, 2, 1, 1, 0)")
+        raw.execSQL(
+            "INSERT INTO txn (id, account_id, kind, transfer_account_id, date, payee, memo, amount, pending, wash_group_id, is_payday, fee, fee_rebate, source, import_description, created_at, updated_at, deleted) " +
+                "VALUES ('t2','a1','NORMAL',NULL,'2030-01-03','Sample Shop','',-560,0,NULL,0,0,0,'MANUAL',NULL,1,1,0)",
+        )
+        raw.execSQL("INSERT INTO txn_line (id, transaction_id, bucket, envelope_id, amount, sort_order, created_at, updated_at, deleted) VALUES ('l2','t2','ENVELOPE','e1',-560,0,1,1,0)")
+        raw.execSQL(
+            "INSERT INTO rule (id, match_text, direction, action, splits, always_ask, priority, origin, acknowledged, created_at, updated_at, deleted) " +
+                "VALUES ('r1','sample shop',-1,'ENVELOPE','e1:1',0,0,'USER',1,1,1,0)",
+        )
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            assertEquals("Sample Account", d.account("a1")!!.name)
+            assertEquals(-560L, d.transaction("t2")!!.amount)
+            val l = d.linesOf("t2").single()
+            assertEquals("e1", l.envelopeId)
+            assertNull("an old purchase has no category", l.categoryId)
+            val r = d.rule("r1")!!
+            assertEquals("e1:1", r.splits)
+            assertNull("an old rule has no category", r.categoryId)
+            assertEquals(false, d.envelope("e1")!!.unplanned)
+            assertEquals("Groceries", d.envelope("e1")!!.name)
+            assertTrue(d.categoriesNow().isEmpty())
+            // the first start after the upgrade creates the default set and Unplanned, and touches nothing else
+            val store = BudgetStore(db)
+            assertEquals(false, store.ensureCategories())
+            assertEquals(DefaultCategories.NAMES, d.categoriesNow().map { it.name })
+            val unplanned = d.envelopesNow().single { it.unplanned }
+            assertEquals("Unplanned", unplanned.name)
+            assertEquals(true, unplanned.everyday)
+            assertEquals("Groceries", d.envelope("e1")!!.name)
+            assertEquals("e1", d.linesOf("t2").single().envelopeId)
+            assertTrue("no envelope claims anything", d.categoriesNow().all { it.envelopeId == null })
+            // the new table works, and the old change log row is still there
+            db.dao().upsertCategory(CategoryEntity(name = "Sample", createdAt = 1, updatedAt = 1))
+            assertEquals(18, d.categoriesNow().size)
+            assertEquals(1, d.changes().filter { it.entityType == "account" }.size)
+        } finally {
+            db.close()
+        }
+    }
 }

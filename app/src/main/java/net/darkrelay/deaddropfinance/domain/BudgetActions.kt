@@ -27,9 +27,15 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
 
     private val dao get() = store.dao
 
+    /**
+     * Whether a purchase must have a category when it is sorted by hand or entered by hand (1.1.0). The app turns it
+     * on; the engine's other callers (rules, approvals, imports, tests) can leave it off.
+     */
+    var requireCategories = false
+
     suspend fun snapshot(): Budget = Budget(
         dao.accountsNow(), dao.envelopesNow(), dao.transactionsNow(), dao.linesNow(), dao.movesNow(),
-        dao.billsNow(), dao.billPaymentsNow(),
+        dao.billsNow(), dao.billPaymentsNow(), dao.categoriesNow(),
     )
 
     // ---- accounts --------------------------------------------------------------------------------------------
@@ -124,7 +130,10 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     suspend fun setEnvelopeArchived(id: String, archived: Boolean) = store.write {
         val old = dao.envelope(id) ?: return@write
         if (old.mode == EnvelopeMode.ROLLOVER) throw BudgetRuleException("Rollover can't be archived or deleted.")
+        if (old.unplanned) throw BudgetRuleException("Unplanned can't be archived or deleted.")
         put(old, old.copy(archived = archived, updatedAt = now))
+        // an archived envelope claims nothing: its categories go to Unplanned until another envelope claims them
+        if (archived) dao.categoriesNow().filter { it.envelopeId == id }.forEach { put(it, it.copy(envelopeId = null, updatedAt = now)) }
     }
 
     /** The new fill order, as the full list of envelope ids top to bottom. */
@@ -141,7 +150,11 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
      * Where part of a transaction goes. A null envelope with [toReadyToAssign] and [transfer] false means To sort.
      * [transfer]: money between the user's own accounts, neither spending nor income.
      */
-    data class LineDraft(val envelopeId: String?, val amount: Long, val toReadyToAssign: Boolean = false, val transfer: Boolean = false)
+    data class LineDraft(
+        val envelopeId: String?, val amount: Long, val toReadyToAssign: Boolean = false, val transfer: Boolean = false,
+        /** What the purchase was. With no envelope, the line goes where the category's claim says (the claiming envelope, or Unplanned). */
+        val categoryId: String? = null,
+    )
 
     data class TransactionDraft(
         val accountId: String,
@@ -154,12 +167,13 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     )
 
     /** Saves a transaction from the edit screen. Changing where its money goes counts as sorting it by hand. */
-    suspend fun saveTransaction(id: String?, d: TransactionDraft): String {
+    suspend fun saveTransaction(id: String?, d0: TransactionDraft): String {
+        val d = d0.copy(lines = prepareLines(d0.lines, d0.amount, enforce = requireCategories, everyLine = true))
         checkLines(d)
         return store.write {
             val old = id?.let { dao.transaction(it) }
             if (old != null && old.kind != TransactionKind.NORMAL) throw BudgetRuleException("That's a transfer.")
-            val linesChanged = old == null || dao.linesOf(old.id).map { Triple(it.bucket, it.envelopeId, it.amount) } != d.lines.map { Triple(bucketOf(it), it.envelopeId, it.amount) }
+            val linesChanged = old == null || dao.linesOf(old.id).map { listOf(it.bucket, it.envelopeId, it.amount, it.categoryId) } != d.lines.map { listOf(bucketOf(it), it.envelopeId, it.amount, it.categoryId) }
             val sorted = d.lines.any { bucketOf(it) != LineBucket.UNSORTED }
             var tx = (old ?: TransactionEntity(accountId = d.accountId, date = d.date, amount = d.amount, createdAt = now, updatedAt = now))
                 .copy(accountId = d.accountId, date = d.date, payee = d.payee.trim(), memo = d.memo.trim(), amount = d.amount, pending = d.pending, updatedAt = now)
@@ -197,9 +211,14 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
      * Sets where an existing transaction's money goes, and how that was decided (by hand, an approved suggestion, a
      * rule as it arrived, or a confirmed return). The lines must add up to the amount, as always.
      */
-    suspend fun setLines(txId: String, lines: List<LineDraft>, sortedBy: SortedBy, ruleId: String? = null, returnOf: String? = null) {
+    suspend fun setLines(
+        txId: String, lines0: List<LineDraft>, sortedBy: SortedBy, ruleId: String? = null, returnOf: String? = null,
+        /** False for a split by receipt items, which picks envelopes only: its lines keep a category where the envelope had one. */
+        requireCategory: Boolean = true,
+    ) {
         val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
         if (tx.kind != TransactionKind.NORMAL) throw BudgetRuleException("That's a transfer.")
+        val lines = prepareLines(lines0, tx.amount, enforce = requireCategories && requireCategory && sortedBy == SortedBy.HAND && returnOf == null, everyLine = false)
         checkLines(TransactionDraft(tx.accountId, tx.date, tx.payee, tx.memo, tx.amount, lines, tx.pending))
         store.write {
             val old = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
@@ -207,6 +226,48 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             if (old.amount != tx.amount) throw BudgetRuleException("Its amount just changed (bank sync). Check it and sort it again.")
             put(old, old.copy(sortedBy = sortedBy, sortedAt = now, ruleId = ruleId, returnOf = returnOf, updatedAt = now))
             replaceLines(this, txId, lines)
+        }
+    }
+
+    /**
+     * Lines ready to save (1.1.0): a line with a category and no envelope goes to the envelope that claims the category
+     * (or Unplanned), and every category must exist. When [enforce] and the transaction is a purchase (money out), each
+     * line that puts money in an envelope ([everyLine]: every line that isn't a transfer, even one left in To sort)
+     * must have a category. Income, bonus income and transfers never need one.
+     */
+    private suspend fun prepareLines(lines: List<LineDraft>, amount: Long, enforce: Boolean, everyLine: Boolean): List<LineDraft> {
+        if (lines.none { it.categoryId != null } && !(enforce && amount < 0)) return lines
+        val b = snapshot()
+        return lines.map { l ->
+            var out = l
+            if (l.categoryId != null) {
+                if (b.category(l.categoryId) == null) throw BudgetRuleException("That category is gone.")
+                if (l.envelopeId == null && !l.toReadyToAssign && !l.transfer) {
+                    val env = b.envelopeForCategory(l.categoryId) ?: throw BudgetRuleException("The Unplanned envelope is missing.")
+                    out = l.copy(envelopeId = env)
+                }
+            }
+            val needs = enforce && amount < 0 && !out.transfer && !out.toReadyToAssign && (everyLine || out.envelopeId != null)
+            if (needs && out.categoryId == null) throw BudgetRuleException("Choose a category.")
+            out
+        }
+    }
+
+    /** Sorts a To sort purchase by its category: into the envelope that claims it, or Unplanned. */
+    suspend fun sortIntoCategory(txId: String, categoryId: String) {
+        val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
+        setLines(txId, listOf(LineDraft(null, tx.amount, categoryId = categoryId)), SortedBy.HAND)
+    }
+
+    /**
+     * Gives a line a category (or none) without moving its money: the envelope it's in doesn't change. This is how a
+     * purchase from before 1.1.0 gets its category, and how a category is corrected later.
+     */
+    suspend fun setLineCategory(lineId: String, categoryId: String?) {
+        store.write {
+            val l = dao.linesNow().firstOrNull { it.id == lineId } ?: throw BudgetRuleException("That purchase is gone.")
+            if (categoryId != null && dao.category(categoryId)?.deleted != false) throw BudgetRuleException("That category is gone.")
+            put(l, l.copy(categoryId = categoryId, updatedAt = now))
         }
     }
 
@@ -256,7 +317,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             val bucket = bucketOf(ld)
             val old = existing.getOrNull(i)
             val new = (old ?: TransactionLineEntity(transactionId = txId, bucket = bucket, amount = ld.amount, createdAt = w.now, updatedAt = w.now))
-                .copy(bucket = bucket, envelopeId = ld.envelopeId, amount = ld.amount, sortOrder = i, updatedAt = w.now)
+                .copy(bucket = bucket, envelopeId = ld.envelopeId, amount = ld.amount, sortOrder = i, categoryId = ld.categoryId, updatedAt = w.now)
             w.put(old, new)
         }
         existing.drop(drafts.size).forEach { w.put(it, it.copy(deleted = true, updatedAt = w.now)) }

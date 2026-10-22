@@ -55,6 +55,7 @@ and bank sync bring those in).
 | `remind` | Debt: remind like a bill. |
 | `remindDays` | Debt: how many days ahead to remind, 0 to 30. |
 | `order` | Its place in the fill order, from 1 (Rollover always comes first and isn't counted). Left out: a new envelope goes at the end, an existing one stays where it is. |
+| `categories` | A list of category names it claims (a purchase in a claimed category goes to this envelope). Each category can be claimed by one envelope. A name the app doesn't have yet is created. When given, it is the envelope's whole claim list. |
 
 ### Bills
 
@@ -80,13 +81,14 @@ and bank sync bring those in).
 | `envelope` | Where the money goes: an envelope's name, or `"Ready to assign"` for a rule for money in. |
 | `splits` | Instead of `envelope`: a list of `{ "envelope": "<name>", "share": <whole number> }`, the money split in proportion to the shares. |
 | `transfer` | `true`: a transfer between your own accounts (no envelope). |
+| `category` | The category a match gets (money out only). On its own, a match is sorted by the category's claim: the envelope that claims it, or Unplanned. With an `envelope` or `splits`, the match goes there and gets the category. A name the app doesn't have yet is created. |
 | `account` | Only for this account (its name in the app). |
 | `direction` | `"out"` (money out, the default), `"in"` or `"either"`. |
 | `min`, `max` | Only for amounts in this range, both ends included. |
 | `alwaysAsk` | Suggest, but never sort by itself. |
 | `bill` | A match counts as a payment toward this bill. |
 
-A rule needs one of `envelope`, `splits` or `transfer`. A new rule is tried first, before the rules already in the app.
+A rule needs one of `envelope`, `splits`, `category` or `transfer`. A new rule is tried first, before the rules already in the app.
 
 ### Subscriptions
 
@@ -120,8 +122,8 @@ Every name and amount here is invented.
   "format": "deaddropfinance-setup",
   "version": 1,
   "envelopes": [
-    { "name": "Groceries", "mode": "fill_to_target", "target": "420.00", "everyday": true, "order": 1 },
-    { "name": "Fuel", "mode": "fill_to_target", "target": "130.00", "everyday": true, "order": 2 },
+    { "name": "Groceries", "mode": "fill_to_target", "target": "420.00", "everyday": true, "order": 1, "categories": [ "Groceries", "Snacks" ] },
+    { "name": "Fuel", "mode": "fill_to_target", "target": "130.00", "everyday": true, "order": 2, "categories": [ "Car gas" ] },
     { "name": "Power", "mode": "fill_to_target" },
     { "name": "Rainy Day", "mode": "add_every_payday", "perPayday": "40.00" },
     { "name": "Weekend Trip", "mode": "goal", "goal": "650.00", "goalDate": "2030-11-20" },
@@ -134,9 +136,10 @@ Every name and amount here is invented.
   ],
   "paydays": { "next": "2030-05-14" },
   "rules": [
-    { "match": "sample market", "envelope": "Groceries" },
+    { "match": "sample market", "envelope": "Groceries", "category": "Groceries" },
     { "match": "sample corner shop", "splits": [ { "envelope": "Groceries", "share": 3 }, { "envelope": "Rainy Day", "share": 1 } ], "alwaysAsk": true },
     { "match": "sample fuel stop", "envelope": "Fuel", "min": "20.00" },
+    { "match": "sample pizza", "category": "Eating out" },
     { "match": "sample payroll", "direction": "in", "envelope": "Ready to assign" },
     { "match": "sample savings transfer", "direction": "either", "transfer": true },
     { "match": "sample power", "envelope": "Power", "bill": "Sample Power Co" }

@@ -115,6 +115,7 @@ class PurgeTest {
         a.sortInto(tx, food)
         a.move(null, food, 50_00)
         a.saveBonus(null, 20_00, day, "Venmo", "Sample")
+        store.ensureCategories()
         assertTrue(store.dao.transactionsNow().any { it.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS })
         val bills = BillActions(store, a) { day }
         val bill = bills.saveBill(null, BillActions.BillDraft("Sample Power", 80_00, day.plusDays(5), envelopeId = food, reminder = true))
@@ -138,6 +139,12 @@ class PurgeTest {
         purger().purge()
 
         assertEquals("every budget table is empty", emptyMap<String, Int>(), rowsLeft())
+        // categories start over: the default set and Unplanned come back the next time the app starts
+        store.ensureCategories()
+        val fresh = a.snapshot()
+        assertEquals(17, fresh.categories.size)
+        assertEquals("Unplanned", fresh.unplannedEnvelope!!.name)
+        assertTrue("no claims", fresh.categories.all { it.envelopeId == null })
         assertTrue("receipt photos gone", receipts.listFiles().isNullOrEmpty())
         assertEquals(setOf(SecretStore.simplefinUrl(conn)), secrets.names())
         // every setting is back to its default

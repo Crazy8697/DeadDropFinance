@@ -85,6 +85,12 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
         return learnAfter(txId)
     }
 
+    /** Sorts a To sort purchase by hand by its category, then learns from it. */
+    suspend fun sortByCategory(txId: String, categoryId: String): Learned? {
+        actions.sortIntoCategory(txId, categoryId)
+        return learnAfter(txId)
+    }
+
     /**
      * Learning, after a transaction was sorted by hand or its suggestion approved: when the user's last
      * [LEARN_AFTER] choices for the same payee all went to the same single place and no rule covers the payee, a
@@ -173,6 +179,8 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
         val alwaysAsk: Boolean = false,
         /** A match counts as a payment toward this bill. */
         val billId: String? = null,
+        /** The category a match gets (money out only). With no envelope in [splits], a match sorts by the category's claim. */
+        val categoryId: String? = null,
     )
 
     /** Checks a rule before it's saved: the same checks the editor shows. */
@@ -181,8 +189,9 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
         if (d.minAmount != null && d.minAmount < 0 || d.maxAmount != null && d.maxAmount < 0) throw BudgetRuleException("Amounts here can't be negative.")
         if (d.minAmount != null && d.maxAmount != null && d.minAmount > d.maxAmount) throw BudgetRuleException("The lowest amount is above the highest.")
         if (d.action == RuleAction.ENVELOPE) {
-            if (d.splits.isEmpty()) throw BudgetRuleException("Choose an envelope.")
-            if (d.splits.any { it.weight <= 0 }) throw BudgetRuleException("Every split line needs an amount.")
+            if (d.splits.isEmpty() && d.categoryId == null) throw BudgetRuleException("Choose an envelope or a category.")
+            if (d.categoryId != null && d.direction >= 0) throw BudgetRuleException("A category is for spending. Make the rule for money out, or take the category off.")
+            if (d.splits.isNotEmpty() && d.splits.any { it.weight <= 0 }) throw BudgetRuleException("Every split line needs an amount.")
             if (d.splits.map { it.target }.distinct().size != d.splits.size) throw BudgetRuleException("An envelope is in the split twice.")
             if (d.direction <= 0 && d.splits.any { it.target == Rules.RTA }) throw BudgetRuleException("Spending can't go to Ready to Assign. Choose an envelope, or make the rule for money in.")
         }
@@ -212,7 +221,7 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
                 base.copy(
                     matchText = Payees.clean(d.matchText), accountId = d.accountId, direction = d.direction, minAmount = d.minAmount,
                     maxAmount = d.maxAmount, action = d.action, splits = if (d.action == RuleAction.ENVELOPE) Rules.format(d.splits) else "",
-                    alwaysAsk = d.alwaysAsk, priority = priority, billId = d.billId, updatedAt = now,
+                    alwaysAsk = d.alwaysAsk, priority = priority, billId = d.billId, categoryId = d.categoryId.takeIf { d.action == RuleAction.ENVELOPE }, updatedAt = now,
                 ),
             ).id
         }

@@ -30,6 +30,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import java.time.LocalDate
+import net.darkrelay.deaddropfinance.data.CategoryEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
@@ -40,7 +41,7 @@ import net.darkrelay.deaddropfinance.domain.Payday
 
 /** The envelope list in fill order. Drag the handle to change the order (it's the payday fill order). */
 @Composable
-fun EnvelopesScreen(budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onMove: () -> Unit, onReorder: (List<String>) -> Unit) {
+fun EnvelopesScreen(budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onMove: () -> Unit, onReorder: (List<String>) -> Unit, today: LocalDate = LocalDate.now()) {
     val list = budget.fillOrder
     val archived = budget.envelopes.filter { it.archived }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -48,6 +49,8 @@ fun EnvelopesScreen(budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> U
             TextButton(onClick = onMove) { Text("Move money") }
             TextButton(onClick = onAdd) { Text("Add") }
         }
+        val month = budget.months(today).first()
+        Text(assignedLine(budget.assignedIn(month), budget.incomeIn(month)), style = MaterialTheme.typography.titleSmall, color = DdfColors.Cyan)
         Text("Fill order, drag the handle to change it", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         if (list.size <= 1) EmptyState("No envelopes yet besides Rollover. Add one to give your money a job.")
         ReorderableList(list, budget, onEnvelope, onReorder)
@@ -187,9 +190,22 @@ private fun Detail(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) { Text(label, color = DdfColors.Muted, modifier = Modifier.weight(1f)); Text(value) }
 }
 
-/** Create or edit an envelope: name, mode, and the amounts that mode uses. */
+/**
+ * The categories an envelope can claim (1.1.0): every category, with the ones another envelope already claims named
+ * (they can't be picked here), the ones this envelope claims now, and where the choice goes when it's saved.
+ */
+data class ClaimsUi(
+    val categories: List<CategoryEntity>,
+    /** Category id to the name of the other envelope that claims it. */
+    val claimedElsewhere: Map<String, String>,
+    val initial: Set<String>,
+    val onChosen: (Set<String>) -> Unit,
+)
+
+/** Create or edit an envelope: name, mode, and the amounts that mode uses. [claims] adds the categories it claims. */
 @Composable
-fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> Unit, onSave: (BudgetActions.EnvelopeDraft) -> Unit) {
+fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> Unit, onSave: (BudgetActions.EnvelopeDraft) -> Unit, claims: ClaimsUi? = null) {
+    var claimed by remember { mutableStateOf(claims?.initial ?: emptySet()) }
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var mode by remember { mutableStateOf(existing?.mode ?: EnvelopeMode.FILL_TO_TARGET) }
     var target by remember { mutableStateOf(existing?.target?.let { Money.plain(it) } ?: "") }
@@ -235,11 +251,32 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
             }
             SettingRow("Everyday spending", "Counts in Safe to Spend, like groceries and gas. Alerts warn when Safe to Spend would go negative.", everyday, true, { everyday = it })
         }
+        if (claims != null && existing?.unplanned != true && !system) {
+            SectionTitle("Categories this envelope claims")
+            Text(
+                "A purchase in a category goes to the envelope that claims it. A category nothing claims goes to Unplanned. Each category can be claimed by one envelope.",
+                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            claims.categories.forEach { c ->
+                val other = claims.claimedElsewhere[c.id]
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.Checkbox(
+                        checked = c.id in claimed, enabled = other == null,
+                        onCheckedChange = { on -> claimed = if (on) claimed + c.id else claimed - c.id },
+                    )
+                    Column {
+                        Text(c.name, color = if (other == null) DdfColors.Text else DdfColors.Muted)
+                        if (other != null) Text("Claimed by $other", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
         ErrorLine(error)
         Gap()
         Button(
             onClick = {
                 fun amt(s: String) = if (s.isBlank()) null else Money.parse(s)
+                claims?.onChosen(claimed)
                 onSave(
                     BudgetActions.EnvelopeDraft(
                         name = name, mode = mode,
@@ -350,3 +387,6 @@ fun AssignScreen(
         Gap(24)
     }
 }
+
+/** The line at the top of Envelopes: how much of this budget month's income is assigned to envelopes. */
+fun assignedLine(assigned: Long, income: Long): String = "${Money.format(assigned)} of ${Money.format(income)} assigned"

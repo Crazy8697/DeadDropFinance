@@ -244,8 +244,47 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - It travels in backup and restore, and Purge data and Erase everything remove it like other data. The JSON setup
   importer never includes it.
 
+## Categories (1.1.0)
+
+- A category is a label for what a purchase was (Rent, Groceries). It is separate from the envelope, which is where the
+  money comes from, but envelopes claim categories (below).
+- The default set, created on first run and on upgrade (once: a category the user deletes doesn't come back): Rent,
+  Utilities, Phone and internet, Insurance, Groceries, Snacks, Eating out, Car gas, Car upkeep, Household,
+  Subscriptions, Kids, Medical, Debt payments, Gifts, Paid a friend, Other. The user can add, rename and delete
+  categories (Categories tab, Manage). Deleting one that has purchases (or rules) asks which category to move them to
+  first; their envelopes don't change.
+- Every purchase (money out) gets a category when it is sorted by hand or entered by hand. Income, bonus income and
+  transfers don't. A split purchase has a category per line. Rule matches and approved suggestions carry the rule's
+  or the earlier choice's category when they have one; a rule made before 1.1.0 has none until it is edited.
+- A purchase from before 1.1.0 has no category: it shows as Uncategorized in the breakdown and can be given one from
+  Activity (open the purchase, Category). Nothing is guessed for it. Giving a sorted purchase a category doesn't
+  move its money; sorting one that is still in To sort by category does.
+- Returns and refunds take their amount back off the category of the purchase they return (a split return follows
+  the purchase's lines).
+- The category shows on each purchase in Activity and can be changed there. Changing a purchase's envelope by hand
+  (the edit screen) doesn't change its category.
+- Envelopes claim categories: in the envelope editor an envelope can claim any number of categories, and a category
+  can be claimed by at most one envelope. Picking a category on a purchase puts it in the envelope that claims it.
+  A category nothing claims goes to Unplanned. Archiving an envelope drops its claims.
+- Unplanned is a built-in envelope (created on first run and on upgrade; an envelope the user already named
+  Unplanned is used as it is). It is an everyday envelope, so it counts toward Safe to Spend, it is funded like any
+  other envelope, and it can't be archived or deleted. It claims no categories.
+- A payee rule can set a category with or instead of an envelope. A rule with only a category sorts by the claim.
+  Money-in rules have no category. Existing rules work unchanged.
+- The Categories tab (between Bills and More) shows spending per category for a budget month (payday to payday),
+  biggest first, with the total at the top. Older and Newer step through the budget months; tapping a category lists
+  its purchases for that month. Uncategorized is the spending that has no category yet.
+- The JSON setup importer accepts a `category` on a rule and a `categories` list on an envelope (docs/IMPORT.md);
+  unknown category names are created. Backup and restore carry categories and claims. Purge data and Erase everything
+  reset them: the default set and Unplanned come back the next time the app starts.
+- The Envelopes screen starts with one line, "$X of $Y assigned": Y is the income that came in during the current budget
+  month (the payday deposit, other deposits that went to Ready to Assign, and bonus income); X is how much was
+  assigned to envelopes this budget month (out of Ready to Assign, less what was moved back into it). It follows
+  assigning, moving money and new income right away. The plain version: a Rollover sweep (envelope to Rollover), money
+  that goes straight to an envelope as income, and a return are not counted in either figure.
+
 ## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
-- An update check (on by default; More, or About, Help: Check for updates) asks GitHub for the app's own latest
+- An update check (on by default; More, Check for updates) asks GitHub for the app's own latest
   release. No account, no telemetry: just an anonymous request, and nothing about the phone or the budget is sent.
 - A newer release shows a bar on Home: release notes, Download and install, Skip this version, Later.
 - Download and install fetches the release APK into the app's own cache, its progress shown in the bar, then
@@ -260,9 +299,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A failed download, a failed check or a failed install never touches the budget and never crashes the app; the
   downloaded file is always cleaned up afterward, whichever way it goes.
 
-## About, Help and legal (Stages 14 and 15)
-- About (More): the app's icon, name, version, license line, credits (SimpleFIN, and every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Buy DarkRelay some cheese 🧀" (buymeacoffee.com/crazy8697).
-- Help (More): Licenses, Support DarkRelay, Check for updates.
+## About and legal (Stages 14 and 15; Help folded into About in 1.1.0)
+- About (More): the app's icon, name, version, license line, credits (SimpleFIN, and every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Support DarkRelay: buy some cheese 🧀" (buymeacoffee.com/crazy8697). There is no Help screen: Check for updates lives only in More, with the update bar right there.
 - Licenses shows the app's license, NOTICE, the third-party notices and every license text, all carried in the app.
 - The privacy policy (PRIVACY.md) and end user agreement (TERMS.md) are in the repository and in the app.
 - SimpleFIN's terms (read on SimpleFIN's own site for 0.15.0) ask for no attribution. They require staying within the published usage limits (24 requests a day or fewer, 90-day date ranges), showing SimpleFIN's errors to the user, handling access tokens securely, and not using SimpleFIN's branding or logos. The app sends at most 20 requests a day per connection, asks for 45 days at a time (the Bridge's own recommended range; a first 90-day sync is two requests) with a 5-day overlap, shows SimpleFIN's messages on the Bank sync screen, keeps the access in its own encrypted file, and uses SimpleFIN's name only in text.
