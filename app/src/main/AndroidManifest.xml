@@ -37,6 +37,9 @@
         android:theme="@style/Theme.DeadDropFinance">
         <!-- Rotation, keyboard and theme changes are handled by Compose in place: the screen and anything being
              typed or picked are kept (the activity isn't rebuilt). -->
+        <!-- The PackageInstaller's answer to Download and install: opens Android's install confirmation. Not exported. -->
+        <receiver android:name=".UpdateInstallReceiver" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale|layoutDirection|locale"

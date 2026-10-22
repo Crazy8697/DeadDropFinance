@@ -529,9 +529,10 @@ class MainActivity : ComponentActivity() {
                     session.fsync(out)
                 }
             }
-            val intent = Intent(this, MainActivity::class.java)
-            val pending = android.app.PendingIntent.getActivity(
-                this, 0, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+            // the installer answers with the confirmation screen's intent: UpdateInstallReceiver opens it (mutable, so the installer can add its extras)
+            val pending = android.app.PendingIntent.getBroadcast(
+                this, 0, Intent(this, UpdateInstallReceiver::class.java),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
             )
             session.commit(pending.intentSender)
         }
