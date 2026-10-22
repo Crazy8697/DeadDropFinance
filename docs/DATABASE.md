@@ -57,8 +57,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - If it can't be decrypted, it is left as it is (never replaced or deleted); the affected connection asks to be
   reconnected.
 - Screens show only a masked hint (the last four characters), never a value.
-- Credentials don't travel: the backup (0.15.0) leaves out the bank connection tables (`connection`,
-  `linked_account`, `sync_log`) and the credentials file. Nothing exports them.
+- Decided (0.15.0, confirmed 0.15.1): credentials don't travel. The backup leaves out the bank connection tables
+  (`connection`, `linked_account`, `sync_log`) and the credentials file. Nothing exports them.
 - The backup carries every other table (the change log included; this phone's device id in `meta` is kept on
   restore) and the receipt photos, decrypted from `files/receipts` and sealed under the backup's own key. Restore
   re-encrypts them under the phone's photo key. A backup from an older schema restores into the current one (every

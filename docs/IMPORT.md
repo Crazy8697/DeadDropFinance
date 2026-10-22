@@ -13,6 +13,8 @@ and bank sync bring those in).
   `bills[2] ("Sample Phone"): "due" must be a date like "2030-05-17".`) and nothing is applied.
 - Every part of the file is optional except `format` and `version`. A field the importer doesn't know is an error,
   so a typo never goes unnoticed.
+- Export example, next to Pick a JSON file, saves the invented example below (exactly as it is here) to a file
+  named `deaddropfinance-setup-example.json`, to see the format or use as a starting point.
 
 ## Values
 

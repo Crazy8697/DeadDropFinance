@@ -42,7 +42,7 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
             Text("  $line", color = DdfColors.Muted)
         }
         Gap()
-        Text("There is no backup yet, so nothing can bring it back.", color = DdfColors.Warning)
+        Text("If you might want this back, make a backup first (More, Backup and restore).", color = DdfColors.Warning)
         Gap()
         Text("The app then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
         Gap(16)
@@ -107,16 +107,25 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, connectionNames: List<Stri
     }
 }
 
-/** After an erase: what's left elsewhere (the SimpleFIN connection on the Bridge) and how to remove it. */
+/**
+ * After an erase: what's left elsewhere (the SimpleFIN connection on the Bridge) and how to remove it. [left] is
+ * what Eraser.erase() couldn't remove from this phone (empty when everything was); the headline only says
+ * everything is gone when that's actually true.
+ */
 @Composable
-fun ErasedScreen(onOpen: (String) -> Unit, onStartOver: () -> Unit) {
+fun ErasedScreen(left: List<String>, onOpen: (String) -> Unit, onStartOver: () -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Everything is erased", style = MaterialTheme.typography.headlineSmall)
+        Text(if (left.isEmpty()) "Everything is erased" else "Erase finished, but something is left", style = MaterialTheme.typography.headlineSmall)
         Gap()
-        Text("Nothing of your budget is left on this phone.", color = DdfColors.Muted)
+        if (left.isEmpty()) {
+            Text("Nothing of your budget is left on this phone.", color = DdfColors.Muted)
+        } else {
+            Text("This phone couldn't remove:", color = DdfColors.Warning)
+            left.forEach { Text("  $it", color = DdfColors.Muted) }
+        }
         Gap(16)
         Text(
             "If you used SimpleFIN, its connection for this app still exists on the SimpleFIN Bridge. To remove it, sign in at the Bridge, " +

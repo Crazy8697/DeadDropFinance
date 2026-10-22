@@ -118,6 +118,15 @@ interface Platform {
     fun pickCsv(onPicked: (name: String, text: String?) -> Unit)
     /** The system's file picker for a setup JSON file; [onPicked] gets its name and text (null if it couldn't be read). */
     fun pickJson(onPicked: (name: String, text: String?) -> Unit)
+    /** Saves docs/IMPORT.md's invented example setup file through the system save picker; [done] says whether it worked. */
+    fun exportSetupExample(done: (Boolean) -> Unit)
+    /**
+     * Downloads the release APK, verifies it against the published checksum, then installs it (Android's
+     * PackageInstaller). Never throws, never touches budget data; every step is reported through [onEvent].
+     */
+    fun downloadAndInstallUpdate(onEvent: (net.darkrelay.deaddropfinance.UpdateInstallEvent) -> Unit)
+    /** Opens Android's "install unknown apps" screen for this app. */
+    fun openInstallPermissionSettings()
     /** Puts the background sync job in line with the settings. */
     fun scheduleSync(hasConnections: Boolean)
     /** Erase everything and start over (the activity shows what's next). */
@@ -239,6 +248,7 @@ fun AppRoot(
     var working by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<UpdateCheck.Release?>(null) }
+    var updateInstall by remember { mutableStateOf(UpdateInstallState()) }
     var more by remember { mutableStateOf(platform.more) }
     var importState by remember { mutableStateOf(ImportState()) }
     var washCandidates by remember { mutableStateOf<List<TransactionEntity>>(emptyList()) }
@@ -353,7 +363,24 @@ fun AppRoot(
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
         }
     }
-    LaunchedEffect(resumeTick) { alertTick++ }
+    fun handleUpdateEvent(event: net.darkrelay.deaddropfinance.UpdateInstallEvent) {
+        updateInstall = when (event) {
+            is net.darkrelay.deaddropfinance.UpdateInstallEvent.Downloading ->
+                updateInstall.copy(working = true, percent = event.percent, needsPermission = false, message = null, failed = false)
+            net.darkrelay.deaddropfinance.UpdateInstallEvent.NeedsInstallPermission ->
+                updateInstall.copy(working = false, percent = null, needsPermission = true, message = "Allow installs, then come back here to continue.", failed = false)
+            is net.darkrelay.deaddropfinance.UpdateInstallEvent.Done ->
+                updateInstall.copy(working = false, percent = null, needsPermission = false, message = event.message, failed = !event.ok)
+        }
+    }
+    LaunchedEffect(resumeTick) {
+        alertTick++
+        // back from "Install unknown apps": the verified download is still there, so this continues straight to installing
+        if (updateInstall.needsPermission) {
+            updateInstall = updateInstall.copy(working = true, needsPermission = false, message = null)
+            platform.downloadAndInstallUpdate(::handleUpdateEvent)
+        }
+    }
     LaunchedEffect(openTo?.n) {
         if (openTo != null) onTaken()
         when (openTo?.where) {
@@ -457,8 +484,14 @@ fun AppRoot(
                             if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { sync.settings.setupCardDismissed = true; cardDismissed = true })
                             if (showAlerts) AlertsCard(onTurnOn = { askNotifications() }, onNotNow = { sync.settings.alertsAsked = true; alertsAsked = true })
                             if (r != null) UpdateBar(
-                                r, onNotes = { platform.openUrl(r.notesUrl) }, onDownload = { platform.openUrl(UpdateCheck.DOWNLOAD_URL) },
-                                onSkip = { platform.skipVersion(r.version); release = null }, onLater = { release = null },
+                                r, updateInstall, onNotes = { platform.openUrl(r.notesUrl) },
+                                onDownload = {
+                                    updateInstall = UpdateInstallState(working = true)
+                                    platform.downloadAndInstallUpdate(::handleUpdateEvent)
+                                },
+                                onAllowInstalls = { platform.openInstallPermissionSettings() },
+                                onSkip = { platform.skipVersion(r.version); release = null; updateInstall = UpdateInstallState() },
+                                onLater = { release = null; updateInstall = UpdateInstallState() },
                             )
                         }
                     }
@@ -827,6 +860,15 @@ fun AppRoot(
                                     }
                                 }
                             }
+                        }
+                    },
+                    onExportExample = {
+                        importSetup = importSetup.copy(message = null, errors = emptyList())
+                        platform.exportSetupExample { ok ->
+                            importSetup = importSetup.copy(
+                                message = if (ok) "Saved deaddropfinance-setup-example.json." else null,
+                                errors = if (ok) emptyList() else importSetup.errors,
+                            )
                         }
                     },
                     onImport = {

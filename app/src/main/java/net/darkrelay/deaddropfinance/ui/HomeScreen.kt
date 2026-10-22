@@ -34,15 +34,46 @@ import net.darkrelay.deaddropfinance.domain.Bills
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.Money
 
-/** The update bar (same behavior as 0.5.0): never a popup. */
+/**
+ * Download and install's progress (0.15.1): downloading (a percent, or none while the size isn't known yet), needing
+ * Android's "install unknown apps" permission first, or a final message once it's handed to the installer or failed.
+ */
+data class UpdateInstallState(
+    val working: Boolean = false,
+    val percent: Int? = null,
+    val needsPermission: Boolean = false,
+    val message: String? = null,
+    val failed: Boolean = false,
+)
+
+/** The update bar: never a popup. Download and install (0.15.1) fetches, verifies and installs the release itself. */
 @Composable
-fun UpdateBar(release: UpdateCheck.Release, onNotes: () -> Unit, onDownload: () -> Unit, onSkip: () -> Unit, onLater: () -> Unit) {
+fun UpdateBar(
+    release: UpdateCheck.Release, install: UpdateInstallState, onNotes: () -> Unit, onDownload: () -> Unit,
+    onAllowInstalls: () -> Unit, onSkip: () -> Unit, onLater: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Column(Modifier.padding(12.dp)) {
             Text("Version ${release.version} is available", style = MaterialTheme.typography.titleMedium)
+            if (install.working) {
+                if (install.percent != null) {
+                    androidx.compose.material3.LinearProgressIndicator(progress = { install.percent / 100f }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                    Text("Downloading... ${install.percent}%", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                } else {
+                    androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 8.dp))
+                    Text("Downloading...", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            if (install.needsPermission) {
+                Text("Dead Drop Finance needs permission to install updates.", color = DdfColors.Warning, modifier = Modifier.padding(top = 8.dp))
+                TextButton(onClick = onAllowInstalls) { Text("Allow installs") }
+            }
+            if (install.message != null) {
+                Text(install.message, color = if (install.failed) DdfColors.Error else DdfColors.Cyan, modifier = Modifier.padding(top = 8.dp))
+            }
             Row(Modifier.fillMaxWidth()) {
                 TextButton(onClick = onNotes) { Text("Release notes") }
-                TextButton(onClick = onDownload) { Text("Download") }
+                TextButton(onClick = onDownload, enabled = !install.working) { Text("Download and install") }
             }
             Row(Modifier.fillMaxWidth()) {
                 TextButton(onClick = onSkip) { Text("Skip this version") }

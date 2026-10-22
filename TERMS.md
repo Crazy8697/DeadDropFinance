@@ -21,3 +21,4 @@ By installing or using Dead Drop Finance (the app), you agree to these terms.
 6. Use it lawfully. Use the app and any service it connects to only as the law and those services' terms allow.
 7. Changes. A new version of these terms comes with a new version of the app, and the release notes say when they
    changed. Using a version means agreeing to the terms that come with it.
+8. Contact. Questions about these terms: email support@darkrelay.net.

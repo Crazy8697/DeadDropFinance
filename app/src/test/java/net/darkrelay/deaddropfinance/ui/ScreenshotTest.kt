@@ -148,7 +148,11 @@ class ScreenshotTest {
     private companion object { const val TALL = "w400dp-h1500dp-xhdpi" }
 
     @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeUpdateDownloading() = shot("02b-home-update-downloading") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true, percent = 42), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeUpdateNeedsPermission() = shot("02c-home-update-needs-permission") {
+        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(needsPermission = true, message = "Allow installs, then come back here to continue."), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {})
+    }
     @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test fun envelopes() = shot("04-envelopes") { EnvelopesScreen(budget, {}, {}, {}, {}) }
     @Test fun envelopesEmpty() = shot("05-envelopes-empty") { EnvelopesScreen(empty, {}, {}, {}, {}) }
@@ -291,7 +295,8 @@ class ScreenshotTest {
         }
     }
     @Test @Config(qualifiers = TALL) fun eraseScreen() = shot("63-erase-everything") { EraseScreen({}, false) {} }
-    @Test fun erasedScreen() = shot("64-erased") { ErasedScreen({}, {}) }
+    @Test fun erasedScreen() = shot("64-erased") { ErasedScreen(emptyList(), {}, {}) }
+    @Test fun erasedScreenLeftSomething() = shot("64b-erased-left-something") { ErasedScreen(listOf("keys folder"), {}, {}) }
     @Test @Config(qualifiers = TALL) fun moreWithErase() = shot("65-more-erase-row") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, null, {}) }
     @Test fun transactionBeforeStart() = shot("66-transaction-before-start") {
         val old = tx("old", "chk", "Sample Old Charge", -9_99, 60)
@@ -648,6 +653,7 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun backupRestorePicked() = shot("125-backup-restore-picked") {
         BackupScreen(BackupState(restoreName = "deaddrop-2030-03-01.ddfbak", error = "Wrong password, or the backup file is damaged."), {}, {}, {}, {}, {})
     }
+    @Test fun setupImportInitial() = shot("125b-import-setup-initial") { SetupImportScreen(SetupImportState(), {}, {}, {}, {}, {}) }
     @Test @Config(qualifiers = TALL) fun setupImportPreview() = shot("126-import-setup-preview") {
         SetupImportScreen(
             SetupImportState(
@@ -658,7 +664,7 @@ class ScreenshotTest {
                     settings = listOf("autoApprove", "syncEveryHours", "parkingLotWait"), nextPayday = today.plusDays(14),
                 ),
             ),
-            {}, {}, {}, {},
+            {}, {}, {}, {}, {},
         )
     }
     @Test @Config(qualifiers = TALL) fun setupImportErrors() = shot("127-import-setup-errors") {
@@ -668,7 +674,7 @@ class ScreenshotTest {
                 "bills[2] (\"Sample Phone\"): \"due\" must be a date like \"2030-05-17\".",
                 "\"transactions\": the importer never imports transactions. Take them out of the file (CSV import or bank sync brings transactions in).",
             )),
-            {}, {}, {}, {},
+            {}, {}, {}, {}, {},
         )
     }
     @Test @Config(qualifiers = TALL) fun purge() = shot("128-purge-data") { PurgeScreen({}, false, listOf("Sample Bridge")) {} }

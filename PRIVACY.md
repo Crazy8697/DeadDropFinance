@@ -31,6 +31,9 @@ Android's own backup is turned off for the app, so none of this leaves the phone
   policy (https://beta-bridge.simplefin.org/info/privacy), which you agree to with SimpleFIN when you sign up.
 - Update check (on by default, can be turned off in More): the app asks GitHub for the latest release of the app.
   Nothing about you or your budget is sent; GitHub sees the request like any web request.
+- Downloading an update (Download and install, from 0.15.1): when you choose to install a newer version, the app
+  fetches the release file from GitHub the same way, checks it against the release's own published checksum, and
+  installs it through Android's own installer. Nothing about you is sent there either.
 - Links you tap (darkrelay.net, SimpleFIN, support) open in your browser.
 
 ## Backups
@@ -66,4 +69,4 @@ A new version of this policy comes with a new version of the app, and the app's 
 
 ## Contact
 
-Questions about this policy: open an issue at https://github.com/Crazy8697/DeadDropFinance/issues.
+Questions about this policy: email support@darkrelay.net.

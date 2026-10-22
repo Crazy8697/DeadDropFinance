@@ -15,6 +15,7 @@ object UpdateCheck {
     const val ASSET_APK = "DeadDropFinance.apk"
     const val ASSET_SHA256 = "DeadDropFinance.apk.sha256"
     const val DOWNLOAD_URL = "https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/$ASSET_APK"
+    const val SHA256_DOWNLOAD_URL = "https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/$ASSET_SHA256"
 
     data class Release(val version: String, val notesUrl: String)
 

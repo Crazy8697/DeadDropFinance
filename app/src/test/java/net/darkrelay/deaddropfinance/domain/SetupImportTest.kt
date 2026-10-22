@@ -202,7 +202,7 @@ class SetupImportTest {
 
     @Test fun theExampleInImportMdImports() = world {
         val doc = listOf(File("../docs/IMPORT.md"), File("docs/IMPORT.md")).first { it.isFile }.readText()
-        val json = doc.substringAfter("```json").substringBefore("```")
+        val json = SetupExample.extract(doc)!!
         val plan = ok(json)
         val c = importer.check(plan)
         assertTrue(c.toString(), c is SetupImporter.Checked.Ok)

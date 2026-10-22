@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
+import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,6 +48,8 @@ class MainActivity : ComponentActivity() {
     private var pickCallback: ((String, String?) -> Unit)? = null
     private var sync by mutableStateOf<SyncService?>(null)
     private var erased by mutableStateOf(false)
+    /** What Erase everything couldn't remove (empty: everything went). */
+    private var erasedLeft by mutableStateOf<List<String>>(emptyList())
     /** Rises with each Purge data, so the screens start again from scratch (at the setup wizard). */
     private var generation by mutableIntStateOf(0)
     /** Rises each time the activity comes back to the front. */
@@ -92,6 +95,19 @@ class MainActivity : ComponentActivity() {
         done(uri)
     }
 
+    private var exportExampleDone: ((Boolean) -> Unit)? = null
+    private val exampleSaver = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
+        val done = exportExampleDone ?: return@registerForActivityResult
+        exportExampleDone = null
+        if (uri == null) { done(false); return@registerForActivityResult }
+        val ok = runCatching {
+            val doc = assets.open("docs/IMPORT.md").use { String(it.readBytes(), Charsets.UTF_8) }
+            val json = net.darkrelay.deaddropfinance.domain.SetupExample.extract(doc) ?: return@runCatching false
+            contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) } != null
+        }.getOrDefault(false)
+        done(ok)
+    }
+
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         val done = permissionDone ?: return@registerForActivityResult
         permissionDone = null
@@ -130,7 +146,7 @@ class MainActivity : ComponentActivity() {
                         when {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
-                            erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
+                            erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(erasedLeft, onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
                             o is DatabaseOpener.Opened.Ok && sync != null -> androidx.compose.runtime.key(generation) {
                                 AppRoot(
                                     o.store, sync!!, platform,
@@ -191,6 +207,7 @@ class MainActivity : ComponentActivity() {
     /** After an erase: open a new, empty database, as on a fresh install (the setup wizard comes up). */
     private fun startOver() {
         erased = false
+        erasedLeft = emptyList()
         applyHide()
         lifecycleScope.launch {
             opened = withContext(Dispatchers.IO) { app.open() }
@@ -255,7 +272,7 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 sync = null
                 opened = null
-                withContext(Dispatchers.IO) { app.eraseEverything() }
+                erasedLeft = withContext(Dispatchers.IO) { app.eraseEverything() }
                 erased = true
             }
         }
@@ -384,6 +401,12 @@ class MainActivity : ComponentActivity() {
             runCatching { backupOpener.launch(arrayOf("*/*")) }.onFailure { backupDone = null; done(null) }
         }
 
+        override fun exportSetupExample(done: (Boolean) -> Unit) {
+            exportExampleDone = done
+            app.lock.expectReturn()
+            runCatching { exampleSaver.launch("deaddropfinance-setup-example.json") }.onFailure { exportExampleDone = null; done(false) }
+        }
+
         override fun displayName(uri: Uri): String = runCatching {
             contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
                 if (c.moveToFirst()) c.getString(0) else null
@@ -430,6 +453,78 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        override fun downloadAndInstallUpdate(onEvent: (UpdateInstallEvent) -> Unit) {
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
+            val existing = verifiedUpdateFile?.takeIf { it.isFile }
+            if (existing != null) {
+                proceedToInstall(existing, onEvent, main)
+                return
+            }
+            Thread {
+                val dest = java.io.File(cacheDir, "update.apk")
+                val result = UpdateDownloader.download(
+                    UpdateCheck.DOWNLOAD_URL, UpdateCheck.SHA256_DOWNLOAD_URL, dest, UpdateClient.userAgent(Updates.installedVersion),
+                ) { bytes, total ->
+                    val pct = if (total > 0) ((bytes * 100) / total).toInt().coerceIn(0, 100) else null
+                    main.post { onEvent(UpdateInstallEvent.Downloading(pct)) }
+                }
+                when (result) {
+                    is UpdateDownloader.Result.Ok -> {
+                        verifiedUpdateFile = result.file
+                        main.post { proceedToInstall(result.file, onEvent, main) }
+                    }
+                    is UpdateDownloader.Result.Failed -> main.post { onEvent(UpdateInstallEvent.Done(false, result.message)) }
+                }
+            }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+        }
+
+        override fun openInstallPermissionSettings() {
+            runCatching {
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, "package:$packageName".toUri()))
+            }
+        }
+    }
+
+    /** A downloaded, verified update file waiting for the user to allow installs, kept only for this process's life. */
+    @Volatile private var verifiedUpdateFile: java.io.File? = null
+
+    /** After a verified download: install it, or ask for the "install unknown apps" permission first. */
+    private fun proceedToInstall(file: java.io.File, onEvent: (UpdateInstallEvent) -> Unit, main: android.os.Handler) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            onEvent(UpdateInstallEvent.NeedsInstallPermission)
+            return
+        }
+        Thread {
+            val ok = runCatching { installViaPackageInstaller(file) }.getOrDefault(false)
+            file.delete()
+            verifiedUpdateFile = null
+            main.post {
+                onEvent(UpdateInstallEvent.Done(ok, if (ok) "Installing: finish it on the screen that opens." else "The install couldn't be started. Try again."))
+            }
+        }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY }.start()
+    }
+
+    /** Writes [file] into a PackageInstaller session and commits it: Android's own confirmation screen takes over. */
+    private fun installViaPackageInstaller(file: java.io.File): Boolean {
+        val installer = packageManager.packageInstaller
+        val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(packageName)
+        val sessionId = installer.createSession(params)
+        installer.openSession(sessionId).use { session ->
+            file.inputStream().use { input ->
+                session.openWrite("update", 0, file.length()).use { out ->
+                    input.copyTo(out)
+                    session.fsync(out)
+                }
+            }
+            val intent = Intent(this, MainActivity::class.java)
+            val pending = android.app.PendingIntent.getActivity(
+                this, 0, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_MUTABLE,
+            )
+            session.commit(pending.intentSender)
+        }
+        return true
     }
 
     companion object {

@@ -9,6 +9,24 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Copies docs/IMPORT.md into the app's assets (not assets/licenses, so it never shows on the Licenses screen), so
+// Export example (Import setup, 0.15.1) can pull its invented example straight out of the one doc that describes
+// the format, instead of keeping a second copy that could drift out of sync.
+abstract class CopyDocAsset : DefaultTask() {
+    @get:InputFile
+    abstract val source: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val out = outputDir.get().asFile.resolve("docs")
+        out.mkdirs()
+        source.get().asFile.copyTo(out.resolve(source.get().asFile.name), overwrite = true)
+    }
+}
+
 // Copies LICENSE, NOTICE, THIRD-PARTY-NOTICES.md and the texts in licenses/ from the repo root into the app's
 // assets/licenses, so the repo files are the one source. The About screen that shows them comes in Stage 15.
 abstract class CopyLicenseAssets : DefaultTask() {
@@ -212,9 +230,13 @@ val copyLicenseAssets = tasks.register<CopyLicenseAssets>("copyLicenseAssets") {
     )
     licenseTexts.set(rootProject.layout.projectDirectory.dir("licenses"))
 }
+val copyImportDoc = tasks.register<CopyDocAsset>("copyImportDoc") {
+    source.set(rootProject.file("docs/IMPORT.md"))
+}
 androidComponents {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(copyLicenseAssets, CopyLicenseAssets::outputDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(copyImportDoc, CopyDocAsset::outputDir)
     }
 }
 

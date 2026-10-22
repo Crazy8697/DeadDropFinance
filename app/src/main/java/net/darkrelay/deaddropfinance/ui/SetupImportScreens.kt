@@ -33,7 +33,7 @@ data class SetupImportState(
  * settings. It shows what will be added and updated first; Import applies it, Cancel leaves everything as it is.
  */
 @Composable
-fun SetupImportScreen(s: SetupImportState, onBack: () -> Unit, onPick: () -> Unit, onImport: () -> Unit, onCancel: () -> Unit) {
+fun SetupImportScreen(s: SetupImportState, onBack: () -> Unit, onPick: () -> Unit, onExportExample: () -> Unit, onImport: () -> Unit, onCancel: () -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Import setup", onBack)
         Text(
@@ -69,7 +69,10 @@ fun SetupImportScreen(s: SetupImportState, onBack: () -> Unit, onPick: () -> Uni
                     TextButton(onClick = onCancel, enabled = !s.working) { Text("Cancel") }
                 }
             }
-            else -> Button(onClick = onPick, modifier = Modifier.padding(top = 12.dp)) { Text("Pick a JSON file") }
+            else -> Row(Modifier.padding(top = 12.dp)) {
+                Button(onClick = onPick) { Text("Pick a JSON file") }
+                OutlinedButton(onClick = onExportExample, modifier = Modifier.padding(start = 8.dp)) { Text("Export example") }
+            }
         }
         Gap(24)
     }

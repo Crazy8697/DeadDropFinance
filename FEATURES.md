@@ -219,7 +219,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Backup and restore (Stage 12)
 - More, Backup and restore. Back up now saves one file wherever the user picks with the phone's file picker (a name like deaddrop-2030-05-14.ddfbak). Restore from file picks one the same way.
 - The file is encrypted with a backup password the user types each time (at least 8 characters, typed twice), never stored: a key is made from it (PBKDF2 with HMAC-SHA256, 600,000 rounds, a random salt), and the contents are sealed with AES-256-GCM in chunks that can't be reordered, swapped or cut short unnoticed. Without the password nobody can open it.
-- It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sync, sorting, alerts, app lock, Hide screen, update checks). Not the phone's bank connections or their saved access: those stay on the phone, and on a new phone bank sync is connected again after restoring.
+- It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sync, sorting, alerts, app lock, Hide screen, update checks). Decided: bank connections and their saved access never travel in the backup. They stay on the phone, and on a new phone bank sync is connected again after restoring.
 - Restore replaces everything in the app with the backup's, after a warning on the screen. The whole file is read and checked first (password, every table, every photo); only then is the budget replaced, in one step, and the photos swapped in. A wrong password, a file that isn't a backup, a damaged or cut-short file, or a backup from a newer version is refused with a plain reason, and nothing changes. The phone's own bank connections stay as they are.
 - The screen shows when the last backup was made and its file name. Dropbox shows as "later" (Stage 69D).
 
@@ -229,6 +229,21 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - New names are added; names already in the app are updated with the fields the file gives. Nothing is ever deleted.
 - Before anything changes it shows what will be added and what will be updated (and which settings and the next payday), with Import and Cancel.
 - A bad file or field is refused whole, with each problem named by where it is. Nothing is applied from a file with errors.
+
+## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
+- An update check (on by default; More, or About, Help: Check for updates) asks GitHub for the app's own latest
+  release. No account, no telemetry: just an anonymous request, and nothing about the phone or the budget is sent.
+- A newer release shows a bar on Home: release notes, Download and install, Skip this version, Later.
+- Download and install fetches the release APK into the app's own cache, its progress shown in the bar, then
+  checks it against the release's own published checksum before anything is installed; a mismatch deletes the file
+  and nothing is installed. The download always comes from this app's own fixed GitHub release path, never a URL a
+  server answer supplies.
+- Installing goes through Android's own installer (PackageInstaller): no browser, no file manager. The first time,
+  if the app isn't yet allowed to install updates, a short message and a button open Android's "Install unknown
+  apps" screen for it; once allowed, the same verified download continues straight to installing, with no
+  re-download.
+- A failed download, a failed check or a failed install never touches the budget and never crashes the app; the
+  downloaded file is always cleaned up afterward, whichever way it goes.
 
 ## About, Help and legal (Stages 14 and 15)
 - About (More): the app's icon, name, version, license line, credits (SimpleFIN, and every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Buy DarkRelay some cheese 🧀" (buymeacoffee.com/crazy8697).

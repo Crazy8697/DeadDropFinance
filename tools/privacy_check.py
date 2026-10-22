@@ -48,10 +48,11 @@ PRIVATE_PREFIX = "docs/mockups/"
 
 # public values that may appear: the release certificate's SHA-256 is printed in docs/SIGNING.md on purpose
 PUBLIC_FINGERPRINTS = {"a93e9aa12b807633335bf28800b4d987fd1ad47c1a078ef095c2ac7feaf45ce0"}
-# e-mail domains and addresses that may appear (a published darkrelay.net contact address would go here)
+# e-mail domains and addresses that may appear
 EMAIL_ALLOW_DOMAINS = ["users.noreply.github.com", "example.com", "example.org"]
-# (git@github.com is GitHub's SSH remote address, used by tools/release.ps1, not a mailbox)
-EMAIL_ALLOW_ADDRESSES = ["git@github.com"]
+# (git@github.com is GitHub's SSH remote address, used by tools/release.ps1, not a mailbox; support@darkrelay.net is
+# the app's published contact address, in PRIVACY.md, TERMS.md and the in-app copies, from 0.15.1)
+EMAIL_ALLOW_ADDRESSES = ["git@github.com", "support@darkrelay.net"]
 
 # build service accounts (CI runners, and JitPack's, whose paths Tesseract4Android's native library keeps) aren't people
 USER_PATH = ("a personal user path",

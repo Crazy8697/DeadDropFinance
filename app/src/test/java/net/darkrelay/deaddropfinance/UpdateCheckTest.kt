@@ -46,5 +46,7 @@ class UpdateCheckTest {
     @Test fun downloadIsTheFixedLatestPath() {
         assertEquals("https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/DeadDropFinance.apk",
             UpdateCheck.DOWNLOAD_URL)
+        assertEquals("https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/DeadDropFinance.apk.sha256",
+            UpdateCheck.SHA256_DOWNLOAD_URL)
     }
 }
