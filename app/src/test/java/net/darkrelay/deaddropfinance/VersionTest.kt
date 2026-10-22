@@ -57,6 +57,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "0.15.2") assertEquals(1502, BuildConfig.VERSION_CODE)
         // 0.15.3 (install confirmation fix) -> 0 * 10000 + 15 * 100 + 3
         if (BuildConfig.VERSION_NAME == "0.15.3") assertEquals(1503, BuildConfig.VERSION_CODE)
+        // 1.0.0 (the first full release) -> 1 * 10000 + 0 * 100 + 0
+        if (BuildConfig.VERSION_NAME == "1.0.0") assertEquals(10000, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

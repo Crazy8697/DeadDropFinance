@@ -7,14 +7,15 @@ telemetry.
 
 ## Status
 
-Early development builds are on the [Releases](https://github.com/Crazy8697/DeadDropFinance/releases) page. They
-already budget: accounts, envelopes, paydays and transactions.
+Version 1.0.0 is the first full release. It does the whole job: accounts, envelopes, paydays, bills, transactions,
+receipt scanning, parked buys, backup and restore, and an in-app update.
 
 Bank transactions come in two ways: bank sync through SimpleFIN Bridge (a paid service you sign up for directly with
 SimpleFIN), or CSV files you download from your bank and import. You can also enter things by hand.
 
-To install one, open the Releases page on your phone and download `DeadDropFinance.apk`. When Android asks, allow
-your browser to install unknown apps.
+To install it, [download `DeadDropFinance.apk`](https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/DeadDropFinance.apk)
+on your phone, or use the [Releases](https://github.com/Crazy8697/DeadDropFinance/releases) page. When Android asks,
+allow your browser to install unknown apps.
 
 ## Requirements
 
