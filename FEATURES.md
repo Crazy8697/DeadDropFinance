@@ -280,8 +280,29 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - The Envelopes screen starts with one line, "$X of $Y assigned": Y is the income that came in during the current budget
   month (the payday deposit, other deposits that went to Ready to Assign, and bonus income); X is how much was
   assigned to envelopes this budget month (out of Ready to Assign, less what was moved back into it). It follows
-  assigning, moving money and new income right away. The plain version: a Rollover sweep (envelope to Rollover), money
-  that goes straight to an envelope as income, and a return are not counted in either figure.
+  assigning, moving money and new income right away. Income put straight into an envelope (not through Ready to
+  Assign) counts in Y as income and in X as assigned (1.1.1). A Rollover sweep (envelope to Rollover) and a return
+  count in neither.
+
+## Budget start date (1.1.1)
+
+- One budget start date for the whole budget. Transactions dated before it (purchases, income, bonus income,
+  transfers) are bank history: paid for before budgeting began.
+- History never counts in envelope balances, Ready to Assign, Safe to Spend, the assigned total, the payday sweep or
+  the payday checklist (a deposit before it can't be marked payday). It does count in the Categories tab, in the budget
+  month it happened. It still shows in Activity, marked "before budget start", and never appears in To sort.
+- A purchase in history can be given a category from Activity (that only sets the label). A payee rule that sets a
+  category labels it too, as it would any purchase; nothing in history is sorted. A purchase already sorted keeps its
+  category; its envelope line just stops counting toward the envelope.
+- Account balances are untouched: they still show what the bank says. Ready to Assign at the budget start is the budget
+  accounts' balances on that day (net of held amounts and track-only accounts, as before), less what is assigned to
+  envelopes; money assigned before the start stays in its envelopes.
+- An account's own starting balance date works as before. When both apply, the later date wins for that account.
+- On upgrade to 1.1.1 the budget start date is the day of the upgrade. On a new install, and after Purge data or Erase
+  everything, it is the day setup finishes (running setup again later keeps it).
+- More, Budget: "Budget start date" shows the date; Change asks plainly first that envelope balances and Ready to
+  Assign will be recalculated. Changing it never deletes or edits a transaction.
+- It travels in backup and restore. It isn't part of the JSON setup import.
 
 ## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
 - An update check (on by default; More, Check for updates) asks GitHub for the app's own latest

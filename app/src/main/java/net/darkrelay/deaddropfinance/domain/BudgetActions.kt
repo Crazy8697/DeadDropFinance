@@ -35,7 +35,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
 
     suspend fun snapshot(): Budget = Budget(
         dao.accountsNow(), dao.envelopesNow(), dao.transactionsNow(), dao.linesNow(), dao.movesNow(),
-        dao.billsNow(), dao.billPaymentsNow(), dao.categoriesNow(),
+        dao.billsNow(), dao.billPaymentsNow(), dao.categoriesNow(), store.budgetStart(),
     )
 
     // ---- accounts --------------------------------------------------------------------------------------------
@@ -479,6 +479,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         if (tx.kind != TransactionKind.NORMAL || tx.amount <= 0 || tx.isWash) throw BudgetRuleException("Only a deposit can be a payday.")
         if (tx.isPayday) throw BudgetRuleException("That's already marked as payday.")
         if (tx.returnOf != null) throw BudgetRuleException("A return isn't income, so it can't be a payday.")
+        if (snapshot().beforeStart(tx)) throw BudgetRuleException("That's before the budget start date, so it doesn't count in the budget.")
         return store.write {
             put(tx, tx.copy(isPayday = true, sortedBy = SortedBy.HAND, sortedAt = now, ruleId = null, updatedAt = now))
             // the deposit itself lands in Ready to Assign

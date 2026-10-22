@@ -62,6 +62,9 @@ fun MoreScreen(
     sortAlerts: (@Composable () -> Unit)? = null,
     /** The update bar, shown under Check for updates when it found a newer version (1.0.2). */
     updateBar: (@Composable () -> Unit)? = null,
+    /** The budget start date (1.1.1) and changing it; null [onBudgetStart] hides the setting. */
+    budgetStart: java.time.LocalDate? = null,
+    onBudgetStart: ((java.time.LocalDate) -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
     onParked: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
@@ -99,6 +102,7 @@ fun MoreScreen(
             }
         }
         sortAlerts?.invoke()
+        if (onBudgetStart != null) BudgetStartSetting(budgetStart, onBudgetStart)
         SectionTitle("Privacy")
         SettingRow(
             "App lock",
@@ -318,3 +322,48 @@ fun DataUnavailableScreen(reason: String) {
         )
     }
 }
+
+/**
+ * More, Budget start date (1.1.1): what the date is, and Change, which asks plainly before it applies: envelope
+ * balances and Ready to Assign are worked out again, and no transaction is changed or deleted.
+ */
+@Composable
+fun BudgetStartSetting(start: java.time.LocalDate?, onChange: (java.time.LocalDate) -> Unit, editing: Boolean = false, confirming: java.time.LocalDate? = null) {
+    var edit by remember { mutableStateOf(editing) }
+    var text by remember { mutableStateOf((start ?: java.time.LocalDate.now()).toString()) }
+    var confirm by remember { mutableStateOf(confirming) }
+    SectionTitle("Budget")
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Budget start date")
+                Text(start?.let { budgetStartFormat.format(it) } ?: "Not set yet (set when setup finishes)", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = { edit = !edit }) { Text(if (edit) "Cancel" else "Change") }
+        }
+        Text(
+            "Transactions before this date are bank history: they stay in your account balances and in Categories, but not in envelopes or Ready to Assign.",
+            color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+        )
+        if (edit) {
+            DateField("New budget start date", text, { text = it })
+            TextButton(onClick = { parseDateOrNull(text)?.let { confirm = it } }, enabled = parseDateOrNull(text) != null) { Text("Use this date") }
+        }
+    }
+    confirm?.let { d ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("Start the budget on ${budgetStartFormat.format(d)}?") },
+            text = {
+                Text(
+                    "Envelope balances and Ready to Assign will be recalculated from this date. Transactions before it stay in your account " +
+                        "balances and in Categories. No transaction is changed or deleted.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirm = null; edit = false; onChange(d) }) { Text("Change it") } },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+private val budgetStartFormat = java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy")

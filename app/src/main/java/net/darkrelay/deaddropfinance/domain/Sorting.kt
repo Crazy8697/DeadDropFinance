@@ -69,6 +69,31 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
     private suspend fun apply(t: TransactionEntity, s: Suggest.Suggestion, by: SortedBy) =
         actions.setLines(t.id, s.lines, by, ruleId = s.rule?.id, returnOf = s.returnOf?.id)
 
+    /**
+     * History before the budget start (1.1.1) isn't sorted, but a payee rule that sets a category still labels it, as it
+     * would any purchase: the first rule that matches, if it has a category, gives it to each line that has none.
+     * Nothing else changes. [ids] limits it to those transactions. Returns how many were labeled.
+     */
+    suspend fun labelHistory(ids: Collection<String>? = null): Int {
+        val b = actions.snapshot()
+        val rules = rules()
+        if (rules.none { it.categoryId != null }) return 0
+        var n = 0
+        for (t in b.transactions) {
+            if (ids != null && t.id !in ids) continue
+            if (!b.beforeBudgetStart(t) || t.kind != net.darkrelay.deaddropfinance.data.TransactionKind.NORMAL || t.amount >= 0 || t.isWash) continue
+            val open = b.lines.filter {
+                it.transactionId == t.id && it.categoryId == null &&
+                    (it.bucket == net.darkrelay.deaddropfinance.data.LineBucket.ENVELOPE || it.bucket == net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED)
+            }
+            if (open.isEmpty()) continue
+            val cat = rules.firstOrNull { Rules.matches(it, t) }?.categoryId?.takeIf { b.category(it) != null } ?: continue
+            open.forEach { actions.setLineCategory(it.id, cat) }
+            n++
+        }
+        return n
+    }
+
     // ---- by hand, with learning ---------------------------------------------------------------------------------
 
     /** After sorting by hand: nothing, an offer to make a rule, or a rule just made from repeated choices. */
@@ -224,7 +249,7 @@ class Sorting(private val store: BudgetStore, private val actions: BudgetActions
                     alwaysAsk = d.alwaysAsk, priority = priority, billId = d.billId, categoryId = d.categoryId.takeIf { d.action == RuleAction.ENVELOPE }, updatedAt = now,
                 ),
             ).id
-        }
+        }.also { if (d.categoryId != null) runCatching { labelHistory() } }
     }
 
     suspend fun deleteRule(id: String) = store.write {

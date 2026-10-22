@@ -261,7 +261,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
         t.kind == TransactionKind.TRANSFER -> "Transfer to ${accounts[t.transferAccountId]?.name ?: "?"}"
         t.kind == TransactionKind.BONUS -> t.memo.ifBlank { "Ready to assign" }
         t.isWash -> "Wash (pass-through)"
-        budget.beforeStart(t) -> "Before the starting balance"
+        budget.beforeAccountStart(t) -> "Before the starting balance"
         else -> {
             val ls = budget.lines.filter { it.transactionId == t.id }
             if (ls.size > 1) "Split, ${ls.size} parts" else when (ls.firstOrNull()?.bucket) {
@@ -288,7 +288,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
                     if (t.fee) Pill("fee")
                     if (t.feeRebate) Pill("fee rebate")
                 }
-                Text("${t.date}, $sub", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text("${t.date}, " + (if (budget.beforeBudgetStart(t)) "before budget start, " else "") + sub, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
             MoneyText(if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null)
         }
@@ -469,7 +469,14 @@ fun TransactionDetailScreen(
                 Text("${t.date}, ${accounts[t.accountId]?.name ?: ""}" + (if (t.kind == TransactionKind.TRANSFER) " to ${accounts[t.transferAccountId]?.name ?: ""}" else ""), color = DdfColors.Muted)
                 if (t.memo.isNotBlank()) Text(t.memo)
                 if (t.pending) Text("Pending: when the bank's version is imported, it takes this one's place.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-                if (budget.beforeStart(t)) {
+                if (budget.beforeBudgetStart(t)) {
+                    Text(
+                        "This is before the budget start date (More, Budget start date). It stays in the account's balance and in Categories, " +
+                            "but doesn't count in envelopes or Ready to Assign.",
+                        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (budget.beforeAccountStart(t)) {
                     Text(
                         "This is dated before the account's starting balance date, so it's already part of that balance. It's kept as history " +
                             "and doesn't change the balance or the budget.",
@@ -487,7 +494,7 @@ fun TransactionDetailScreen(
                     Text(if (budget.beforeStart(t)) "History, not counted" else when (l.bucket) { LineBucket.ENVELOPE -> envelopes[l.envelopeId]?.name ?: "?"; LineBucket.READY_TO_ASSIGN -> "Ready to assign"; LineBucket.UNSORTED -> "To sort"; LineBucket.OFF_BUDGET -> "Outside the budget (track only)"; LineBucket.TRANSFER -> "Transfer between your accounts" }, Modifier.weight(1f))
                     MoneyText(l.amount)
                 }
-                if (t.amount < 0 && !t.isWash && !budget.beforeStart(t) && (l.bucket == LineBucket.ENVELOPE || l.bucket == LineBucket.UNSORTED)) {
+                if (t.amount < 0 && !t.isWash && !budget.beforeAccountStart(t) && (l.bucket == LineBucket.ENVELOPE || l.bucket == LineBucket.UNSORTED)) {
                     if (onSetCategory != null) {
                         Picker(
                             "Category", listOf<Pair<String?, String>>(null to Budget.UNCATEGORIZED) + budget.categories.map { it.id to it.name }, l.categoryId,

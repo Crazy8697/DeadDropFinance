@@ -114,8 +114,26 @@ class BudgetStore(
         return adopted
     }
 
+    /** The budget start date (1.1.1), or null when none is set yet. Kept in `meta`, so backup carries it and Purge resets it. */
+    suspend fun budgetStart(): LocalDate? = dao.meta(META_BUDGET_START)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+
+    /**
+     * On start (1.1.1): an install that was already budgeting ([setupDone], or it has accounts) and has no budget start
+     * date gets [today]. A new install gets its date when setup finishes. Returns true when it set one.
+     */
+    suspend fun ensureBudgetStart(today: LocalDate, setupDone: Boolean): Boolean {
+        if (budgetStart() != null) return false
+        if (!setupDone && dao.accountsNow().isEmpty()) return false
+        setBudgetStart(today)
+        return true
+    }
+
+    /** Sets the budget start date. Never touches a transaction: only what counts in the budget changes. */
+    suspend fun setBudgetStart(d: LocalDate) = dao.putMeta(MetaEntity(META_BUDGET_START, d.toString()))
+
     companion object {
         const val META_DEVICE_ID = "device_id"
+        const val META_BUDGET_START = "budget_start"
 
         fun entityType(e: Synced): String = when (e) {
             is AccountEntity -> "account"

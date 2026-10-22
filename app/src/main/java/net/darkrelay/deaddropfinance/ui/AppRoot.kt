@@ -197,12 +197,13 @@ interface Platform {
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
     val d = store.dao
-    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments(), d.categories()) { a ->
+    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments(), d.categories(), d.metaFlow(BudgetStore.META_BUDGET_START)) { a ->
         @Suppress("UNCHECKED_CAST")
         Budget(a[0] as List<net.darkrelay.deaddropfinance.data.AccountEntity>, a[1] as List<net.darkrelay.deaddropfinance.data.EnvelopeEntity>,
             a[2] as List<TransactionEntity>, a[3] as List<net.darkrelay.deaddropfinance.data.TransactionLineEntity>,
             a[4] as List<net.darkrelay.deaddropfinance.data.MoveEntity>, a[5] as List<net.darkrelay.deaddropfinance.data.BillEntity>,
-            a[6] as List<net.darkrelay.deaddropfinance.data.BillPaymentEntity>, a[7] as List<net.darkrelay.deaddropfinance.data.CategoryEntity>)
+            a[6] as List<net.darkrelay.deaddropfinance.data.BillPaymentEntity>, a[7] as List<net.darkrelay.deaddropfinance.data.CategoryEntity>,
+            (a[8] as String?)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() })
     }
 }
 
@@ -364,6 +365,8 @@ fun AppRoot(
     LaunchedEffect(Unit) {
         store.ensureSystemEnvelopes()
         store.ensureCategories()
+        // 1.1.1: an install that was already budgeting starts its budget today; a new one starts when setup finishes
+        if (store.ensureBudgetStart(java.time.LocalDate.now(), sync.settings.setupDone)) runCatching { sorting.labelHistory() }
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
         val afterPurge = sync.settings.setupAfterPurge
         val mode = setupMode(sync.settings.setupDone, sync.settings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), store.sync.connectionsNow().isNotEmpty(), afterPurge)
@@ -610,6 +613,8 @@ fun AppRoot(
                     }
                 },
                 updateBar = release?.takeIf { updateFromMore }?.let { r -> { updateBar(r) } },
+                budgetStart = b.budgetStart,
+                onBudgetStart = { d -> run(scope) { store.setBudgetStart(d); sorting.labelHistory() } },
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
@@ -725,7 +730,9 @@ fun AppRoot(
                     onSetCategory = { lineId, c ->
                         run(scope) {
                             val line = b.lines.firstOrNull { it.id == lineId }
-                            if (line?.bucket == net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED && c != null) actions.sortIntoCategory(t.id, c)
+                            // history before the budget start only gets the label: its envelope wouldn't count anyway
+                            if (b.beforeStart(t)) actions.setLineCategory(lineId, c)
+                            else if (line?.bucket == net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED && c != null) actions.sortIntoCategory(t.id, c)
                             else if (line?.bucket != net.darkrelay.deaddropfinance.data.LineBucket.UNSORTED) actions.setLineCategory(lineId, c)
                         }
                     },
@@ -1189,6 +1196,8 @@ fun AppRoot(
                 }
             },
             onFinish = {
+                // the budget starts the day setup finishes (a new install, or after Purge or Erase); running setup again keeps it
+                scope.launch { if (store.budgetStart() == null) { store.setBudgetStart(java.time.LocalDate.now()); runCatching { sorting.labelHistory() } } }
                 sync.settings.setupAfterPurge = false
                 sync.settings.setupDone = true
                 setupDone = true

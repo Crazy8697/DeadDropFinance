@@ -774,6 +774,16 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun manageCategories() = shot("145-manage-categories") {
         ManageCategoriesScreen(catBudget.categories, { 0 }, null, {}, {}, { _, _ -> }, { _, _ -> })
     }
+    // ---- 1.1.1: budget start date ------------------------------------------------------------------------------
+    @Test @Config(qualifiers = TALL) fun moreBudgetStart() = shot("150-more-budget-start") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, budgetStart = today.minusDays(3), onBudgetStart = {})
+    }
+    @Test fun budgetStartConfirm() = shot("151-budget-start-confirm") {
+        Page { BudgetStartSetting(today.minusDays(3), {}, editing = true, confirming = today.minusDays(10)) }
+    }
+    @Test @Config(qualifiers = TALL) fun activityBeforeBudgetStart() = shot("152-activity-before-budget-start") {
+        ActivityScreen(Budget(catBudget.accounts, catBudget.envelopes, catBudget.transactions, catBudget.lines, catBudget.moves, categories = catBudget.categories, budgetStart = today.minusDays(1)), {}, {}, { _, _, _ -> }, {})
+    }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)

@@ -138,6 +138,7 @@ class DeleteAndEraseTest {
                 assertTrue(store.dao.accountsNow().isEmpty())
                 assertEquals(1, store.dao.envelopesNow().size)
                 assertTrue(store.sync.connectionsNow().isEmpty())
+                assertEquals("no budget start date until setup finishes", null, store.budgetStart())
             }
         } finally {
             db.close()

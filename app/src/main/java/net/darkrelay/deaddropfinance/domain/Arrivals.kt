@@ -52,6 +52,7 @@ class Arrivals(
         val ran = runCatching { paydays(newIds) }.getOrDefault(emptyList())
         runCatching { ParkedBuys(store, actions, today, clock).matchCharges(newIds) }
         if (autoApprove) runCatching { Sorting(store, actions).autoApprove(newIds) }
+        runCatching { Sorting(store, actions).labelHistory(newIds) }
         runCatching { BillActions(store, actions, today).matchPayments(newIds) }
         runCatching { Receipts(store, actions, files).matchWaiting() }
         return ran

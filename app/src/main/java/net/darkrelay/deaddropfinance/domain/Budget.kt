@@ -37,6 +37,11 @@ class Budget(
     val bills: List<BillEntity> = emptyList(),
     val billPayments: List<BillPaymentEntity> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
+    /**
+     * The budget start date (1.1.1): transactions before it are bank history. They stay in the account balances and in
+     * Categories, but never count in envelopes, Ready to Assign, Safe to Spend or the assigned total. Null: none set.
+     */
+    val budgetStart: LocalDate? = null,
 ) {
     private val txById = transactions.associateBy { it.id }
 
@@ -47,11 +52,28 @@ class Budget(
 
     private val startOf: Map<String, LocalDate> = accounts.associate { it.id to it.startDate }
 
-    /** A transaction on [date] counts for [accountId]: it isn't before the account's starting balance date. */
-    fun countsFor(accountId: String, date: LocalDate): Boolean = startOf[accountId]?.let { !date.isBefore(it) } ?: true
+    /** A transaction on [date] counts in [accountId]'s balance: it isn't before the account's starting balance date. */
+    fun countsForBalance(accountId: String, date: LocalDate): Boolean = startOf[accountId]?.let { !date.isBefore(it) } ?: true
 
-    /** History before the account's starting balance: shown, but already inside the starting balance. */
-    fun beforeStart(t: TransactionEntity): Boolean = t.kind == TransactionKind.NORMAL && !countsFor(t.accountId, t.date)
+    /**
+     * A transaction on [date] counts for the budget in [accountId]: it isn't before the account's starting balance date
+     * or the budget start date (the later one wins).
+     */
+    fun countsFor(accountId: String, date: LocalDate): Boolean =
+        countsForBalance(accountId, date) && (budgetStart == null || !date.isBefore(budgetStart))
+
+    /**
+     * History that counts nowhere in the budget: before the account's starting balance (already inside it) or before the
+     * budget start (paid for before budgeting began). Shown, never in To sort.
+     */
+    fun beforeStart(t: TransactionEntity): Boolean = (t.kind == TransactionKind.NORMAL || t.kind == TransactionKind.BONUS) && !countsFor(t.accountId, t.date)
+
+    /** Before the account's own starting balance date. */
+    fun beforeAccountStart(t: TransactionEntity): Boolean = t.kind == TransactionKind.NORMAL && !countsForBalance(t.accountId, t.date)
+
+    /** After the account's starting balance date but before the budget start: shown as before the budget start. */
+    fun beforeBudgetStart(t: TransactionEntity): Boolean =
+        budgetStart != null && t.date.isBefore(budgetStart) && (t.kind == TransactionKind.BONUS || countsForBalance(t.accountId, t.date))
 
     /** Lines that count for the budget: of live transactions in budget accounts, not washes, not history. */
     private val budgetLines = lines.filter { l ->
@@ -63,15 +85,25 @@ class Budget(
         for (t in transactions) {
             if (through != null && t.date.isAfter(through)) continue
             when {
-                t.kind == TransactionKind.TRANSFER && t.accountId == a.id && countsFor(a.id, t.date) -> b -= t.amount
-                t.kind == TransactionKind.TRANSFER && t.transferAccountId == a.id && countsFor(a.id, t.date) -> b += t.amount
-                t.kind == TransactionKind.NORMAL && t.accountId == a.id && countsFor(a.id, t.date) && !(postedOnly && t.pending) -> b += t.amount
+                t.kind == TransactionKind.TRANSFER && t.accountId == a.id && countsForBalance(a.id, t.date) -> b -= t.amount
+                t.kind == TransactionKind.TRANSFER && t.transferAccountId == a.id && countsForBalance(a.id, t.date) -> b += t.amount
+                t.kind == TransactionKind.NORMAL && t.accountId == a.id && countsForBalance(a.id, t.date) && !(postedOnly && t.pending) -> b += t.amount
             }
         }
         return b
     }
 
     val accountBalances: Map<String, Long> = accounts.associate { a -> a.id to balanceOf(a, postedOnly = false) }
+
+    /**
+     * What an account brings into the budget: its starting balance, or with a later budget start, its balance at the
+     * start of that day (everything before it already happened, so it's already in the money there is).
+     */
+    fun openingBalance(a: AccountEntity): Long {
+        val s = budgetStart ?: return a.startingBalance
+        if (!s.isAfter(a.startDate)) return a.startingBalance
+        return balanceOf(a, postedOnly = false, through = s.minusDays(1))
+    }
 
     /** The balance with pending rows left out: what a bank's own balance is compared with. */
     fun postedBalance(accountId: String): Long = accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true) } ?: 0L
@@ -113,7 +145,7 @@ class Budget(
      * another budget account, puts it back.
      */
     val readyToAssign: Long = run {
-        var r = accounts.filter { it.onBudget }.sumOf { it.startingBalance }
+        var r = accounts.filter { it.onBudget }.sumOf { openingBalance(it) }
         for (l in budgetLines) if (l.bucket == LineBucket.READY_TO_ASSIGN || l.bucket == LineBucket.OFF_BUDGET || l.bucket == LineBucket.TRANSFER) r += l.amount
         for (m in moves) {
             if (m.fromEnvelopeId == null) r -= m.amount
@@ -131,7 +163,7 @@ class Budget(
     }
 
     /** Bonus income: money received outside any account (Cash, a gift card, Venmo). It sits in Ready to Assign through its line. */
-    val bonusTotal: Long = transactions.filter { it.kind == TransactionKind.BONUS }.sumOf { it.amount }
+    val bonusTotal: Long = transactions.filter { it.kind == TransactionKind.BONUS && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     /** What the budget holds overall: the budget accounts' balances plus bonus income. */
     val overallBalance: Long get() = accountBalances.filterKeys { isOnBudget(it) }.values.sum() + bonusTotal
@@ -206,8 +238,13 @@ class Budget(
     }
 
     /** What a purchase line adds to its category's spending (positive: spent; a return's line is negative). */
+    /** Lines Categories counts: as the budget's, but history before the budget start counts too, in its own budget month. */
+    private val categoryLines = lines.filter { l ->
+        txById[l.transactionId]?.let { !it.isWash && isOnBudget(it.accountId) && countsForBalance(it.accountId, it.date) } == true
+    }
+
     private fun spendLines(m: Month): List<Pair<net.darkrelay.deaddropfinance.data.TransactionLineEntity, TransactionEntity>> =
-        budgetLines.mapNotNull { l ->
+        categoryLines.mapNotNull { l ->
             val t = txById[l.transactionId] ?: return@mapNotNull null
             if (t.kind != TransactionKind.NORMAL || !m.contains(t.date)) return@mapNotNull null
             if (!(t.amount < 0 || t.returnOf != null)) return@mapNotNull null
@@ -228,19 +265,31 @@ class Budget(
             .groupBy { it.second }.map { (t, ls) -> t to -ls.sumOf { it.first.amount } }
             .sortedWith(compareByDescending<Pair<TransactionEntity, Long>> { it.first.date }.thenByDescending { it.first.createdAt })
 
-    /** Income that came in during [m]: money into Ready to Assign (the payday deposit, other deposits, bonus income). */
-    fun incomeIn(m: Month): Long = budgetLines.filter { l ->
-        l.bucket == LineBucket.READY_TO_ASSIGN && l.amount > 0 && txById[l.transactionId]?.let { m.contains(it.date) } == true
+    /** Income put straight into an envelope in [m] (1.1.1): money in sorted to an envelope, never a return. */
+    private fun envelopeIncomeIn(m: Month): Long = budgetLines.filter { l ->
+        l.bucket == LineBucket.ENVELOPE && l.amount > 0 &&
+            txById[l.transactionId]?.let { it.kind == TransactionKind.NORMAL && it.amount > 0 && it.returnOf == null && m.contains(it.date) } == true
     }.sumOf { it.amount }
 
-    /** What was assigned to envelopes in [m]: out of Ready to Assign, less what was moved back into it. */
+    /**
+     * Income that came in during [m]: money into Ready to Assign (the payday deposit, other deposits, bonus income) and
+     * income put straight into an envelope. A return isn't income.
+     */
+    fun incomeIn(m: Month): Long = budgetLines.filter { l ->
+        l.bucket == LineBucket.READY_TO_ASSIGN && l.amount > 0 && txById[l.transactionId]?.let { m.contains(it.date) } == true
+    }.sumOf { it.amount } + envelopeIncomeIn(m)
+
+    /**
+     * What was assigned to envelopes in [m]: out of Ready to Assign, less what was moved back into it, plus income put
+     * straight into an envelope. A Rollover sweep (envelope to Rollover) and a return change neither figure.
+     */
     fun assignedIn(m: Month): Long = moves.filter { m.contains(it.date) }.sumOf { mv ->
         when {
             mv.fromEnvelopeId == null && mv.toEnvelopeId != null -> mv.amount
             mv.toEnvelopeId == null && mv.fromEnvelopeId != null -> -mv.amount
             else -> 0L
         }
-    }
+    } + envelopeIncomeIn(m)
 
     // ---- budget months: payday to payday ---------------------------------------------------------------------
 

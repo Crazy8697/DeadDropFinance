@@ -183,5 +183,8 @@ interface BudgetDao {
     @Query("SELECT value FROM meta WHERE `key` = :key")
     suspend fun meta(key: String): String?
 
+    @Query("SELECT value FROM meta WHERE `key` = :key")
+    fun metaFlow(key: String): Flow<String?>
+
     @Upsert suspend fun putMeta(e: MetaEntity)
 }

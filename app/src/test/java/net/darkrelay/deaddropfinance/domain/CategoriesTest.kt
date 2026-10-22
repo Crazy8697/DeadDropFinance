@@ -13,6 +13,7 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.DefaultCategories
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
+import net.darkrelay.deaddropfinance.data.MoveKind
 import net.darkrelay.deaddropfinance.data.RuleAction
 import net.darkrelay.deaddropfinance.data.SortedBy
 import net.darkrelay.deaddropfinance.data.TransactionEntity
@@ -298,5 +299,31 @@ class CategoriesTest {
         assertEquals(day.plusDays(1), m.start)
         assertEquals(500_00L, b.incomeIn(m))
         assertEquals(0L, b.assignedIn(m))
+    }
+
+    @Test fun incomeStraightIntoAnEnvelopeCountsInBothButASweepAndAReturnInNeither() = runBlocking<Unit> {
+        store.write { paydayAt(day.minusDays(3)) }
+        val e = env("Food", setOf(cat("Groceries")))
+        var b = actions.snapshot()
+        val m = b.months(day).first()
+        assertEquals(500_00L, b.incomeIn(m))
+        assertEquals(0L, b.assignedIn(m))
+        // money in, sorted straight into an envelope
+        actions.saveTransaction(null, TransactionDraft(acct, day.minusDays(1), "SAMPLE GIFT FROM FAMILY", "", 60_00, listOf(LineDraft(e, 60_00))))
+        b = actions.snapshot()
+        assertEquals(560_00L, b.incomeIn(m))
+        assertEquals(60_00L, b.assignedIn(m))
+        // a Rollover sweep (envelope to Rollover) changes neither
+        actions.move(e, b.rollover!!.id, 25_00, MoveKind.SWEEP, date = day)
+        b = actions.snapshot()
+        assertEquals(560_00L, b.incomeIn(m))
+        assertEquals(60_00L, b.assignedIn(m))
+        // a return changes neither
+        val purchase = actions.saveTransaction(null, purchase(day.minusDays(2), 30_00, cat("Groceries")))
+        val credit = store.write { newUnsorted("SAMPLE SHOP REFUND", 10_00) }
+        Sorting(store, actions).confirmReturn(credit, purchase)
+        b = actions.snapshot()
+        assertEquals(560_00L, b.incomeIn(m))
+        assertEquals(60_00L, b.assignedIn(m))
     }
 }
