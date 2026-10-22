@@ -104,7 +104,14 @@ data class EnvelopeEntity(
     )
 }
 
-enum class TransactionKind { NORMAL, TRANSFER }
+/**
+ * BONUS: money that didn't come through the bank (Bonus income). It belongs to no account: its [TransactionEntity.accountId]
+ * is [BONUS_ACCOUNT_ID], and its one line goes to Ready to Assign. Bank sync, imports, matching and rules only ever look at NORMAL.
+ */
+enum class TransactionKind { NORMAL, TRANSFER, BONUS }
+
+/** The account id a BONUS transaction carries: no account. */
+const val BONUS_ACCOUNT_ID = ""
 
 /** NOTIFICATION: logged from a bank or wallet app's notification (pending until bank sync brings the real record). */
 enum class TransactionSource { MANUAL, CSV, SYNC, NOTIFICATION }

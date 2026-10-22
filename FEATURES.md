@@ -231,6 +231,19 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Before anything changes it shows what will be added and what will be updated (and which settings and the next payday), with Import and Cancel.
 - A bad file or field is refused whole, with each problem named by where it is. Nothing is applied from a file with errors.
 
+## Bonus income (1.0.1)
+
+- A Bonus income button on Home opens a short form: Amount (required, above zero), Date (today unless changed),
+  Received as (Cash, Gift card, Venmo or Other: only a label, never an account) and a Note for where it came from.
+- Saving adds the amount to Ready to Assign and to the overall balance. It is tied to no account and creates none.
+  It is not a payday: no Rollover sweep, no auto-fill, no payday checklist.
+- It shows in Activity with the other transactions, labeled Bonus income with its received-as label and note. Tapping
+  it opens the same form to edit it, and Delete there takes the amount back off.
+- Bank sync, CSV import, matching, rules and the balance check never see it: it is its own kind of transaction
+  (BONUS), and everything they touch is bank or hand-entered spending and income on an account.
+- It travels in backup and restore, and Purge data and Erase everything remove it like other data. The JSON setup
+  importer never includes it.
+
 ## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
 - An update check (on by default; More, or About, Help: Check for updates) asks GitHub for the app's own latest
   release. No account, no telemetry: just an anonymous request, and nothing about the phone or the budget is sent.

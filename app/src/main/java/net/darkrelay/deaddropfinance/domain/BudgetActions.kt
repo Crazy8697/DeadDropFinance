@@ -3,6 +3,7 @@ package net.darkrelay.deaddropfinance.domain
 import java.time.LocalDate
 import net.darkrelay.deaddropfinance.data.AccountEntity
 import net.darkrelay.deaddropfinance.data.AccountType
+import net.darkrelay.deaddropfinance.data.BONUS_ACCOUNT_ID
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
@@ -170,6 +171,24 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             }
             put(old, tx)
             replaceLines(this, tx.id, d.lines)
+            tx.id
+        }
+    }
+
+    /**
+     * Bonus income: [amount] (positive) received outside the bank, labeled [receivedAs] (a label only) with a [note]. It's
+     * not tied to an account and is not a payday: its one line goes to Ready to Assign, nothing else moves.
+     */
+    suspend fun saveBonus(id: String?, amount: Long, date: LocalDate, receivedAs: String, note: String): String {
+        if (amount <= 0) throw BudgetRuleException("Enter an amount above zero.")
+        if (receivedAs !in Bonus.LABELS) throw BudgetRuleException("Choose how it was received.")
+        return store.write {
+            val old = id?.let { dao.transaction(it) }
+            if (old != null && old.kind != TransactionKind.BONUS) throw BudgetRuleException("That isn't bonus income.")
+            val tx = (old ?: TransactionEntity(accountId = BONUS_ACCOUNT_ID, kind = TransactionKind.BONUS, date = date, amount = amount, createdAt = now, updatedAt = now))
+                .copy(date = date, payee = receivedAs, memo = note.trim(), amount = amount, updatedAt = now)
+            put(old, tx)
+            replaceLines(this, tx.id, listOf(LineDraft(null, amount, toReadyToAssign = true)))
             tx.id
         }
     }

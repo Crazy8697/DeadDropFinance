@@ -96,7 +96,7 @@ fun UpdateBar(
 }
 
 /** The parts of Home, top to bottom, in the reference prototype's order. Rollover is never one of them. */
-enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, OVER_ASSIGNED, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
+enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, OVER_ASSIGNED, BONUS, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
 
 /**
  * Which parts Home shows, in order: Safe to Spend always first; the forecast when there's a next payday to forecast
@@ -109,6 +109,7 @@ fun homeSections(b: Budget, hasForecast: Boolean, hasChecklist: Boolean): List<H
     if (hasForecast) add(HomeSection.FORECAST)
     if (b.readyToAssign > 0) add(HomeSection.READY_TO_ASSIGN)
     if (b.readyToAssign < 0) add(HomeSection.OVER_ASSIGNED)
+    add(HomeSection.BONUS)
     if (hasChecklist) add(HomeSection.PAY_THESE_NOW)
     if (b.toSort.isNotEmpty()) add(HomeSection.TO_SORT)
     add(HomeSection.PARKED_BUYS)
@@ -158,6 +159,8 @@ fun HomeScreen(
     checklist: (@Composable () -> Unit)? = null,
     /** The envelopes to list (homeEnvelopes); the everyday ones when not given. */
     envelopes: List<EnvelopeEntity> = budget.everydayEnvelopes,
+    /** Bonus income: money outside the bank, added to Ready to Assign. */
+    onBonus: () -> Unit = {},
 ) {
     val sections = homeSections(budget, forecast != null, checklist != null)
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -177,6 +180,7 @@ fun HomeScreen(
                     Button(onClick = onAssign) { Text("Assign") }
                 }
             }
+            HomeSection.BONUS -> item { TextButton(onClick = onBonus) { Text("Bonus income", color = DdfColors.Cyan) } }
             HomeSection.OVER_ASSIGNED -> item {
                 Row(
                     Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(10.dp)).border(1.dp, DdfColors.Warning, RoundedCornerShape(10.dp))

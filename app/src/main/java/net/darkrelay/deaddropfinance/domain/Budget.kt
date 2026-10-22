@@ -128,6 +128,12 @@ class Budget(
         r - held.values.sum()
     }
 
+    /** Bonus income: money received outside any account (Cash, a gift card, Venmo). It sits in Ready to Assign through its line. */
+    val bonusTotal: Long = transactions.filter { it.kind == TransactionKind.BONUS }.sumOf { it.amount }
+
+    /** What the budget holds overall: the budget accounts' balances plus bonus income. */
+    val overallBalance: Long get() = accountBalances.filterKeys { isOnBudget(it) }.values.sum() + bonusTotal
+
     /** Signed total of lines nobody has sorted yet (To sort): spending shows negative, income positive. */
     val toSortTotal: Long = budgetLines.filter { it.bucket == LineBucket.UNSORTED }.sumOf { it.amount }
 
@@ -137,9 +143,9 @@ class Budget(
         transactions.filter { it.id in ids }.sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
     }
 
-    /** sum(budget accounts) - (RTA + envelopes + To sort + held): always 0 (washes net to zero in pairs). */
+    /** sum(budget accounts) + bonus income - (RTA + envelopes + To sort + held): always 0 (washes net to zero in pairs). */
     val sortedCheck: Long
-        get() = accountBalances.filterKeys { isOnBudget(it) }.values.sum() - (readyToAssign + envelopeBalances.values.sum() + toSortTotal + heldTotal) -
+        get() = overallBalance - (readyToAssign + envelopeBalances.values.sum() + toSortTotal + heldTotal) -
             transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L

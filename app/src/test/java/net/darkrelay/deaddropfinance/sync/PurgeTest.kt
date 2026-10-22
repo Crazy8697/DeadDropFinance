@@ -114,6 +114,8 @@ class PurgeTest {
         val tx = store.dao.transactionsNow().first().id
         a.sortInto(tx, food)
         a.move(null, food, 50_00)
+        a.saveBonus(null, 20_00, day, "Venmo", "Sample")
+        assertTrue(store.dao.transactionsNow().any { it.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS })
         val bills = BillActions(store, a) { day }
         val bill = bills.saveBill(null, BillActions.BillDraft("Sample Power", 80_00, day.plusDays(5), envelopeId = food, reminder = true))
         bills.correctPayday(day.plusDays(9))

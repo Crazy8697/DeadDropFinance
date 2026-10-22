@@ -704,6 +704,20 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("0.15.0", {}, {}, {}, {}) }
     @Test fun help() = shot("132-help") { HelpScreen(false, "You're on the latest version", {}, {}, {}, {}) }
+    @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
+        BonusIncomeScreen(null, null, {}, {}, today = today)
+    }
+    @Test fun activityWithBonusIncome() = shot("135-activity-bonus-income") {
+        val bonus = net.darkrelay.deaddropfinance.data.TransactionEntity(
+            id = "bonus1", accountId = net.darkrelay.deaddropfinance.data.BONUS_ACCOUNT_ID, kind = net.darkrelay.deaddropfinance.data.TransactionKind.BONUS,
+            date = today, payee = "Cash", memo = "Sample side work", amount = 40_00, createdAt = 1, updatedAt = 1,
+        )
+        val line = net.darkrelay.deaddropfinance.data.TransactionLineEntity(
+            transactionId = "bonus1", bucket = net.darkrelay.deaddropfinance.data.LineBucket.READY_TO_ASSIGN, amount = 40_00, createdAt = 1, updatedAt = 1,
+        )
+        val withBonus = Budget(budget.accounts, budget.envelopes, budget.transactions + bonus, budget.lines + line, budget.moves)
+        Page { withBonus.transactions.filter { it.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS }.forEach { TransactionRow(it, withBonus) {} } }
+    }
     @Test fun licenses() = shot("133-licenses") {
         LicensesScreen(listOf("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md", "PRIVACY.md", "TERMS.md", "Apache-2.0.txt", "BSD-3-Clause-SQLCipher.txt", "libpng-2.0.txt"), {}, {})
     }

@@ -248,6 +248,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
     val envelopes = budget.envelopes.associateBy { it.id }
     val sub = when {
         t.kind == TransactionKind.TRANSFER -> "Transfer to ${accounts[t.transferAccountId]?.name ?: "?"}"
+        t.kind == TransactionKind.BONUS -> t.memo.ifBlank { "Ready to assign" }
         t.isWash -> "Wash (pass-through)"
         budget.beforeStart(t) -> "Before the starting balance"
         else -> {
@@ -264,7 +265,8 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row {
-                    Text(t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "No description" })
+                    Text(if (t.kind == TransactionKind.BONUS) "Bonus income" else t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "No description" })
+                    if (t.kind == TransactionKind.BONUS) Pill(t.payee)
                     if (t.isPayday) Pill("payday")
                     if (t.pending) Pill("pending")
                     if (t.fee) Pill("fee")
@@ -272,7 +274,7 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, onClick: () -> Unit) {
                 }
                 Text("${t.date}, $sub", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
-            MoneyText(if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind == TransactionKind.NORMAL) DdfColors.Cyan else null)
+            MoneyText(if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null)
         }
     }
 }

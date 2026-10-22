@@ -106,6 +106,7 @@ class BackupTest {
         BillActions(store, actions) { day }.saveBill(null, BillActions.BillDraft("Sample Power", 90_00, day.plusDays(12), envelopeId = food, reminder = true))
         BillActions(store, actions) { day }.correctPayday(day.plusDays(14))
         ParkedBuys(store, actions, { day }).park("Sample Lamp", 24_00, 2)
+        actions.saveBonus(null, 30_00, day, "Gift card", "Sample gift")
         prefs.getValue("sync").edit(commit = true) { putBoolean("auto_approve", true); putInt("interval_hours", 12) }
         prefs.getValue("lock").edit(commit = true) { putInt("lock_timeout_minutes", 15) }
         rid
@@ -149,6 +150,7 @@ class BackupTest {
         assertEquals(12, b.prefs.getValue("sync").getInt("interval_hours", 6))
         val budget = b.actions.snapshot()
         assertEquals(0L, budget.sortedCheck)
+        assertEquals("bonus income comes back", 30_00L, budget.bonusTotal)
         assertEquals(250_00L - 42_10, budget.envelopeBalance(budget.envelopes.first { it.name == "Sample Groceries" }.id))
     }
 

@@ -66,6 +66,8 @@ sealed interface Nav {
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
     data class TxEdit(val id: String?, val split: Boolean = false) : Nav
     data class TxDetail(val id: String) : Nav
+    /** Bonus income: a new one ([id] null) or an existing one to edit or delete. */
+    data class Bonus(val id: String?) : Nav
     data object Accounts : Nav
     data class AccountEdit(val id: String?) : Nav
     data object Import : Nav
@@ -519,6 +521,7 @@ fun AppRoot(
                         onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
                         onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
                         onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
+                        onBonus = { go(Nav.Bonus(null)) },
                         envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
                         parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
                         parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
@@ -550,7 +553,7 @@ fun AppRoot(
             Nav.Activity -> Refreshable(connections.isNotEmpty(), refreshing, { refresh() }) {
                 val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
                 ActivityScreen(
-                    b, onAdd = { go(Nav.TxEdit(null)) }, onTransaction = { go(Nav.TxDetail(it)) },
+                    b, onAdd = { go(Nav.TxEdit(null)) }, onTransaction = { id -> go(if (b.transactions.firstOrNull { it.id == id }?.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS) Nav.Bonus(id) else Nav.TxDetail(id)) },
                     onSort = { id, env, rta -> handSort(id, env, rta) }, onSplit = { go(Nav.TxEdit(it, split = true)) },
                     syncNotes = syncLog.filter { it.removed > 0 && it.at > weekAgo }.map { it.message },
                     sorting = SortingUi(
@@ -657,6 +660,15 @@ fun AppRoot(
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
             )
+            is Nav.Bonus -> {
+                val t = top.id?.let { id -> b.transactions.firstOrNull { it.id == id } }
+                if (top.id != null && t == null) Gone(::back) else BonusIncomeScreen(
+                    t, error, ::back,
+                    onSave = { f -> run(scope, popAfter = true) { actions.saveBonus(top.id, f.amount, f.date, f.receivedAs, f.note) } },
+                    onDelete = if (t == null) null else { { run(scope, popAfter = true) { actions.deleteTransaction(t.id) } } },
+                    today = today,
+                )
+            }
             is Nav.TxDetail -> {
                 val t = b.transactions.firstOrNull { it.id == top.id }
                 LaunchedEffect(top.id, b.transactions.size) { washCandidates = actions.washCandidates(top.id) }

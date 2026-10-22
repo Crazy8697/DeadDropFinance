@@ -79,7 +79,7 @@ class HomeTest {
         val all = homeSections(a.snapshot(), hasForecast = true, hasChecklist = true)
         assertEquals(
             listOf(
-                HomeSection.SAFE_TO_SPEND, HomeSection.FORECAST, HomeSection.READY_TO_ASSIGN, HomeSection.PAY_THESE_NOW,
+                HomeSection.SAFE_TO_SPEND, HomeSection.FORECAST, HomeSection.READY_TO_ASSIGN, HomeSection.BONUS, HomeSection.PAY_THESE_NOW,
                 HomeSection.TO_SORT, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES,
             ),
             all,
@@ -89,7 +89,7 @@ class HomeTest {
         a.move(null, env, a.snapshot().readyToAssign)
         assertEquals(0L, a.snapshot().readyToAssign)
         assertEquals(
-            listOf(HomeSection.SAFE_TO_SPEND, HomeSection.PAY_THESE_NOW, HomeSection.TO_SORT, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES),
+            listOf(HomeSection.SAFE_TO_SPEND, HomeSection.BONUS, HomeSection.PAY_THESE_NOW, HomeSection.TO_SORT, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES),
             homeSections(a.snapshot(), hasForecast = false, hasChecklist = true),
         )
         assertEquals(HomeSection.SAFE_TO_SPEND, homeSections(a.snapshot(), false, false).first())
@@ -124,7 +124,7 @@ class HomeTest {
         val b = a.snapshot()
         assertEquals(-40_00L, b.readyToAssign)
         val s = homeSections(b, hasForecast = true, hasChecklist = false)
-        assertEquals(listOf(HomeSection.SAFE_TO_SPEND, HomeSection.FORECAST, HomeSection.OVER_ASSIGNED, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES), s)
+        assertEquals(listOf(HomeSection.SAFE_TO_SPEND, HomeSection.FORECAST, HomeSection.OVER_ASSIGNED, HomeSection.BONUS, HomeSection.PARKED_BUYS, HomeSection.ENVELOPES), s)
         assertFalse(HomeSection.READY_TO_ASSIGN in s)
     }
 
