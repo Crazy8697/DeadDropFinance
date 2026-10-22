@@ -61,6 +61,8 @@ fun MoreScreen(
     onAbout: (() -> Unit)? = null,
     /** Sorting (rules, auto-approve) and Alerts sections. */
     sortAlerts: (@Composable () -> Unit)? = null,
+    /** The update bar, shown under Check for updates when it found a newer version (1.0.2). */
+    updateBar: (@Composable () -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
     onParked: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
@@ -116,6 +118,7 @@ fun MoreScreen(
         SettingRow("Check for updates at startup", "Asks GitHub for a newer version. Nothing about you is sent.", s.checkAtStartup, true, onCheckAtStartup)
         OutlinedButton(onClick = onCheckNow, enabled = !s.checking) { Text(if (s.checking) "Checking..." else "Check for updates") }
         if (s.updateMessage != null) Text(s.updateMessage, modifier = Modifier.padding(vertical = 6.dp))
+        updateBar?.invoke()
         ListRow(onSetup) { Column { Text("Setup"); Text("Run the setup wizard again. Nothing you have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onPurge != null) ListRow(onPurge) {
             Column {

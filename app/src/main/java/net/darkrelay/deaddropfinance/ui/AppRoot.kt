@@ -255,6 +255,7 @@ fun AppRoot(
     var message by remember { mutableStateOf<String?>(null) }
     var release by remember { mutableStateOf<UpdateCheck.Release?>(null) }
     var updateInstall by remember { mutableStateOf(UpdateInstallState()) }
+    var updateFromMore by remember { mutableStateOf(false) }
     var mobileDataAsk by remember { mutableStateOf<net.darkrelay.deaddropfinance.MobileDataAsk?>(null) }
     var more by remember { mutableStateOf(platform.more) }
     var importState by remember { mutableStateOf(ImportState()) }
@@ -380,6 +381,31 @@ fun AppRoot(
                 updateInstall.copy(working = false, percent = null, needsPermission = false, message = event.message, failed = !event.ok)
         }
     }
+    /** The update bar with its mobile data question: shown on Home after the startup check, and on More after Check for updates. */
+    @Composable
+    fun updateBar(r: UpdateCheck.Release) {
+        UpdateBar(
+            r, updateInstall, onNotes = { platform.openUrl(r.notesUrl) },
+            onDownload = {
+                updateInstall = UpdateInstallState(working = true)
+                net.darkrelay.deaddropfinance.UpdateStart.begin(
+                    platform.isMeteredNetwork(),
+                    ask = { platform.updateDownloadSize { bytes -> mobileDataAsk = net.darkrelay.deaddropfinance.MobileDataAsk(bytes) } },
+                    start = { platform.downloadAndInstallUpdate(::handleUpdateEvent) },
+                )
+            },
+            onAllowInstalls = { platform.openInstallPermissionSettings() },
+            onSkip = { platform.skipVersion(r.version); release = null; updateFromMore = false; updateInstall = UpdateInstallState() },
+            onLater = { release = null; updateFromMore = false; updateInstall = UpdateInstallState() },
+        )
+        mobileDataAsk?.let { ask ->
+            MobileDataDialog(
+                ask.bytes,
+                onDownload = { mobileDataAsk = null; platform.downloadAndInstallUpdate(::handleUpdateEvent) },
+                onCancel = { mobileDataAsk = null; updateInstall = UpdateInstallState() },
+            )
+        }
+    }
     LaunchedEffect(resumeTick) {
         alertTick++
         // back from "Install unknown apps": the verified download is still there, so this continues straight to installing
@@ -490,27 +516,7 @@ fun AppRoot(
                         Column {
                             if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { sync.settings.setupCardDismissed = true; cardDismissed = true })
                             if (showAlerts) AlertsCard(onTurnOn = { askNotifications() }, onNotNow = { sync.settings.alertsAsked = true; alertsAsked = true })
-                            if (r != null) UpdateBar(
-                                r, updateInstall, onNotes = { platform.openUrl(r.notesUrl) },
-                                onDownload = {
-                                    updateInstall = UpdateInstallState(working = true)
-                                    net.darkrelay.deaddropfinance.UpdateStart.begin(
-                                        platform.isMeteredNetwork(),
-                                        ask = { platform.updateDownloadSize { bytes -> mobileDataAsk = net.darkrelay.deaddropfinance.MobileDataAsk(bytes) } },
-                                        start = { platform.downloadAndInstallUpdate(::handleUpdateEvent) },
-                                    )
-                                },
-                                onAllowInstalls = { platform.openInstallPermissionSettings() },
-                                onSkip = { platform.skipVersion(r.version); release = null; updateInstall = UpdateInstallState() },
-                                onLater = { release = null; updateInstall = UpdateInstallState() },
-                            )
-                            mobileDataAsk?.let { ask ->
-                                MobileDataDialog(
-                                    ask.bytes,
-                                    onDownload = { mobileDataAsk = null; platform.downloadAndInstallUpdate(::handleUpdateEvent) },
-                                    onCancel = { mobileDataAsk = null; updateInstall = UpdateInstallState() },
-                                )
-                            }
+                            if (r != null) updateBar(r)
                         }
                     }
                 }
@@ -590,9 +596,11 @@ fun AppRoot(
                     more = more.copy(checking = true, updateMessage = null)
                     platform.checkForUpdates(manual = true) { r, msg ->
                         if (r != null) release = r
-                        more = platform.more.copy(updateMessage = if (r != null) "Version ${r.version} is available. See Home." else msg)
+                        updateFromMore = r != null
+                        more = platform.more.copy(updateMessage = if (r != null) null else msg)
                     }
                 },
+                updateBar = release?.takeIf { updateFromMore }?.let { r -> { updateBar(r) } },
                 onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },

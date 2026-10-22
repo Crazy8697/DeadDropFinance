@@ -718,6 +718,9 @@ class ScreenshotTest {
         val withBonus = Budget(budget.accounts, budget.envelopes, budget.transactions + bonus, budget.lines + line, budget.moves)
         Page { withBonus.transactions.filter { it.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS }.forEach { TransactionRow(it, withBonus) {} } }
     }
+    @Test @Config(qualifiers = TALL) fun moreWithUpdateBar() = shot("136-more-update-bar") {
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, updateBar = { UpdateBar(release, UpdateInstallState(), {}, {}, {}, {}, {}) })
+    }
     @Test fun licenses() = shot("133-licenses") {
         LicensesScreen(listOf("LICENSE", "NOTICE", "THIRD-PARTY-NOTICES.md", "PRIVACY.md", "TERMS.md", "Apache-2.0.txt", "BSD-3-Clause-SQLCipher.txt", "libpng-2.0.txt"), {}, {})
     }
