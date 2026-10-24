@@ -39,14 +39,6 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean("auto_approve", false)
         set(v) = prefs.edit { putBoolean("auto_approve", v) }
 
-    /**
-     * Linked accounts (by id) set to "It's actually negative (overdrawn)" at link time: their new account's starting
-     * balance is worked out with the bank's balance sign flipped. Cleared once the starting balance is set.
-     */
-    var flipStartIds: Set<String>
-        get() = prefs.getStringSet("flip_start_ids", emptySet())!!.toSet()
-        set(v) = prefs.edit { putStringSet("flip_start_ids", v) }
-
     // ---- spend alerts (notifications after a background sync) -----------------------------------------------------
 
     var alertSpending: Boolean

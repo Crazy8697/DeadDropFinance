@@ -49,6 +49,12 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   Migration 9 to 10 only adds; `MigrationTest` builds a version 9 database from `9.json`, migrates it and checks every
   row survived and every account is ticked. It is an ordinary account column, so backup carries it and Purge and
   Erase remove it with the account.
+- Version 11 (1.2.1): `balance_sign_flipped` on `linked_account` (default 0): the user's choice that this bank
+  account's balance comes with the wrong sign. It lives on the phone's own link, not in the budget, so Purge data
+  (which keeps the connection and its linked accounts) keeps it, and a backup restored on the same phone keeps it
+  too (the backup leaves the bank tables out, and restore leaves the phone's own links in place); a new phone sets it
+  again when it links. The 0.15.2 one-time setting (`flip_start_ids` in the sync settings) is gone. Migration 10 to 11
+  only adds; `MigrationTest` checks it.
 - The budget start date (1.1.1) needed no schema change: it is the `meta` row `budget_start` (an ISO date), so the
   backup carries it, and Purge data (which empties `meta` but the device id) and Erase everything reset it. Changing
   it never writes a budget row: only what counts in the budget is worked out again.

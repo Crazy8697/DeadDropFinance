@@ -118,5 +118,15 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10)
+    /**
+     * 10 to 11 (1.2.1): `balance_sign_flipped` on `linked_account`, default 0: the user's choice that this bank account's
+     * balance comes with the wrong sign, kept on the phone's own link so it survives Purge, relinks and syncs.
+     */
+    val V10_V11 = object : Migration(10, 11) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `linked_account` ADD COLUMN `balance_sign_flipped` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11)
 }

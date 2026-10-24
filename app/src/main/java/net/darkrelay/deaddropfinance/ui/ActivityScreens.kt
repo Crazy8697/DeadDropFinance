@@ -153,15 +153,7 @@ private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity,
         txs.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }, forAccount = a.id) }
         // a manual account's balance is built from its starting balance: shown as its first (oldest) entry
         if (sync == null) {
-            ListRow(onClick = null) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Starting balance")
-                        Text(a.startDate.toString(), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-                    }
-                    MoneyText(a.startingBalance)
-                }
-            }
+            ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
         }
         Gap(24)
     }
@@ -239,14 +231,13 @@ private fun ToSortRow(
     t: TransactionEntity, budget: Budget, accountName: String, s: Suggest.Suggestion?, envelopes: Map<String, net.darkrelay.deaddropfinance.data.EnvelopeEntity>,
     onTransaction: (String) -> Unit, onSort: (String, String?, Boolean) -> Unit, onSplit: (String) -> Unit, sorting: SortingUi,
 ) {
-    ListRow(onClick = { onTransaction(t.id) }) {
-        Row {
-            Column(Modifier.weight(1f)) {
-                Row { Text(t.payee.ifBlank { "No description" }); if (t.pending) Pill("pending") }
-                Text("${t.date}, $accountName", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-            MoneyText(t.amount)
-        }
+    ActivityRowLines(
+        name = t.payee.ifBlank { "No description" },
+        info = "${t.date}, $accountName",
+        chips = rowChips(t, budget),
+        amount = t.amount,
+        onClick = { onTransaction(t.id) },
+    ) {
         if (s != null) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                 Column(Modifier.weight(1f)) {
@@ -360,27 +351,31 @@ fun TransactionRow(t: TransactionEntity, budget: Budget, forAccount: String? = n
             }.let { if (t.returnOf != null) "Return, back to $it" else if (t.sortedBy == SortedBy.AUTO) "$it, by a rule" else it }
         }
     }
-    ListRow(onClick) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Row {
-                    Text(if (t.kind == TransactionKind.BONUS) "Bonus income" else t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "No description" })
-                    if (t.kind == TransactionKind.BONUS) Pill(t.payee)
-                    if (t.kind == TransactionKind.NORMAL && !t.isWash && (t.amount < 0 || t.returnOf != null)) {
-                        val names = budget.lines.filter { it.transactionId == t.id && (it.bucket == LineBucket.ENVELOPE || it.bucket == LineBucket.UNSORTED) }
-                            .map { budget.categoryName(it.categoryId) }.distinct()
-                        if (names.isNotEmpty()) Pill(names.joinToString(", "))
-                    }
-                    if (t.isPayday) Pill("payday")
-                    if (t.pending) Pill("pending")
-                    if (t.fee) Pill("fee")
-                    if (t.feeRebate) Pill("fee rebate")
-                }
-                Text("${t.date}, " + (if (budget.beforeBudgetStart(t)) "before budget start, " else "") + sub, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-            MoneyText(if (incoming) t.amount else if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount, color = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null)
-        }
+    ActivityRowLines(
+        name = if (t.kind == TransactionKind.BONUS) "Bonus income" else t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "No description" },
+        info = "${t.date}, " + (if (budget.beforeBudgetStart(t)) "before budget start, " else "") + sub,
+        chips = rowChips(t, budget),
+        amount = if (incoming) t.amount else if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount,
+        onClick = onClick,
+        amountColor = if (t.amount > 0 && t.kind != TransactionKind.TRANSFER) DdfColors.Cyan else null,
+    )
+}
+
+/**
+ * The chips on a row's third line (1.2.1): the category (or Uncategorized) of a purchase or return, then what used to
+ * sit beside the name: how bonus income came in, payday, pending, fee and fee rebate.
+ */
+fun rowChips(t: TransactionEntity, budget: Budget): List<String> = buildList {
+    if (t.kind == TransactionKind.NORMAL && !t.isWash && (t.amount < 0 || t.returnOf != null)) {
+        val names = budget.lines.filter { it.transactionId == t.id && (it.bucket == LineBucket.ENVELOPE || it.bucket == LineBucket.UNSORTED) }
+            .map { budget.categoryName(it.categoryId) }.distinct()
+        if (names.isNotEmpty()) add(names.joinToString(", "))
     }
+    if (t.kind == TransactionKind.BONUS) add(t.payee)
+    if (t.isPayday) add("payday")
+    if (t.pending) add("pending")
+    if (t.fee) add("fee")
+    if (t.feeRebate) add("fee rebate")
 }
 
 enum class EditKind { SPEND, INCOME, TRANSFER }

@@ -121,11 +121,13 @@ data class LinkPick(
     val target: String,
     val history: SyncService.History = SyncService.History.NEWEST,
     val removeFromBudget: Boolean = true,
-    /** For a new account: the bank reports an overdrawn balance as positive. */
+    /** The bank sends this account's balance with the wrong sign (an overdrawn balance as positive). Kept with the bank's account. */
     val actuallyNegative: Boolean = false,
 )
 
-fun defaultPick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick {
+fun defaultPick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick = basePick(l, accounts).copy(actuallyNegative = l.balanceSignFlipped)
+
+private fun basePick(l: LinkedAccountEntity, accounts: List<AccountEntity>): LinkPick {
     val open = accounts.filter { !it.archived }
     l.accountId?.let { id -> if (open.any { it.id == id }) return LinkPick(id) }
     if (l.historyFrom != null || l.lastSyncedDate != null) return LinkPick("ignore")
@@ -195,7 +197,9 @@ fun LinkPanel(
                     Text(l.providerName, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                     if (l.mask.isNotEmpty()) Pill("...${l.mask}")
                 }
-                l.providerBalance?.let {
+                l.providerBalance?.let { raw ->
+                    // what the app reads: the bank's figure, with its sign flipped when the switch below says so
+                    val it = if (p.actuallyNegative) -raw else raw
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Bank balance ", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                         MoneyText(it, small = true)
@@ -211,7 +215,7 @@ fun LinkPanel(
                         }
                     }
                 }
-                if (p.target == "new" && l.providerBalance != null && l.lastSyncedDate == null) {
+                if (p.target != "ignore" && l.providerBalance != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("It's actually negative (overdrawn)", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         Switch(checked = p.actuallyNegative, onCheckedChange = { onPick(l.id, p.copy(actuallyNegative = it)) })
@@ -272,12 +276,12 @@ fun UnlinkDialog(accountName: String, onChoice: (removeFromBudget: Boolean) -> U
 fun toChoices(links: List<LinkedAccountEntity>, accounts: List<AccountEntity>, picks: Map<String, LinkPick>): List<SyncService.LinkChoice> = links.map { l ->
     val p = picks[l.id] ?: defaultPick(l, accounts)
     val target = when (p.target) {
-        "new" -> SyncService.Target.New(l.providerName, actuallyNegative = p.actuallyNegative)
+        "new" -> SyncService.Target.New(l.providerName)
         "track" -> SyncService.Target.New(l.providerName, trackOnly = true)
         "ignore" -> SyncService.Target.Ignore(p.removeFromBudget)
         else -> SyncService.Target.Existing(p.target)
     }
-    SyncService.LinkChoice(l.id, target, p.history)
+    SyncService.LinkChoice(l.id, target, p.history, signFlipped = p.actuallyNegative.takeIf { p.target != "ignore" })
 }
 
 /** More, Bank sync: every connection, what it last did, and the background settings. */
@@ -395,6 +399,8 @@ fun AccountSyncSection(
     today: LocalDate = LocalDate.now(),
     /** The balance check's Add an adjustment, after the user confirms the amount. */
     onAdjust: ((amount: Long, date: LocalDate) -> Unit)? = null,
+    /** The bank's balance sign choice for a linked account (1.2.1); null hides the switch. */
+    onSignFlipped: ((linkedId: String, flipped: Boolean) -> Unit)? = null,
     onChangeLink: (linkedId: String, accountId: String?, removeFromBudget: Boolean) -> Unit,
 ) {
     var asking by remember { mutableStateOf<String?>(null) }
@@ -409,7 +415,16 @@ fun AccountSyncSection(
         Text("Synced from ${l.providerName}${if (l.mask.isNotEmpty()) " (...${l.mask})" else ""} through ${c?.name ?: "a connection"}")
         Text("Last sync: ${syncTime(c?.lastSyncAt)}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         val age = balanceAge(l.providerBalanceDate, today)
-        val bank = l.providerBalance
+        val bank = l.bankBalance
+        if (onSignFlipped != null && l.providerBalance != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("It's actually negative (overdrawn)")
+                    Text("The bank sends this balance with the wrong sign. The app flips it every time it reads it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = l.balanceSignFlipped, onCheckedChange = { onSignFlipped(l.id, it) })
+            }
+        }
         if (bank != null) {
             age?.let { (d, stale) -> if (stale) StaleBankData(d) }
             val name = budget.accounts.firstOrNull { it.id == accountId }?.name ?: "this account"

@@ -156,11 +156,11 @@ fun StaleNotificationEntries(list: List<net.darkrelay.deaddropfinance.data.Trans
     SectionTitle("Not in bank sync after a week")
     Text("These were logged from a bank notification, but the bank's record never came in. Keep them if they're real, or delete them.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     list.forEach { t ->
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(t.payee.ifBlank { "Notification entry" }); Text(t.date.toString(), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
-            MoneyText(t.amount)
-            TextButton(onClick = { onKeep(t.id) }) { Text("Keep") }
-            OutlinedButton(onClick = { onDelete(t.id) }) { Text("Delete") }
+        ActivityRowLines(name = t.payee.ifBlank { "Notification entry" }, info = t.date.toString(), chips = if (t.pending) listOf("pending") else emptyList(), amount = t.amount, onClick = null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = { onKeep(t.id) }) { Text("Keep") }
+                OutlinedButton(onClick = { onDelete(t.id) }) { Text("Delete") }
+            }
         }
     }
 }

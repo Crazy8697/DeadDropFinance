@@ -14,7 +14,11 @@ import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.KeyWrapper
 import net.darkrelay.deaddropfinance.data.SecretStore
+import net.darkrelay.deaddropfinance.data.Purger
+import net.darkrelay.deaddropfinance.domain.BalanceCheck
 import net.darkrelay.deaddropfinance.domain.Budget
+import net.darkrelay.deaddropfinance.ui.defaultPick
+import net.darkrelay.deaddropfinance.ui.toChoices
 import net.darkrelay.deaddropfinance.domain.BudgetActions
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -145,8 +149,7 @@ class BalanceBugTest {
         assertEquals(0L, b.readyToAssign)
         assertEquals(-10_00L, b.toSortTotal)
         assertEquals(0L, b.sortedCheck)
-        assertTrue("the flag is spent once the starting balance is set", linkedId !in SyncSettings(
-            ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("bal-test", Context.MODE_PRIVATE)).flipStartIds)
+        assertTrue("the choice stays with the bank's account", store.sync.linkedNow().single { it.id == linkedId }.balanceSignFlipped)
     }
 
     @Test fun newerTransactionsAfterTheStartDateStillCount() = runBlocking<Unit> {
@@ -185,5 +188,78 @@ class BalanceBugTest {
     @Test fun aMissingBalanceDateIsNull() {
         val body = """{"errlist":[],"connections":[],"accounts":[{"id":"A","name":"X","conn_id":"C","currency":"USD","balance":"1.00","transactions":[]}]}"""
         assertNull(SimpleFinSource.parseAccountSet(body, ZoneOffset.UTC).first.single().account.balanceDate)
+    }
+
+    // ---- 1.2.1: the bank balance sign choice sticks with the bank's account ------------------------------------------
+
+    private val tenDown get() = listOf(SimpleFinMock.txn("S1", e(day.minusDays(10)), "-10.00", "SAMPLE STORE"))
+
+    private suspend fun linkedAccount(id: String) = store.sync.linkedOf(id).single()
+
+    private suspend fun assertFlippedRight(id: String) {
+        val l = linkedAccount(id)
+        val acct = l.accountId!!
+        val b = actions.snapshot()
+        assertEquals("the bank's +10.00, read as -10.00", -10_00L, l.bankBalance)
+        assertEquals(-10_00L, b.accountBalance(acct))
+        assertTrue("matches the bank", BalanceCheck.check(b, acct, l.bankBalance!!, null) is BalanceCheck.Result.Match)
+    }
+
+    @Test fun theSignChoiceSurvivesResyncPurgeAndARelink() = runBlocking<Unit> {
+        val m = bridge("10.00", tenDown)
+        val s = service()
+        val id = s.connectSimpleFin(m.setupToken())
+        s.link(listOf(SyncService.LinkChoice(linkedAccount(id).id, SyncService.Target.New("Everyday"), SyncService.History.DAYS_90, signFlipped = true)))
+        assertTrue(s.syncConnection(id).ok)
+        assertFlippedRight(id)
+        // a later sync reads the bank's figure again and keeps the choice
+        assertTrue(s.syncConnection(id).ok)
+        assertTrue(linkedAccount(id).balanceSignFlipped)
+        assertFlippedRight(id)
+        // Purge data keeps the connection and its bank accounts, and the choice with them
+        Purger(db, secrets, listOf(ApplicationProvider.getApplicationContext<Context>().getSharedPreferences("bal-test", Context.MODE_PRIVATE)), emptyList()).purge()
+        store.ensureSystemEnvelopes()
+        val kept = linkedAccount(id)
+        assertNull(kept.accountId)
+        assertTrue("the choice survives Purge", kept.balanceSignFlipped)
+        // the link screen starts with the switch on, and linking again as it shows uses it
+        assertTrue(defaultPick(kept, emptyList()).actuallyNegative)
+        s.link(toChoices(listOf(kept), emptyList(), emptyMap()))
+        assertTrue(s.syncConnection(id).ok)
+        assertFlippedRight(id)
+    }
+
+    @Test fun noChoiceBehavesAsBefore() = runBlocking<Unit> {
+        val m = bridge("10.00", tenDown)
+        val s = service()
+        val id = s.connectSimpleFin(m.setupToken())
+        s.link(listOf(SyncService.LinkChoice(linkedAccount(id).id, SyncService.Target.New("Everyday"), SyncService.History.DAYS_90)))
+        assertTrue(s.syncConnection(id).ok)
+        val l = linkedAccount(id)
+        assertEquals(false, l.balanceSignFlipped)
+        assertEquals(10_00L, l.bankBalance)
+        val b = actions.snapshot()
+        assertEquals(10_00L, b.accountBalance(l.accountId!!))
+        assertTrue(BalanceCheck.check(b, l.accountId!!, l.bankBalance!!, null) is BalanceCheck.Result.Match)
+    }
+
+    @Test fun linkingIntoAnExistingAccountAndTheAccountScreenSwitchSetTheChoice() = runBlocking<Unit> {
+        // made by hand with the real (overdrawn) balance, then linked: the bank's +41.07 is read as -41.07
+        val acct = actions.saveAccount(null, "Everyday", AccountType.BANK, -41_07, day)
+        val m = bridge("41.07")
+        val s = service()
+        val id = s.connectSimpleFin(m.setupToken())
+        s.link(listOf(SyncService.LinkChoice(linkedAccount(id).id, SyncService.Target.Existing(acct), SyncService.History.YEAR, signFlipped = true)))
+        assertTrue(s.syncConnection(id).ok)
+        val l = linkedAccount(id)
+        assertEquals(-41_07L, l.bankBalance)
+        assertEquals("an existing account's starting balance is never touched", -41_07L, store.dao.account(acct)!!.startingBalance)
+        assertTrue(BalanceCheck.check(actions.snapshot(), acct, l.bankBalance!!, null) is BalanceCheck.Result.Match)
+        // the account's screen turns it off and on again; nothing else changes
+        s.setSignFlipped(l.id, false)
+        assertEquals(41_07L, linkedAccount(id).bankBalance)
+        s.setSignFlipped(l.id, true)
+        assertEquals(-41_07L, linkedAccount(id).bankBalance)
+        assertEquals(-41_07L, actions.snapshot().accountBalance(acct))
     }
 }

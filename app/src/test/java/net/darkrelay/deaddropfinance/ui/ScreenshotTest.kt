@@ -816,6 +816,36 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun accountEditShowInActivity() = shot("163-account-edit-show-in-activity") {
         AccountEditScreen(tabsBudget.accounts.first { it.id == "wal" }, null, {}, {}, {}, budget = tabsBudget, onDelete = {}, deleteCount = 2)
     }
+    // ---- 1.2.1: three-line Activity rows -------------------------------------------------------------------------
+    private val longRows: Budget by lazy {
+        val long = TransactionEntity(id = "L1", accountId = "chk", date = today, payee = "POS DEBIT SAMPLE MERCHANT #0042 1234 SAMPLE AVENUE SAMPLETOWN XX 00000 CARD 9999", amount = -12_34, createdAt = 3, updatedAt = 3)
+        val mixed = TransactionEntity(id = "L2", accountId = "chk", date = today, payee = "Sample Coffee Roasters And Bakery Market", amount = -45_67, pending = true, createdAt = 4, updatedAt = 4)
+        val big = TransactionEntity(id = "L3", accountId = "chk", date = today, payee = "SAMPLE FURNITURE OUTLET", amount = -98_765_43, createdAt = 5, updatedAt = 5)
+        val bigIn = TransactionEntity(id = "L4", accountId = "chk", date = today, payee = "SAMPLE BONUS PAYOUT", amount = 12_345_67, isPayday = true, createdAt = 6, updatedAt = 6)
+        fun l(tx: String, amount: Long, bucket: LineBucket, env: String? = null, c: String? = null) =
+            TransactionLineEntity(transactionId = tx, bucket = bucket, envelopeId = env, amount = amount, categoryId = c, createdAt = 0, updatedAt = 0)
+        Budget(
+            tabsBudget.accounts, tabsBudget.envelopes, tabsBudget.transactions + long + mixed + big + bigIn,
+            tabsBudget.lines + l("L1", -12_34, LineBucket.ENVELOPE, "e-groc", "c-groc") + l("L2", -45_67, LineBucket.ENVELOPE, "e-unp", "c-out") +
+                l("L3", -98_765_43, LineBucket.ENVELOPE, "e-unp", "c-other") + l("L4", 12_345_67, LineBucket.READY_TO_ASSIGN),
+            tabsBudget.moves, categories = tabsBudget.categories,
+        )
+    }
+    @Test @Config(qualifiers = TALL) fun activityRowsAll() = shot("170-activity-rows-all") {
+        Column { Box(Modifier.weight(1f)) { ActivityScreen(longRows, {}, {}, { _, _, _ -> }, {}, tabs = tabs(null)) }; BottomTabs(Nav.Activity) {} }
+    }
+    @Test @Config(qualifiers = TALL) fun activityRowsAccountTab() = shot("171-activity-rows-account-tab") {
+        Column { Box(Modifier.weight(1f)) { ActivityScreen(longRows, {}, {}, { _, _, _ -> }, {}, tabs = tabs("chk")) }; BottomTabs(Nav.Activity) {} }
+    }
+    @Test fun activityRowsLongestName() = shot("172-activity-row-longest-name") {
+        Page { longRows.transactions.filter { it.id == "L1" || it.id == "L2" }.forEach { TransactionRow(it, longRows) {} } }
+    }
+    @Test fun activityRowsLargestAmounts() = shot("173-activity-row-largest-amounts") {
+        Page { longRows.transactions.filter { it.id == "L3" || it.id == "L4" || it.id == "L1" }.forEach { TransactionRow(it, longRows) {} } }
+    }
+    @Test @Config(qualifiers = "w400dp-h860dp-xhdpi", fontScale = 1.5f) fun activityRowsLargerFont() = shot("174-activity-rows-larger-font") {
+        Page { longRows.transactions.filter { it.id in setOf("L1", "L2", "L3", "L4") }.forEach { TransactionRow(it, longRows) {} } }
+    }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)

@@ -361,4 +361,28 @@ class MigrationTest {
             db.close()
         }
     }
+
+    @Test fun tenToElevenAddsTheSignChoiceOffAndKeepsTheLink() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-10.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 10)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL("INSERT INTO connection (id, provider, name, status, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 1)")
+        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, provider_balance_date, set_start_balance) VALUES ('l1', 'c1', 'ACT', 'Sample', '', 'a1', 2314, 1900000000, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val l = db.syncDao().linkedNow().single()
+            assertEquals("a1", l.accountId)
+            assertEquals(2314L, l.providerBalance)
+            assertEquals("off: the bank's figure is read as sent", false, l.balanceSignFlipped)
+            assertEquals(2314L, l.bankBalance)
+            assertEquals("Sample Account", db.dao().account("a1")!!.name)
+            assertEquals(-1234L, db.dao().transaction("t1")!!.amount)
+            assertTrue(db.dao().account("a1")!!.showInActivity)
+            assertEquals(1, db.dao().changes().size)
+        } finally {
+            db.close()
+        }
+    }
 }

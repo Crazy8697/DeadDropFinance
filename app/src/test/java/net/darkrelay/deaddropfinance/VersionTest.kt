@@ -69,6 +69,8 @@ class VersionTest {
         if (BuildConfig.VERSION_NAME == "1.1.1") assertEquals(10101, BuildConfig.VERSION_CODE)
         // 1.2.0 (Activity account tabs, Show in Activity) -> 1 * 10000 + 2 * 100 + 0
         if (BuildConfig.VERSION_NAME == "1.2.0") assertEquals(10200, BuildConfig.VERSION_CODE)
+        // 1.2.1 (three-line Activity rows, the bank balance sign choice) -> 1 * 10000 + 2 * 100 + 1
+        if (BuildConfig.VERSION_NAME == "1.2.1") assertEquals(10201, BuildConfig.VERSION_CODE)
         // every later version must stay above 0.2.0 (code 200), the first signed release, so it installs as an update
         assertTrue(BuildConfig.VERSION_CODE > 200)
     }

@@ -138,7 +138,8 @@ class SyncService(
         data class Ignore(val removeFromBudget: Boolean = true) : Target()
     }
 
-    data class LinkChoice(val linkedId: String, val target: Target, val history: History = History.NEWEST)
+    /** [signFlipped]: the bank sends this account's balance with the wrong sign (null leaves the choice as it is). */
+    data class LinkChoice(val linkedId: String, val target: Target, val history: History = History.NEWEST, val signFlipped: Boolean? = null)
 
     /** Where the first sync starts: the newest transaction already in the account, or 30 days back if it's empty. */
     suspend fun historyStart(accountId: String?, history: History): LocalDate {
@@ -154,9 +155,10 @@ class SyncService(
     /** Applies the user's link choices. Never deletes, replaces or duplicates an existing account. */
     suspend fun link(choices: List<LinkChoice>) = withContext(Dispatchers.IO) {
         for (c in choices) {
-            val l = store.sync.linkedNow().firstOrNull { it.id == c.linkedId } ?: continue
-            val flipped = (c.target as? Target.New)?.actuallyNegative == true
-            settings.flipStartIds = if (flipped) settings.flipStartIds + l.id else settings.flipStartIds - l.id
+            val l0 = store.sync.linkedNow().firstOrNull { it.id == c.linkedId } ?: continue
+            // the sign choice belongs to the bank's account: set here when linking, kept through Purge, relinks and syncs
+            val flipped = c.signFlipped ?: (c.target as? Target.New)?.actuallyNegative?.takeIf { it }
+            val l = if (flipped != null && c.target !is Target.Ignore) l0.copy(balanceSignFlipped = flipped) else l0
             when (val t = c.target) {
                 is Target.Ignore -> {
                     store.sync.upsertLinked(l.copy(accountId = null))
@@ -175,6 +177,12 @@ class SyncService(
                 }
             }
         }
+    }
+
+    /** The user says this bank account's balance comes with the wrong sign (or not, any more). Nothing else changes. */
+    suspend fun setSignFlipped(linkedId: String, flipped: Boolean) = withContext(Dispatchers.IO) {
+        val l = store.sync.linkedNow().firstOrNull { it.id == linkedId } ?: return@withContext
+        if (l.balanceSignFlipped != flipped) store.sync.upsertLinked(l.copy(balanceSignFlipped = flipped))
     }
 
     // ---- syncing ------------------------------------------------------------------------------------------------
@@ -276,11 +284,10 @@ class SyncService(
             // a new account's starting balance is set once the whole history is in
             for (l in latest.values) {
                 val acct = l.accountId ?: continue
-                val bal = l.providerBalance ?: continue
+                val bal = l.bankBalance ?: continue
                 if (l.setStartBalance && l.lastSyncedDate == today) {
-                    setStartingBalance(acct, if (l.id in settings.flipStartIds) -bal else bal)
+                    setStartingBalance(acct, bal)
                     store.sync.upsertLinked(l.copy(setStartBalance = false))
-                    settings.flipStartIds = settings.flipStartIds - l.id
                 }
             }
             return finish(conn, true, total, summary(total), messages.toList())

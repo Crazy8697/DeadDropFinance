@@ -15,6 +15,7 @@ import net.darkrelay.deaddropfinance.data.AccountType
 import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.ConnectionEntity
+import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.Provider
@@ -173,6 +174,13 @@ class BackupTest {
         b.db.syncDao().upsertConnection(ConnectionEntity(id = "conn-b", provider = Provider.SIMPLEFIN, name = "Other Sample Bridge", createdAt = 1))
         b.backups.restore(ByteArrayInputStream(file), "sample words".toCharArray())
         assertEquals(listOf("conn-b"), b.db.syncDao().connectionsNow().map { it.id })
+        // the bank balance sign choice is the phone's own, on its bank link: a backup and restore keeps it there
+        a.db.syncDao().upsertLinked(LinkedAccountEntity(id = "link-a", connectionId = "conn-a", providerAccountId = "ACT", providerName = "Sample", providerBalance = 41_07, balanceSignFlipped = true))
+        val again = a.backup("sample words")
+        a.backups.restore(ByteArrayInputStream(again), "sample words".toCharArray())
+        val kept = a.db.syncDao().linkedNow().single()
+        assertEquals(true, kept.balanceSignFlipped)
+        assertEquals(-41_07L, kept.bankBalance)
     }
 
     @Test fun aWrongPasswordOrABadFileFailsCleanlyAndChangesNothing() = runBlocking<Unit> {

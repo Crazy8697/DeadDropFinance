@@ -9,7 +9,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Erase everything and start over (in More): wipes every account, transaction, envelope, bank connection and setting from the phone, after a confirmation that lists what's lost, says there's no backup, and needs the word ERASE typed. The app then starts like a fresh install, at the setup wizard. The last screen explains that a SimpleFIN connection for the app still exists on the Bridge and how to delete it there.
 - Archiving an account takes its balance out of Ready to Assign, after a confirmation that says so, as if the account was never in the budget. Its transactions stay as history. Unarchiving puts it back.
 - Track only, not in the budget: an account can hold money that must never be budgeted (for example a membership share that has to stay in a savings account). Its balance shows on the account list and syncs normally, but it never counts in Ready to Assign, and its transactions never land in To sort: they're recorded as already handled. Bank sync's link screen offers it as a choice. Moving money between a budget account and a track-only one comes out of, or goes into, Ready to Assign.
-- Some banks report an overdrawn balance as positive through SimpleFIN. When the link screen's choice is Create a new account, an "It's actually negative (overdrawn)" switch (off by default) works the new account's starting balance out as if the bank's balance were negative, the same number with the other sign (0.15.2). Linking into an existing account doesn't show it.
+- Some banks report an overdrawn balance as positive through SimpleFIN. "It's actually negative (overdrawn)" says this bank account's balance comes with the wrong sign (1.2.1; 0.15.2 had it only for a new account, at link time). The choice belongs to the bank's account: the link screen offers it wherever an account is linked (a new account, Track only, or into an existing account), the account's screen has it under Bank sync to change later, and it stays through Purge data (which keeps the SimpleFIN connection), relinks and every sync. With it on, the app flips the bank's balance every time it reads it: on the link screen, for a new account's starting balance after the first sync, and in the balance check. The bank's figure itself is stored as sent. Turning it on or off later doesn't recompute a starting balance already set.
 - Held amount: any budget account can have a minimum that stays put. Ready to Assign counts the balance minus the held amount, shown on the account as "Held". If the balance drops below the held amount, the account shows a warning and only the actual balance is held, so Ready to Assign never goes lower than the real balance would make it.
 - Account types: bank account, payment app balance, and cash.
 - Moving money between the user's own accounts is a transfer, never spending or income.
@@ -324,6 +324,16 @@ How the app behaves. Each section names the stage that builds it. Everything run
   totals don't change, and they still show under All.
 - Show in Activity travels in backup and restore, goes with the account in Purge data and Erase everything, and the
   JSON setup importer can set it on an account already in the app (docs/IMPORT.md, `accounts`).
+
+## Activity rows (1.2.1)
+
+- Every row in Activity (All's To sort and Recent, every account tab, the notification entries, a manual account's
+  Starting balance) has three lines: the name on one line, cut with an ellipsis when it's long; the info line (date
+  and status, as before); and a line of chips: the category (or Uncategorized) first, then what used to sit beside
+  the name: how bonus income came in, payday, pending, fee, fee rebate.
+- The amount sits in a fixed column on the right, sized for the widest realistic amount ("+$12,345.67",
+  "-$98,765.43") at the phone's own font size, so it never wraps, shrinks or moves and amounts line up. A long name
+  never changes a row's height. Tapping a row still opens it with the full name.
 
 ## Updates (Stage 5, downloaded and installed in-app from 0.15.1)
 - An update check (on by default; More, Check for updates) asks GitHub for the app's own latest

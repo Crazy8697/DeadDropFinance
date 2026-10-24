@@ -59,7 +59,16 @@ data class LinkedAccountEntity(
      * the first sync (an existing account's starting balance is the user's and is never touched).
      */
     @ColumnInfo(name = "set_start_balance") val setStartBalance: Boolean = false,
-)
+    /**
+     * The bank sends this account's balance with the wrong sign (1.2.1; some banks report an overdrawn balance as
+     * positive through SimpleFIN). Set by the user, kept with the bank's account: a Purge that keeps the connection,
+     * a relink and every sync keep it. [providerBalance] stays as the bank sent it; [bankBalance] is what the app reads.
+     */
+    @ColumnInfo(name = "balance_sign_flipped", defaultValue = "0") val balanceSignFlipped: Boolean = false,
+) {
+    /** The bank's balance as the app reads it everywhere: with its sign flipped when the user said the bank sends it wrong. */
+    val bankBalance: Long? get() = providerBalance?.let { if (balanceSignFlipped) -it else it }
+}
 
 /** One line per sync run, so the screens can say what the last one did. */
 @Entity(tableName = "sync_log", indices = [Index("connection_id")])
