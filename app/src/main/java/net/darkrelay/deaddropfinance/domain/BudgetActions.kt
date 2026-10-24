@@ -287,6 +287,23 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     }
 
     /**
+     * The wrong-sign fix (1.2.2), only ever when the user confirms it: when the balance check finds the bank's figure is
+     * the app's with the other sign, the account's starting balance moves by exactly the difference (worked out again
+     * here, with the check's own math), so the app's balance as of [asOf] equals the bank's. One account write (one change
+     * log row); no transaction is added, changed or deleted. Returns the change.
+     */
+    suspend fun matchStartingBalanceToBank(accountId: String, bank: Long, asOf: LocalDate?): Long {
+        val r = BalanceCheck.check(snapshot(), accountId, bank, asOf)
+        if (r !is BalanceCheck.Result.FlippedSign) throw BudgetRuleException("The balance check doesn't show the wrong-sign case any more.")
+        val delta = r.bank - r.app
+        store.write {
+            val a = dao.account(accountId) ?: throw BudgetRuleException("That account is gone.")
+            put(a, a.copy(startingBalance = a.startingBalance + delta, updatedAt = now))
+        }
+        return delta
+    }
+
+    /**
      * The balance check's fix, only ever when the user confirms it: a transaction that brings the account to the
      * bank's balance. Its money comes out of (or goes into) Ready to Assign, since it was never in an envelope.
      */

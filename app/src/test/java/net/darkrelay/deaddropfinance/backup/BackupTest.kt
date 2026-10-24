@@ -95,6 +95,8 @@ class BackupTest {
         store.ensureCategories()
         store.setBudgetStart(day.minusDays(7))
         actions.saveAccount(acct, "Sample Checking", AccountType.BANK, 800_00, day.minusDays(30), showInActivity = false)
+        // the wrong-sign Adjust (1.2.2): the bank says the app's balance with the other sign
+        actions.matchStartingBalanceToBank(acct, -actions.snapshot().postedBalanceOn(acct, day), day)
         net.darkrelay.deaddropfinance.domain.CategoryActions(store).setClaims(food, setOf(actions.snapshot().categories.first { it.name == "Groceries" }.id))
         val tx = store.write {
             val t = put(null, TransactionEntity(accountId = acct, date = day, payee = "SAMPLE MARKET", amount = -42_10, createdAt = now, updatedAt = now))
@@ -162,6 +164,7 @@ class BackupTest {
         assertEquals("Unplanned", budget.unplannedEnvelope!!.name)
         assertEquals("the budget start date comes back", day.minusDays(7), b.store.budgetStart())
         assertEquals("Show in Activity comes back", false, budget.accounts.single().showInActivity)
+        assertEquals("the adjusted starting balance comes back", -800_00L, budget.accounts.single().startingBalance)
         assertEquals(250_00L - 42_10, budget.envelopeBalance(budget.envelopes.first { it.name == "Sample Groceries" }.id))
     }
 

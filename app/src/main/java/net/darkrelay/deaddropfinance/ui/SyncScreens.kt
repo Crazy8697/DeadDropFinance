@@ -401,6 +401,8 @@ fun AccountSyncSection(
     onAdjust: ((amount: Long, date: LocalDate) -> Unit)? = null,
     /** The bank's balance sign choice for a linked account (1.2.1); null hides the switch. */
     onSignFlipped: ((linkedId: String, flipped: Boolean) -> Unit)? = null,
+    /** Adjust on the wrong-sign warning (1.2.2): the bank's balance and its date, to match the starting balance to. */
+    onFixStart: ((bank: Long, asOf: LocalDate?) -> Unit)? = null,
     onChangeLink: (linkedId: String, accountId: String?, removeFromBudget: Boolean) -> Unit,
 ) {
     var asking by remember { mutableStateOf<String?>(null) }
@@ -428,7 +430,12 @@ fun AccountSyncSection(
         if (bank != null) {
             age?.let { (d, stale) -> if (stale) StaleBankData(d) }
             val name = budget.accounts.firstOrNull { it.id == accountId }?.name ?: "this account"
-            BalanceCheckView(BalanceCheck.check(budget, accountId, bank, asOfDate(l.providerBalanceDate)), name, onAdjust)
+            // worked out again on every change, so flipping the sign shows the check (and its Adjust) right away
+            val start = budget.accounts.firstOrNull { it.id == accountId }?.startingBalance
+            BalanceCheckView(
+                BalanceCheck.check(budget, accountId, bank, asOfDate(l.providerBalanceDate)), name, onAdjust,
+                startingBalance = start, onFixStart = onFixStart?.let { f -> { f(bank, asOfDate(l.providerBalanceDate)) } },
+            )
         }
         val targets = listOf<Pair<String?, String>>(null to "Stop syncing this account") + budget.accounts.filter { !it.archived }.map { it.id to "Into ${it.name}" }
         Picker("Link", targets, l.accountId, { if (it == null) asking = l.id else onChangeLink(l.id, it, false) })

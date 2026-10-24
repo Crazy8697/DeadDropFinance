@@ -20,6 +20,7 @@ import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.ui.defaultPick
 import net.darkrelay.deaddropfinance.ui.toChoices
 import net.darkrelay.deaddropfinance.domain.BudgetActions
+import net.darkrelay.deaddropfinance.domain.BudgetRuleException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -261,5 +262,48 @@ class BalanceBugTest {
         s.setSignFlipped(l.id, true)
         assertEquals(-41_07L, linkedAccount(id).bankBalance)
         assertEquals(-41_07L, actions.snapshot().accountBalance(acct))
+    }
+
+    // ---- 1.2.2: Adjust on the wrong-sign warning --------------------------------------------------------------------
+
+    @Test fun flippingTheSignChangesNoNumbersAndAdjustFixesOnlyTheStartingBalance() = runBlocking<Unit> {
+        // linked before the switch was on: the starting balance was built from the bank's +10.00 as sent
+        val m = bridge("10.00", tenDown)
+        val s = service()
+        val id = s.connectSimpleFin(m.setupToken())
+        s.link(listOf(SyncService.LinkChoice(linkedAccount(id).id, SyncService.Target.New("Everyday"), SyncService.History.DAYS_90)))
+        assertTrue(s.syncConnection(id).ok)
+        val acct = linkedAccount(id).accountId!!
+        val before = actions.snapshot()
+        assertEquals(10_00L, before.accountBalance(acct))
+        val start0 = store.dao.account(acct)!!.startingBalance
+        // the switch alone changes no number; the check (worked out again from the link) now shows the wrong-sign case
+        s.setSignFlipped(linkedAccount(id).id, true)
+        val flipped = actions.snapshot()
+        val bank = linkedAccount(id).bankBalance!!
+        assertEquals(-10_00L, bank)
+        assertEquals(before.accountBalance(acct), flipped.accountBalance(acct))
+        assertEquals(before.readyToAssign, flipped.readyToAssign)
+        assertEquals(start0, store.dao.account(acct)!!.startingBalance)
+        val asOf = java.time.Instant.ofEpochSecond(linkedAccount(id).providerBalanceDate!!).atZone(ZoneOffset.UTC).toLocalDate()
+        assertTrue(BalanceCheck.check(flipped, acct, bank, asOf) is BalanceCheck.Result.FlippedSign)
+        // Adjust: the starting balance moves by exactly what makes the app match the bank, in one account write
+        val txns = store.dao.transactionsNow().sortedBy { it.id }
+        val lines = store.dao.linesNow().sortedBy { it.id }
+        val accountChanges = store.dao.changes().count { it.entityType == "account" }
+        val allChanges = store.dao.changes().size
+        assertEquals(-20_00L, actions.matchStartingBalanceToBank(acct, bank, asOf))
+        val after = actions.snapshot()
+        assertEquals(start0 - 20_00, store.dao.account(acct)!!.startingBalance)
+        assertEquals(-10_00L, after.accountBalance(acct))
+        assertTrue("matches the bank", BalanceCheck.check(after, acct, bank, asOf) is BalanceCheck.Result.Match)
+        assertEquals("one change log row", accountChanges + 1, store.dao.changes().count { it.entityType == "account" })
+        assertEquals(allChanges + 1, store.dao.changes().size)
+        assertEquals("no transaction changed", txns, store.dao.transactionsNow().sortedBy { it.id })
+        assertEquals(lines, store.dao.linesNow().sortedBy { it.id })
+        // once it matches there's nothing to adjust; another kind of difference isn't this fix's either
+        assertTrue(runCatching { actions.matchStartingBalanceToBank(acct, bank, asOf) }.exceptionOrNull() is BudgetRuleException)
+        assertTrue(runCatching { actions.matchStartingBalanceToBank(acct, 7_00, asOf) }.exceptionOrNull() is BudgetRuleException)
+        assertEquals(start0 - 20_00, store.dao.account(acct)!!.startingBalance)
     }
 }

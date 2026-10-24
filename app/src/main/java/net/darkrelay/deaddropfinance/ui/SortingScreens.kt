@@ -331,18 +331,35 @@ private val asOfFormat = DateTimeFormatter.ofPattern("MMM d")
  * wrong and the app's math is trusted.
  */
 @Composable
-fun BalanceCheckView(r: BalanceCheck.Result, accountName: String, onAdjust: ((amount: Long, date: LocalDate) -> Unit)?, confirming: Boolean = false) {
+fun BalanceCheckView(
+    r: BalanceCheck.Result, accountName: String, onAdjust: ((amount: Long, date: LocalDate) -> Unit)?, confirming: Boolean = false,
+    /**
+     * The wrong-sign case (1.2.2): the account's starting balance as it is, and Adjust, which moves it by what makes the
+     * app match the bank. Null keeps the warning without Adjust (the link screen).
+     */
+    startingBalance: Long? = null,
+    onFixStart: (() -> Unit)? = null,
+) {
     val asOf = r.asOf?.let { " as of ${it.format(asOfFormat)}" } ?: ""
     var confirm by remember { mutableStateOf(confirming) }
     when (r) {
         is BalanceCheck.Result.Match -> Text("Balance check: matches the bank (${money(r.bank)}$asOf).", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
         is BalanceCheck.Result.FlippedSign -> {
             Text("Balance check: the bank's balance looks to have the wrong sign.", color = DdfColors.Warning)
-            Text(
-                "The bank reports ${money(r.bank)}$asOf. The app's own math says ${money(r.app)}: the same amount with the other sign. The app's figure " +
-                    "is trusted and nothing needs fixing here. Some banks send an overdrawn balance as positive through SimpleFIN.",
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
+            if (onFixStart != null && startingBalance != null) {
+                Text(
+                    "The bank reports ${money(r.bank)}$asOf. The app's own math says ${money(r.app)}: the same amount with the other sign. If the " +
+                        "bank's figure is right, Adjust sets this account's starting balance so the app matches it.",
+                    color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = { confirm = true }) { Text("Adjust") }
+            } else {
+                Text(
+                    "The bank reports ${money(r.bank)}$asOf. The app's own math says ${money(r.app)}: the same amount with the other sign. The app's figure " +
+                        "is trusted and nothing needs fixing here. Some banks send an overdrawn balance as positive through SimpleFIN.",
+                    color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
         is BalanceCheck.Result.Mismatch -> {
             val d = r.difference
@@ -358,6 +375,24 @@ fun BalanceCheckView(r: BalanceCheck.Result, accountName: String, onAdjust: ((am
             )
             if (onAdjust != null) OutlinedButton(onClick = { confirm = true }) { Text("Add an adjustment") }
         }
+    }
+    if (confirm && r is BalanceCheck.Result.FlippedSign && onFixStart != null && startingBalance != null) {
+        val delta = r.bank - r.app
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Adjust the starting balance?") },
+            text = {
+                Column {
+                    Text(accountName, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+                    Text("Starting balance now: ${money(startingBalance)}")
+                    Text("New starting balance: ${money(startingBalance + delta)}")
+                    Text("The app's balance$asOf becomes ${money(r.app + delta)}, the bank's figure.")
+                    Text("No transaction is added or changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = { TextButton(onClick = { confirm = false; onFixStart() }) { Text("Adjust") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
+        )
     }
     if (confirm && r is BalanceCheck.Result.Mismatch && onAdjust != null) {
         val d = r.difference

@@ -1098,6 +1098,7 @@ fun AppRoot(
                                 b, a.id, links, connections, onAdjust = { amount, date -> run(scope) { actions.addAdjustment(a.id, amount, date) } },
                                 onChangeLink = { lid, acct, remove -> run(scope) { sync.setLink(lid, acct, remove) } },
                                 onSignFlipped = { lid, on -> run(scope) { sync.setSignFlipped(lid, on) } },
+                                onFixStart = { bank, asOf -> run(scope) { actions.matchStartingBalanceToBank(a.id, bank, asOf) } },
                             )
                         }
                     },

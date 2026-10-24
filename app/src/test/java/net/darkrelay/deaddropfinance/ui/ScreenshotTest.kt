@@ -846,6 +846,20 @@ class ScreenshotTest {
     @Test @Config(qualifiers = "w400dp-h860dp-xhdpi", fontScale = 1.5f) fun activityRowsLargerFont() = shot("174-activity-rows-larger-font") {
         Page { longRows.transactions.filter { it.id in setOf("L1", "L2", "L3", "L4") }.forEach { TransactionRow(it, longRows) {} } }
     }
+    // ---- 1.2.2: Adjust on the wrong-sign warning --------------------------------------------------------------------
+    private val signCheck = net.darkrelay.deaddropfinance.domain.BalanceCheck.Result.FlippedSign(bank = -23_14, app = 23_14, asOf = today.minusDays(1))
+    @Test fun wrongSignWithAdjust() = shot("180-wrong-sign-adjust") {
+        Page { SectionTitle("Bank sync"); BalanceCheckView(signCheck, "Sample Checking", onAdjust = { _, _ -> }, startingBalance = 50_00, onFixStart = {}) }
+    }
+    @Test fun wrongSignConfirm() = shot("181-wrong-sign-confirm") {
+        Page { SectionTitle("Bank sync"); BalanceCheckView(signCheck, "Sample Checking", onAdjust = { _, _ -> }, confirming = true, startingBalance = 50_00, onFixStart = {}) }
+    }
+    @Test fun wrongSignMatched() = shot("182-wrong-sign-matched") {
+        Page {
+            SectionTitle("Bank sync")
+            BalanceCheckView(net.darkrelay.deaddropfinance.domain.BalanceCheck.Result.Match(bank = -23_14, app = -23_14, asOf = today.minusDays(1)), "Sample Checking", onAdjust = { _, _ -> }, startingBalance = 3_72, onFixStart = {})
+        }
+    }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)
