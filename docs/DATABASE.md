@@ -55,6 +55,12 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   too (the backup leaves the bank tables out, and restore leaves the phone's own links in place); a new phone sets it
   again when it links. The 0.15.2 one-time setting (`flip_start_ids` in the sync settings) is gone. Migration 10 to 11
   only adds; `MigrationTest` checks it.
+- Version 12 (1.3.0): bank sync removed. Migration 11 to 12 drops `connection`, `linked_account` (with the sign choice)
+  and `sync_log`, deletes the SimpleFIN request counts in `meta` (`simplefin.%`), makes synced rows still pending
+  ordinary posted ones (`pending` 0 where `source` is `SYNC`) and clears `external_id` on every row. Every budget row
+  stays: accounts that were linked are ordinary manual accounts. `external_id` stays in `txn`, unused (dropping a
+  column means rebuilding `txn`); `source` keeps `SYNC` on the rows that came that way, and nothing new gets it.
+- Add activity on envelopes (1.3.0) needed no schema change: it saves an ordinary transaction.
 - The envelope Activity list (1.2.3) needed no schema change: it is read from the `transaction_line` and
   `envelope_move` rows already loaded for the budget (`Budget.envelopeActivity`), and writes nothing.
 - The wrong-sign Adjust (1.2.2) needed no schema change: it writes the account's `starting_balance` once, through the store (one change log row like any account edit), and touches no transaction.
@@ -73,28 +79,24 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - Money is stored as whole cents in 64-bit integers. No floating point is used for money anywhere.
 - Dates are stored as ISO text (`yyyy-mm-dd`).
 
-## Bank sync credentials
+## Saved secrets and backup
 
-- SimpleFIN access URLs (and any later provider's credentials) are kept in their own
-  encrypted file (`keys/secrets.bin`), never in the database, SharedPreferences, the change log or any log.
+- Secrets (today only the receipt photo key) are kept in their own encrypted file (`keys/secrets.bin`), never in the
+  database, SharedPreferences, the change log or any log. Until 1.3.0 it also held bank sync's SimpleFIN access; the
+  first start of 1.3.0 deletes it (`BankSyncCleanup`, with bank sync's settings and its background job).
 - That file is encrypted with its own Android Keystore key (AES-256-GCM), separate from the database key's.
-- If it can't be decrypted, it is left as it is (never replaced or deleted); the affected connection asks to be
-  reconnected.
-- Screens show only a masked hint (the last four characters), never a value.
-- Decided (0.15.0, confirmed 0.15.1): credentials don't travel. The backup leaves out the bank connection tables
-  (`connection`, `linked_account`, `sync_log`) and the credentials file. Nothing exports them.
-- The backup carries every other table (the change log included; this phone's device id in `meta` is kept on
-  restore) and the receipt photos, decrypted from `files/receipts` and sealed under the backup's own key. Restore
-  re-encrypts them under the phone's photo key. A backup from an older schema restores into the current one (every
-  migration only adds, so its columns are a subset); one from a newer schema is refused.
+- If it can't be decrypted, it is left as it is (never replaced or deleted).
+- Secrets don't travel: the backup leaves the secrets file out. Nothing exports it.
+- The backup carries every table (the change log included; this phone's device id in `meta` is kept on restore) and
+  the receipt photos, decrypted from `files/receipts` and sealed under the backup's own key. Restore re-encrypts them
+  under the phone's photo key. A backup from an older schema restores into the current one (its columns are a subset,
+  and tables that are gone, such as bank sync's, are ignored); one from a newer schema is refused. A backup made
+  before 1.3.0 restores with the bank's ids on its transactions cleared and a synced row still pending posted, as the
+  11 to 12 migration does.
 - Categories, claims and a purchase's category are ordinary rows, so the backup carries them (1.1.0).
-- Purge data (0.15.0) empties every table but `connection` and `linked_account` (whose accounts are unlinked), keeps
-  this phone's device id and the database key, deletes the receipt photos and every saved secret but the bank
-  access, and clears every settings file.
-- Disconnecting deletes that connection's credentials.
+- Purge data empties every table, keeps this phone's device id and the database key, deletes the receipt photos and
+  every saved secret, and clears every settings file.
 - Erase everything deletes the database files, the keys folder, both Keystore keys and every settings file.
-- `provider` holds `SIMPLEFIN`. Rows a removed provider left behind are cleaned up on start (see
-  `RemovedProviderCleanup`), so the app never reads a provider it no longer knows.
 
 ## Change log
 
@@ -104,5 +106,3 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
 - An update that changes nothing writes no change row.
 - The device id is a random UUID made once and stored in the `meta` table.
 - The change log is for later stages (sync between the user's own devices); nothing reads it yet.
-- The bank sync tables (`connection`, `linked_account`, `sync_log`) describe this phone's own connections and are
-  not change-logged. Transactions that bank sync brings in are ordinary budget rows and are.

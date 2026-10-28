@@ -43,7 +43,7 @@ class AlertsTest {
         assertTrue(n[0].lines[0].endsWith("suggested Food, \$65.00 left"))
         assertTrue(n[0].lines[2].endsWith("not sorted yet"))
         assertEquals(listOf("t1", "t2"), n[0].approveIds)
-        assertEquals("3 new charges synced", n[0].publicText)
+        assertEquals("3 new charges", n[0].publicText)
     }
 
     @Test fun theLockScreenShowsNoPayeeEnvelopeOrAmountUnlessAllowed() {

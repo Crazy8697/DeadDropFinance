@@ -18,9 +18,7 @@ import org.json.JSONObject
 
 /**
  * Backup and restore (FEATURES.md): one file, encrypted with a password the user picks (BackupCrypto), holding the
- * whole budget (every budget table, the change log included), the receipt photos and the user's settings. The phone's
- * own bank connections (and their credentials) are left out: they stay as they are, and are set up again on a new
- * phone.
+ * whole budget (every budget table, the change log included), the receipt photos and the user's settings.
  *
  * Restore replaces everything the backup holds. The whole file is read and checked first (password, every table,
  * every photo); only then is the budget replaced, in one database transaction, and the photos swapped in. A bad file
@@ -42,7 +40,7 @@ class Backups(
 
     private fun schema() = sql.version
 
-    /** The tables a backup carries: every table but the phone's own bank links and the database's own bookkeeping. */
+    /** The tables a backup carries: every table but the database's own bookkeeping. */
     private fun tables(): List<String> {
         val out = mutableListOf<String>()
         sql.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").use { c -> while (c.moveToNext()) out += c.getString(0) }
@@ -63,7 +61,7 @@ class Backups(
     /** Writes the backup to [out] (closed when done), encrypted under [passphrase]. */
     fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary {
         val rows = mutableMapOf<String, JSONArray>()
-        // one consistent picture of the budget, even if a sync writes meanwhile
+        // one consistent picture of the budget, even if a background job writes meanwhile
         db.runInTransaction {
             for (t in tables()) {
                 val a = JSONArray()
@@ -145,7 +143,7 @@ class Backups(
             if (m.optString("format") != FORMAT_NAME) throw BackupException("That isn't a Dead Drop Finance backup file.")
             if (m.optInt("schema") > schema()) throw BackupException("This backup was made by a newer version of the app. Update the app, then restore.")
             if (rows["account"] == null || rows["envelope"] == null || rows["txn"] == null) throw BackupException("The backup file is damaged.")
-            replace(rows, m.optLong("createdAt", 0))
+            replace(rows)
         } catch (e: BackupException) {
             stagingDir.deleteRecursively()
             throw e
@@ -163,12 +161,11 @@ class Backups(
     }
 
     /**
-     * One transaction: every carried table emptied and filled from the backup (this phone's device id is kept). The
-     * phone's bank links are then fitted to the restored budget: a link to an account the backup doesn't have is
-     * unlinked (link it again in Bank sync), and the others fetch again from the backup's day, so nothing the bank
-     * brought in since the backup is missed.
+     * One transaction: every carried table emptied and filled from the backup (this phone's device id is kept). A
+     * backup from before 1.3.0 may carry bank sync's data on its transactions: the bank's ids are dropped and a synced
+     * row still pending becomes an ordinary posted one, as the 11 to 12 migration does.
      */
-    private fun replace(rows: Map<String, JSONArray>, createdAt: Long) {
+    private fun replace(rows: Map<String, JSONArray>) {
         val here = tables()
         try {
             db.runInTransaction {
@@ -195,13 +192,8 @@ class Backups(
                         sql.insert(t, SQLiteDatabase.CONFLICT_REPLACE, v)
                     }
                 }
-                val since = java.time.Instant.ofEpochMilli(createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
-                sql.execSQL(
-                    "UPDATE linked_account SET account_id = NULL, history_from = NULL, last_synced_date = NULL, set_start_balance = 0 " +
-                        "WHERE account_id IS NOT NULL AND account_id NOT IN (SELECT id FROM account WHERE deleted = 0)",
-                )
-                // dates are ISO text, so text order is date order
-                sql.execSQL("UPDATE linked_account SET last_synced_date = ? WHERE last_synced_date > ?", arrayOf(since, since))
+                sql.execSQL("UPDATE txn SET pending = 0 WHERE source = 'SYNC' AND pending = 1")
+                sql.execSQL("UPDATE txn SET external_id = NULL WHERE external_id IS NOT NULL")
             }
         } catch (e: BackupException) {
             throw e
@@ -213,7 +205,7 @@ class Backups(
 
     companion object {
         const val FORMAT_NAME = "deaddropfinance-backup"
-        /** This phone's own bank links and the database's bookkeeping never travel. */
+        /** The database's bookkeeping never travels (and bank sync's tables, gone since 1.3.0, never did). */
         val LEFT_OUT = setOf("connection", "linked_account", "sync_log", "room_master_table", "android_metadata")
         private val ID = Regex("[A-Za-z0-9-]{1,64}")
 

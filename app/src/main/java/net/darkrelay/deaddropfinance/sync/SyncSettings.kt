@@ -5,26 +5,20 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 
 /**
- * Plain settings for bank sync and setup. Nothing here is a secret: they are switches and times.
+ * Plain settings for setup, sorting, alerts, backup and reading notifications. Nothing here is a secret: they are
+ * switches and times. The name (and the "sync" settings file) is from when it also held bank sync's settings (until
+ * 1.3.0); renaming the file would lose every setting.
  */
 class SyncSettings(private val prefs: SharedPreferences) {
 
     constructor(context: Context) : this(context.getSharedPreferences("sync", Context.MODE_PRIVATE))
-
-    var backgroundEnabled: Boolean
-        get() = prefs.getBoolean("background", true)
-        set(v) = prefs.edit { putBoolean("background", v) }
-
-    var intervalHours: Int
-        get() = prefs.getInt("interval_hours", DEFAULT_INTERVAL_HOURS).takeIf { it in INTERVALS } ?: DEFAULT_INTERVAL_HOURS
-        set(v) = prefs.edit { putInt("interval_hours", v.takeIf { it in INTERVALS } ?: DEFAULT_INTERVAL_HOURS) }
 
     /** Setup finished (or a working setup was found) on this install. */
     var setupDone: Boolean
         get() = prefs.getBoolean("setup_done", false)
         set(v) = prefs.edit { putBoolean("setup_done", v) }
 
-    /** Purge data ran: the next start opens the setup wizard with the kept bank connection. Cleared at Finish. */
+    /** Purge data ran: the next start opens the setup wizard. Cleared at Finish. */
     var setupAfterPurge: Boolean
         get() = prefs.getBoolean("setup_after_purge", false)
         set(v) = prefs.edit { putBoolean("setup_after_purge", v) }
@@ -39,7 +33,7 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean("auto_approve", false)
         set(v) = prefs.edit { putBoolean("auto_approve", v) }
 
-    // ---- spend alerts (notifications after a background sync) -----------------------------------------------------
+    // ---- spend alerts (notifications after a bank notification is read) ---------------------------------------------
 
     var alertSpending: Boolean
         get() = prefs.getBoolean("alert_spending", true)
@@ -108,19 +102,9 @@ class SyncSettings(private val prefs: SharedPreferences) {
 
     fun alertSettings() = net.darkrelay.deaddropfinance.domain.Alerts.Settings(alertSpending, alertLowOrOverspent, alertSafeToSpend, alertAmountsOnLockScreen)
 
-    fun lastAttempt(connectionId: String): Long = prefs.getLong("attempt.$connectionId", 0)
-    fun setLastAttempt(connectionId: String, at: Long) = prefs.edit { putLong("attempt.$connectionId", at) }
-    fun forget(connectionId: String) = prefs.edit { remove("attempt.$connectionId") }
+    /** Every key that is set (the upgrade cleanup looks for old ones). */
+    fun keys(): Set<String> = prefs.all.keys.toSet()
 
     /** Removes settings keys that no longer mean anything (the upgrade cleanup uses this). */
     fun removeKeys(keys: Collection<String>) = prefs.edit { keys.forEach { remove(it) } }
-
-    companion object {
-        const val DEFAULT_INTERVAL_HOURS = 6
-        val INTERVALS = listOf(6, 12, 24)
-        /** Syncing on app open happens at most this often per connection. */
-        const val OPEN_MIN_GAP_MS = 30L * 60 * 1000
-        /** Automatic syncs of a SimpleFIN connection happen at most this often (stricter than the 30 minutes above). */
-        const val SIMPLEFIN_AUTO_GAP_MS = 60L * 60 * 1000
-    }
 }

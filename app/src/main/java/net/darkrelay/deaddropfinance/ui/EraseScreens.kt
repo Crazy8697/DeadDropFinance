@@ -36,7 +36,6 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
             "Every account and its balance",
             "Every transaction",
             "Every envelope and what's in it",
-            "Bank connections and their saved logins",
             "Settings, including app lock and Hide screen",
         )) {
             Text("  $line", color = DdfColors.Muted)
@@ -63,11 +62,11 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
 const val PURGE_WORD = "PURGE"
 
 /**
- * Purge data: the same confirmation as Erase everything (what goes, typed word), for a reset that keeps the
- * SimpleFIN connection so no new setup token is needed.
+ * Purge data: the same confirmation as Erase everything (what goes, typed word), for a reset that keeps the database
+ * open and its key.
  */
 @Composable
-fun PurgeScreen(onBack: () -> Unit, working: Boolean, connectionNames: List<String>, onPurge: () -> Unit) {
+fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
     var typed by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Purge data", onBack)
@@ -84,15 +83,9 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, connectionNames: List<Stri
             Text("  $line", color = DdfColors.Muted)
         }
         Gap()
-        Text(
-            if (connectionNames.isEmpty()) "Kept: a SimpleFIN connection, if you add one before purging. There's none now."
-            else "Kept: your SimpleFIN connection (${connectionNames.joinToString(", ")}), so you don't need a new setup token.",
-            color = DdfColors.Cyan,
-        )
+        Text("Only a backup file can bring it back.", color = DdfColors.Warning)
         Gap()
-        Text("Only a backup file can bring the rest back.", color = DdfColors.Warning)
-        Gap()
-        Text("The app then starts over like a fresh install, at the setup wizard, with bank sync connected.", color = DdfColors.Muted)
+        Text("The app then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
         Gap(16)
         OutlinedTextField(
             value = typed, onValueChange = { typed = it.take(10) }, singleLine = true,
@@ -108,12 +101,11 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, connectionNames: List<Stri
 }
 
 /**
- * After an erase: what's left elsewhere (the SimpleFIN connection on the Bridge) and how to remove it. [left] is
- * what Eraser.erase() couldn't remove from this phone (empty when everything was); the headline only says
- * everything is gone when that's actually true.
+ * After an erase. [left] is what Eraser.erase() couldn't remove from this phone (empty when everything was); the
+ * headline only says everything is gone when that's actually true.
  */
 @Composable
-fun ErasedScreen(left: List<String>, onOpen: (String) -> Unit, onStartOver: () -> Unit) {
+fun ErasedScreen(left: List<String>, onStartOver: () -> Unit) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -126,13 +118,6 @@ fun ErasedScreen(left: List<String>, onOpen: (String) -> Unit, onStartOver: () -
             Text("This phone couldn't remove:", color = DdfColors.Warning)
             left.forEach { Text("  $it", color = DdfColors.Muted) }
         }
-        Gap(16)
-        Text(
-            "If you used SimpleFIN, its connection for this app still exists on the SimpleFIN Bridge. To remove it, sign in at the Bridge, " +
-                "find the app connection you made for Dead Drop Finance, and delete it there. Your bank connections on the Bridge are " +
-                "separate and stay unless you remove them too.",
-        )
-        TextButton(onClick = { onOpen(ProviderLinks.SIMPLEFIN_BRIDGE) }) { Text("Open SimpleFIN Bridge") }
         Gap(24)
         Button(onClick = onStartOver, modifier = Modifier.fillMaxWidth()) { Text("Start over") }
     }

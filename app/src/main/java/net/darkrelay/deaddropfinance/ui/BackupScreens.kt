@@ -64,8 +64,7 @@ fun BackupScreen(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Backup and restore", onBack)
         Text(
-            "One encrypted file with everything: your budget, receipt photos and settings. It needs your backup password to open. " +
-                "Bank connections aren't in it: on a new phone, connect bank sync again after restoring.",
+            "One encrypted file with everything: your budget, receipt photos and settings. It needs your backup password to open.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         if (s.lastBackup != null) {
@@ -88,7 +87,7 @@ fun BackupScreen(
 
         SectionTitle("Restore")
         Text(
-            "Restoring replaces everything in the app on this phone with what's in the backup. Bank connections on this phone stay as they are.",
+            "Restoring replaces everything in the app on this phone with what's in the backup.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         if (s.restoreName == null) {

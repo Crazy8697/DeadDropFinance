@@ -52,8 +52,6 @@ data class ActivityTabs(
     val onAdd: (accountId: String) -> Unit = {},
     val onScan: (accountId: String) -> Unit = {},
     val onImport: (accountId: String) -> Unit = {},
-    /** "Last sync ..." for a bank-synced account; null for a manual one. */
-    val lastSync: (accountId: String) -> String? = { null },
 )
 
 /** The accounts with a tab in Activity: shown in Activity and not archived, in account order (More, Accounts). */
@@ -82,7 +80,7 @@ data class SortingUi(
     /** Receipts still waiting for their charge. */
     val waitingReceipts: Int = 0,
     val onReceipts: () -> Unit = {},
-    /** Logged from a bank notification a week ago and never matched by bank sync. */
+    /** Logged from a bank notification a week ago and never matched by an import. */
     val stale: List<TransactionEntity> = emptyList(),
     val onKeepStale: (String) -> Unit = {},
     val onDeleteStale: (String) -> Unit = {},
@@ -101,7 +99,6 @@ fun ActivityScreen(
     onTransaction: (String) -> Unit,
     onSort: (String, String?, Boolean) -> Unit,
     onSplit: (String) -> Unit,
-    syncNotes: List<String> = emptyList(),
     sorting: SortingUi = SortingUi(),
     tabs: ActivityTabs = ActivityTabs(),
 ) {
@@ -110,7 +107,7 @@ fun ActivityScreen(
         Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Activity", onBack = null) }
         ActivityTabRow(tabs, budget.toSort.size)
         if (selected != null) AccountActivity(selected, budget, tabs, onTransaction)
-        else AllActivity(budget, onTransaction, onSort, onSplit, syncNotes, sorting)
+        else AllActivity(budget, onTransaction, onSort, onSplit, sorting)
     }
 }
 
@@ -133,7 +130,6 @@ private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
 /** One account's tab: its current balance, Add, Scan and Import CSV, and only its transactions, newest first. */
 @Composable
 private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity, budget: Budget, tabs: ActivityTabs, onTransaction: (String) -> Unit) {
-    val sync = tabs.lastSync(a.id)
     val txs = budget.transactions.filter { it.accountId == a.id || it.transferAccountId == a.id }
         .sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -141,7 +137,7 @@ private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity,
             Column(Modifier.padding(12.dp)) {
                 Text("Current balance", color = DdfColors.Muted)
                 MoneyText(budget.accountBalance(a.id), bold = true)
-                Text(sync ?: "Manual account", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Manual account", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         Row {
@@ -149,12 +145,9 @@ private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity,
             TextButton(onClick = { tabs.onScan(a.id) }) { Text("Scan") }
             TextButton(onClick = { tabs.onImport(a.id) }) { Text("Import CSV") }
         }
-        if (txs.isEmpty() && sync != null) EmptyState("No transactions in this account yet.")
         txs.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }, forAccount = a.id) }
-        // a manual account's balance is built from its starting balance: shown as its first (oldest) entry
-        if (sync == null) {
-            ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
-        }
+        // an account's balance is built from its starting balance: shown as its first (oldest) entry
+        ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
         Gap(24)
     }
 }
@@ -166,7 +159,6 @@ private fun AllActivity(
     onTransaction: (String) -> Unit,
     onSort: (String, String?, Boolean) -> Unit,
     onSplit: (String) -> Unit,
-    syncNotes: List<String>,
     sorting: SortingUi,
 ) {
     val accounts = budget.accounts.associateBy { it.id }
@@ -175,10 +167,6 @@ private fun AllActivity(
     val suggested = budget.toSort.count { it.id in sorting.suggestions }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         if (budget.accounts.none { !it.archived }) EmptyState("No accounts yet. Add one in More to get started.")
-        if (syncNotes.isNotEmpty()) {
-            SectionTitle("From bank sync")
-            syncNotes.forEach { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = 2.dp)) }
-        }
         sorting.learned.forEach { r -> LearnedRuleCard(r, budget) { undo -> sorting.onLearned(r.id, undo) } }
         sorting.offer?.let { o -> OfferCard(o, budget, sorting.onOffer) }
         SectionTitle("To sort") {
@@ -396,6 +384,8 @@ fun TransactionEditScreen(
     onSaveTransfer: (from: String, to: String, amount: Long, date: LocalDate, memo: String, fromEnvelope: String?) -> Unit,
     /** Started from an account's Activity tab: that account is picked. */
     presetAccount: String? = null,
+    /** Started from an envelope's Add activity (1.3.0): that envelope is chosen. */
+    presetEnvelope: String? = null,
 ) {
     val accounts = budget.accounts.filter { !it.archived || it.id == existing?.accountId }
     val existingLines = existing?.let { e -> budget.lines.filter { it.transactionId == e.id }.sortedBy { it.sortOrder } } ?: emptyList()
@@ -420,6 +410,7 @@ fun TransactionEditScreen(
     var single by remember {
         mutableStateOf(
             existingLines.singleOrNull()?.let { if (it.bucket == LineBucket.READY_TO_ASSIGN) "rta" else it.envelopeId }
+                ?: presetEnvelope?.takeIf { existing == null }
                 ?: if (existing == null && kind == EditKind.INCOME) "rta" else null,
         )
     }

@@ -67,7 +67,8 @@ class ActivityTabsTest {
         compose.onNodeWithText("SAMPLE HIDDEN PAY").assertExists()
     }
 
-    @Test fun uiAnAccountTabShowsItsBalanceItsOwnTransactionsAndActsOnIt() {
+    /** Sample Checking stands for an account that was linked to bank sync before 1.3.0: now a manual account like any other. */
+    @Test fun uiAFormerlyLinkedAccountTabShowsManualAccountItsBalanceItsOwnTransactionsAndActsOnIt() {
         val acted = mutableListOf<String>()
         compose.setContent {
             ActivityScreen(
@@ -75,16 +76,16 @@ class ActivityTabsTest {
                 tabs = ActivityTabs(
                     accounts = activityTabAccounts(budget), selected = "chk",
                     onAdd = { acted += "add:$it" }, onScan = { acted += "scan:$it" }, onImport = { acted += "csv:$it" },
-                    lastSync = { if (it == "chk") "Last sync Aug 20, 9:30 AM" else null },
                 ),
             )
         }
         compose.onNodeWithText("Current balance").assertExists()
         compose.onNodeWithText("$600.00").assertExists()
-        compose.onNodeWithText("Last sync Aug 20, 9:30 AM").assertExists()
+        compose.onNodeWithText("Manual account").assertExists()
+        compose.onNodeWithText("Last sync", substring = true).assertDoesNotExist()
         compose.onNodeWithText("SAMPLE PAYROLL").assertExists()
         compose.onNodeWithText("SAMPLE WALLET TOP UP").assertDoesNotExist()
-        compose.onNodeWithText("Starting balance").assertDoesNotExist()
+        compose.onNodeWithText("Starting balance").assertExists()
         compose.onNodeWithText("Add").performClick()
         compose.onNodeWithText("Scan").performClick()
         compose.onNodeWithText("Import CSV").performClick()

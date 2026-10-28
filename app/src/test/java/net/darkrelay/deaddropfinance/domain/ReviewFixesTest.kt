@@ -14,14 +14,9 @@ import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.MoveKind
 import net.darkrelay.deaddropfinance.data.ParkedStatus
-import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.data.TransactionSource
-import net.darkrelay.deaddropfinance.sync.AccountData
-import net.darkrelay.deaddropfinance.sync.ProviderAccount
-import net.darkrelay.deaddropfinance.sync.ProviderTxn
-import net.darkrelay.deaddropfinance.sync.SyncEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -72,30 +67,6 @@ class ReviewFixesTest {
         a.deleteTransaction(pay)
         assertTrue("the cycle isn't paid by a deleted charge", store.dao.billPaymentsNow().none { it.billId == bill && !it.deleted })
         assertNull(store.dao.parkedBuy(p)!!.transactionId)
-    }
-
-    @Test fun aPendingPaydayTheBankDropsTakesItsSweepAndFillWithIt() = world { store, a, acct ->
-        val food = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, target = 200_00))
-        a.markPayday(tx(store, acct, day.minusMonths(1), 1500_00, "SAMPLE EMPLOYER"), day.minusMonths(1))
-        val pending = tx(store, acct, day.minusDays(1), 1480_00, "SAMPLE EMPLOYER", pending = true, ext = SyncEngine.externalPrefix(Provider.SIMPLEFIN, "ACT") + "P1")
-        a.markPayday(pending, day)
-        assertTrue(store.dao.movesNow().any { it.paydayTransactionId == pending && it.kind == MoveKind.AUTOFILL })
-        // the bank's list no longer has it and nothing replaces it
-        SyncEngine(store).apply(Provider.SIMPLEFIN, "ACT", acct, AccountData(ProviderAccount("ACT", "Sample"), emptyList()), day.minusDays(5), day)
-        assertTrue(store.dao.movesNow().none { it.paydayTransactionId == pending && !it.deleted })
-        val b = a.snapshot()
-        assertEquals(1, b.paydayDates.size)
-        assertEquals(0L, b.sortedCheck)
-        assertEquals(200_00L, b.envelopeBalance(food))
-    }
-
-    @Test fun aPostedAmountChangeCarriesToItsBillPayment() = world { store, a, acct ->
-        val bills = BillActions(store, a) { day }
-        bills.saveBill(null, BillActions.BillDraft("Sample Water", 40_00, day.plusDays(1), matchText = "sample water", anyAmount = true))
-        val id = tx(store, acct, day, -40_00, "SAMPLE WATER", pending = true, ext = SyncEngine.externalPrefix(Provider.SIMPLEFIN, "ACT") + "W1")
-        bills.matchPayments(listOf(id))
-        SyncEngine(store).apply(Provider.SIMPLEFIN, "ACT", acct, AccountData(ProviderAccount("ACT", "Sample"), listOf(ProviderTxn("W1", day, -42_50, "SAMPLE WATER", false))), day.minusDays(5), day)
-        assertEquals(42_50L, store.dao.billPaymentsNow().single { it.transactionId == id }.amount)
     }
 
     @Test fun theCashEnvelopeCanBeRenamed() = world { store, a, _ ->

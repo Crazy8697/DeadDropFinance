@@ -90,7 +90,7 @@ class SetupImportTest {
             { "match": "sample corner shop", "splits": [ { "envelope": "Groceries", "share": 3 }, { "envelope": "Fuel", "share": 1 } ], "alwaysAsk": true }
           ],
           "subscriptions": [ { "name": "Sample Stream", "payees": [ "sample stream" ], "bill": "Sample Car Cover" } ],
-          "settings": { "autoApprove": true, "syncEveryHours": 12, "alerts": { "spending": false }, "parkingLotWait": "1 week" }
+          "settings": { "autoApprove": true, "alerts": { "spending": false }, "parkingLotWait": "1 week" }
         }
     """.trimIndent()
 
@@ -146,7 +146,7 @@ class SetupImportTest {
         assertEquals(SubscriptionStatus.CONFIRMED, sub.status)
         assertEquals(car.id, sub.billId)
         assertEquals(7, ParkedBuys(store, a, { day }).defaultWait())
-        assertEquals(listOf("autoApprove", "syncEveryHours", "alerts.spending", "parkingLotWait"), plan.settings!!.named())
+        assertEquals(listOf("autoApprove", "alerts.spending", "parkingLotWait"), plan.settings!!.named())
         // transactions untouched
         assertEquals(txBefore, b().transactions.map { it.id to it.amount })
         assertEquals(6, p.addCount)
@@ -190,7 +190,8 @@ class SetupImportTest {
         assertTrue(e.toString(), "envelopes[3] (\"X\"): \"colour\" isn't a field here." in e)
         assertTrue(e.toString(), "bills[1] (\"Sample Phone\"): \"due\" must be a date like \"2030-05-17\"." in e)
         assertTrue(e.toString(), "rules[1] (\"sample shop\"): give an \"envelope\", \"splits\", a \"category\", or \"transfer\": true." in e)
-        assertTrue(e.toString(), "settings: \"syncEveryHours\" must be 6, 12 or 24." in e)
+        // bank sync's settings went with it in 1.3.0
+        assertTrue(e.toString(), "settings: \"syncEveryHours\" isn't a field here." in e)
         // a name that's in neither the file nor the app: checked against the app, refused, nothing applied
         val plan = ok("""{ "format": "deaddropfinance-setup", "version": 1, "envelopes": [ { "name": "Fuel", "mode": "fill_to_target" } ], "bills": [ { "name": "Sample Phone", "amount": "40.00", "due": "2030-05-20", "envelope": "Phone" } ] }""")
         val c = importer.check(plan) as SetupImporter.Checked.Bad

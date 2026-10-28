@@ -2,7 +2,7 @@
 
 More, Import setup reads a JSON file picked with the phone's file picker and sets up the app from it: envelopes,
 bills, the next payday, auto-categorize rules, subscriptions and settings. It never imports transactions (CSV import
-and bank sync bring those in).
+brings those in).
 
 - Items are matched by name, ignoring upper and lower case (a rule by its `match` words). A name that's new is
   added. A name that's already in the app is updated with the fields the file gives; fields the file leaves out keep
@@ -75,7 +75,7 @@ and bank sync bring those in).
 | `repeats` | `"monthly"`, `"every_3_months"`, `"every_6_months"`, `"yearly"` or `"one_off"`. Monthly when left out on a new bill. |
 | `envelope` | The envelope the bill feeds. |
 | `autopay` | It's paid by autopay. |
-| `payeeWords` | Words a payment's description has, so bank sync and CSV import tick the bill paid. |
+| `payeeWords` | Words a payment's description has, so CSV import ticks the bill paid. |
 | `anyAmount` | Any payment to that payee counts, whatever the amount (a bill paid in parts). |
 | `amountChanges` | The amount changes (utilities): the latest charge is the amount next time. |
 | `reminder` | Remind before it's due. Off when left out on a new bill. |
@@ -112,8 +112,6 @@ A rule needs one of `envelope`, `splits`, `category` or `transfer`. A new rule i
 | Field | What it is |
 |---|---|
 | `autoApprove` | Approve rule matches automatically. |
-| `backgroundSync` | Sync in the background. |
-| `syncEveryHours` | 6, 12 or 24. |
 | `alerts` | `{ "spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings" }`, each `true` or `false`. |
 | `appLock` | App lock (it needs a screen lock on the phone). |
 | `lockAfterMinutes` | 0, 1, 5, 15 or 30. |
@@ -161,8 +159,6 @@ Every name and amount here is invented.
   ],
   "settings": {
     "autoApprove": false,
-    "backgroundSync": true,
-    "syncEveryHours": 12,
     "alerts": { "spending": true, "lowOrOverspent": true, "safeToSpendNegative": true, "amountsOnLockScreen": false, "billReminders": true, "autopayWarnings": true },
     "appLock": true,
     "lockAfterMinutes": 5,

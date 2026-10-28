@@ -4,19 +4,17 @@ import android.app.Application
 import java.io.File
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import net.darkrelay.deaddropfinance.data.BankSyncCleanup
 import net.darkrelay.deaddropfinance.data.DatabaseOpener
 import net.darkrelay.deaddropfinance.data.Eraser
 import net.darkrelay.deaddropfinance.data.KeystoreWrapper
 import net.darkrelay.deaddropfinance.data.SecretStore
 import net.darkrelay.deaddropfinance.lock.AppLock
-import net.darkrelay.deaddropfinance.sync.RemovedProviderCleanup
-import net.darkrelay.deaddropfinance.sync.SyncScheduler
-import net.darkrelay.deaddropfinance.sync.SyncService
 import net.darkrelay.deaddropfinance.sync.SyncSettings
 
 /**
- * Holds what lives as long as the process: the app lock (it watches the whole app go to the background), the one
- * open database (the screens and background sync share it, so screens see sync's writes at once) and bank sync.
+ * Holds what lives as long as the process: the app lock (it watches the whole app go to the background) and the one
+ * open database (the screens and the background jobs share it, so screens see their writes at once).
  */
 class DdfApp : Application() {
     lateinit var lock: AppLock
@@ -24,10 +22,10 @@ class DdfApp : Application() {
 
     private val openLock = Mutex()
     @Volatile private var opened: DatabaseOpener.Opened? = null
-    @Volatile private var service: SyncService? = null
+    @Volatile private var cleaned = false
     @Volatile private var secretStore: SecretStore? = null
 
-    /** Bank credentials and the receipt photo key, each wrapped by its own Keystore key. */
+    /** The receipt photo key, wrapped by its own Keystore key. */
     fun secrets(): SecretStore = secretStore ?: synchronized(this) {
         secretStore ?: SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS)).also { secretStore = it }
     }
@@ -59,29 +57,28 @@ class DdfApp : Application() {
         opened ?: DatabaseOpener.open(this).also { opened = it }
     }
 
-    /** Bank sync, once the database is open; null if the budget can't be opened on this phone. */
-    suspend fun syncService(): SyncService? {
-        service?.let { return it }
-        val o = open() as? DatabaseOpener.Opened.Ok ?: return null
-        return openLock.withLock {
-            service ?: run {
-                val secrets = secrets()
-                val settings = SyncSettings(this)
-                // before anything reads the connection table: clear what the removed Teller provider left (0.7.0 installs)
-                runCatching { RemovedProviderCleanup(o.store, secrets, settings) { has -> SyncScheduler.apply(this, settings, has) }.run() }
-                SyncService(o.store, secrets, settings).also { service = it }
+    /**
+     * The app's settings, once the database is open; null if the budget can't be opened on this phone. The first call
+     * removes what bank sync (removed in 1.3.0) left outside the database: its saved login, settings and background job.
+     */
+    suspend fun settings(): SyncSettings? {
+        open() as? DatabaseOpener.Opened.Ok ?: return null
+        val settings = SyncSettings(this)
+        if (!cleaned) openLock.withLock {
+            if (!cleaned) {
+                runCatching { BankSyncCleanup(secrets(), settings) { androidx.work.WorkManager.getInstance(this).cancelUniqueWork(it) }.run() }
+                cleaned = true
             }
         }
+        return settings
     }
 
     /**
-     * Erase everything and start over: stops sync, closes the database, then removes the database, the keys folder,
+     * Erase everything and start over: closes the database, then removes the database, the keys folder,
      * both Keystore keys, every settings file and scheduled work. The next open is a fresh install's. Returns what
      * couldn't be removed (empty when all went).
      */
     suspend fun eraseEverything(): List<String> = openLock.withLock {
-        service?.shutdown()
-        service = null
         // stop reading bank notifications (the listener is switched off, not just its setting)
         runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         (opened as? DatabaseOpener.Opened.Ok)?.store?.db?.close()
@@ -99,23 +96,15 @@ class DdfApp : Application() {
         left
     }
 
-    /**
-     * Purge data: everything but the SimpleFIN connection (FEATURES.md). The database stays open; the next start of
-     * the screens opens the setup wizard with the connection kept.
-     */
+    /** Purge data (FEATURES.md). The database stays open; the next start of the screens opens the setup wizard. */
     suspend fun purgeData() = openLock.withLock {
         val o = opened as? DatabaseOpener.Opened.Ok ?: return@withLock
-        // no sync may write while the budget is emptied: the running one stops, and a fresh one starts after
-        service?.shutdown()
-        service = null
         runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         net.darkrelay.deaddropfinance.data.Purger(
             o.store.db, secrets(), listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
             listOf(receiptDir(), captureDir(), File(cacheDir, "restore")),
         ).purge()
-        val settings = SyncSettings(this)
-        settings.setupAfterPurge = true
-        SyncScheduler.apply(this, settings, o.store.sync.connectionsNow().isNotEmpty())
+        SyncSettings(this).setupAfterPurge = true
     }
 
     companion object {

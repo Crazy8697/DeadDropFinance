@@ -225,8 +225,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         checkLines(TransactionDraft(tx.accountId, tx.date, tx.payee, tx.memo, tx.amount, lines, tx.pending))
         store.write {
             val old = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
-            // bank sync may have changed its amount since the screen read it: the lines must still add up
-            if (old.amount != tx.amount) throw BudgetRuleException("Its amount just changed (bank sync). Check it and sort it again.")
+            // an import may have changed its amount since the screen read it: the lines must still add up
+            if (old.amount != tx.amount) throw BudgetRuleException("Its amount just changed (an import). Check it and sort it again.")
             put(old, old.copy(sortedBy = sortedBy, sortedAt = now, ruleId = ruleId, returnOf = returnOf, updatedAt = now))
             replaceLines(this, txId, lines)
         }
@@ -283,44 +283,6 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             dao.itemReturnsNow().filter { it.transactionId == txId }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             put(tx, tx.copy(sortedBy = null, sortedAt = null, ruleId = null, returnOf = null, updatedAt = now))
             replaceLines(this, txId, listOf(LineDraft(null, tx.amount)))
-        }
-    }
-
-    /**
-     * The wrong-sign fix (1.2.2), only ever when the user confirms it: when the balance check finds the bank's figure is
-     * the app's with the other sign, the account's starting balance moves by exactly the difference (worked out again
-     * here, with the check's own math), so the app's balance as of [asOf] equals the bank's. One account write (one change
-     * log row); no transaction is added, changed or deleted. Returns the change.
-     */
-    suspend fun matchStartingBalanceToBank(accountId: String, bank: Long, asOf: LocalDate?): Long {
-        val r = BalanceCheck.check(snapshot(), accountId, bank, asOf)
-        if (r !is BalanceCheck.Result.FlippedSign) throw BudgetRuleException("The balance check doesn't show the wrong-sign case any more.")
-        val delta = r.bank - r.app
-        store.write {
-            val a = dao.account(accountId) ?: throw BudgetRuleException("That account is gone.")
-            put(a, a.copy(startingBalance = a.startingBalance + delta, updatedAt = now))
-        }
-        return delta
-    }
-
-    /**
-     * The balance check's fix, only ever when the user confirms it: a transaction that brings the account to the
-     * bank's balance. Its money comes out of (or goes into) Ready to Assign, since it was never in an envelope.
-     */
-    suspend fun addAdjustment(accountId: String, amount: Long, date: LocalDate): String {
-        if (amount == 0L) throw BudgetRuleException("Nothing to adjust.")
-        val a = dao.account(accountId) ?: throw BudgetRuleException("That account is gone.")
-        val day = maxOf(date, a.startDate)
-        return store.write {
-            val tx = put(
-                null,
-                TransactionEntity(
-                    accountId = accountId, date = day, payee = "Balance adjustment", memo = "Added to match the bank's balance", amount = amount,
-                    sortedBy = SortedBy.HAND, sortedAt = now, createdAt = now, updatedAt = now,
-                ),
-            )
-            put(null, TransactionLineEntity(transactionId = tx.id, bucket = LineBucket.READY_TO_ASSIGN, amount = amount, createdAt = now, updatedAt = now))
-            tx.id
         }
     }
 
@@ -395,10 +357,6 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             put(a, a.copy(deleted = true, updatedAt = now))
         }
         goneReceipts.forEach { receiptFiles?.delete(it) }
-        // this phone's bank link for it (not change-logged)
-        store.sync.linkedNow().filter { it.accountId == id }.forEach {
-            store.sync.upsertLinked(it.copy(accountId = null, historyFrom = null, lastSyncedDate = null, setStartBalance = false))
-        }
     }
 
     /**

@@ -238,7 +238,7 @@ fun BillDetailScreen(
             }
         }
         Text(
-            "Paid in parts? Each payment counts, and the bill is paid when they add up. Bank sync and CSV import tick it when the payment matches.",
+            "Paid in parts? Each payment counts, and the bill is paid when they add up. CSV import ticks it when the payment matches.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         Gap(24)
@@ -336,7 +336,7 @@ fun PaydayChecklistCard(items: List<Bills.Cycle>, onTick: (Bills.Cycle, Boolean)
                     TextButton(onClick = { onBill(c.bill.id) }) { Text(Money.format(if (c.isPaid) c.paid else c.remaining)) }
                 }
             }
-            Text("Tick a bill when you pay it. Bank sync ticks them too.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Tick a bill when you pay it. CSV import ticks them too.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

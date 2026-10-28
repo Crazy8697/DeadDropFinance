@@ -150,7 +150,7 @@ class BillActions(
     }
 
     /**
-     * Bank sync, CSV import and notifications: [txIds] that pay a bill are counted toward its open cycle. A cycle
+     * CSV import and notifications: [txIds] that pay a bill are counted toward its open cycle. A cycle
      * already ticked paid by hand takes the transaction instead of a second payment. Returns how many were counted.
      */
     suspend fun matchPayments(txIds: Collection<String>): Int {
@@ -257,7 +257,7 @@ class BillActions(
 /**
  * A parsed bank notification becomes a pending transaction right away (FEATURES.md, Live spend alerts): money out in
  * To sort with its suggestion (or a bought parked buy's charge), or a deposit, which starts payday when it looks like
- * the payday deposit (Arrivals). Bank sync later matches the real record to it (never a second one, never a second
+ * the payday deposit (Arrivals). A CSV import later matches the real record to it (never a second one, never a second
  * payday). Only the parsed result is kept.
  */
 class NotifLog(
@@ -311,7 +311,7 @@ class NotifLog(
 
     companion object {
         const val DUPLICATE_MS = 10L * 60 * 1000
-        /** A logged notification bank sync hasn't matched after this many days is flagged. */
+        /** A logged notification no import has matched after this many days is flagged. */
         const val STALE_DAYS = 7L
 
         fun stale(b: Budget, today: LocalDate): List<TransactionEntity> = b.transactions.filter {

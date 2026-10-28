@@ -99,15 +99,4 @@ class BonusIncomeTest {
         assertTrue(runCatching { actions.saveBonus(null, 5_00, day, "Checking", "") }.exceptionOrNull() is BudgetRuleException)
         assertTrue(actions.snapshot().transactions.isEmpty())
     }
-
-    @Test fun theBalanceCheckForAnAccountIsUnchanged() = runBlocking<Unit> {
-        val acct = actions.saveAccount(null, "Everyday", AccountType.BANK, 100_00, day.minusDays(5))
-        val m1 = BalanceCheck.check(actions.snapshot(), acct, 100_00, day)
-        assertTrue(m1 is BalanceCheck.Result.Match)
-        actions.saveBonus(null, 40_00, day, "Cash", "Sample")
-        val b = actions.snapshot()
-        val m2 = BalanceCheck.check(b, acct, 100_00, day)
-        assertTrue("still matches the bank", m2 is BalanceCheck.Result.Match)
-        assertEquals(100_00L, b.postedBalance(acct))
-    }
 }

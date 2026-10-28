@@ -7,7 +7,7 @@ import androidx.room.TypeConverters
 import java.time.LocalDate
 
 /**
- * The budget database, schema version 11 (the bank balance sign choice). Every version's schema is exported to app/schemas. From 0.6.0 on the
+ * The budget database, schema version 12 (bank sync removed: its tables dropped). Every version's schema is exported to app/schemas. From 0.6.0 on the
  * app may hold real data, so a version bump always comes with a real Migration and a migration test; a
  * destructive fallback is never configured (docs/DATABASE.md, enforced by DatabaseRulesTest).
  */
@@ -15,17 +15,16 @@ import java.time.LocalDate
     entities = [
         AccountEntity::class, EnvelopeEntity::class, TransactionEntity::class, TransactionLineEntity::class,
         MoveEntity::class, BillEntity::class, BillPaymentEntity::class, ChangeLogEntity::class, MetaEntity::class,
-        ConnectionEntity::class, LinkedAccountEntity::class, SyncLogEntity::class, RuleEntity::class,
+        RuleEntity::class,
         ReceiptEntity::class, ReceiptItemEntity::class, ItemReturnEntity::class,
         SubscriptionEntity::class, NotifAppEntity::class, ParkedBuyEntity::class, CategoryEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun dao(): BudgetDao
-    abstract fun syncDao(): SyncDao
 
     companion object {
         const val NAME = "budget.db"

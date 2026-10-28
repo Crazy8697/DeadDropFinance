@@ -13,9 +13,6 @@ import net.darkrelay.deaddropfinance.BuildConfig
 import net.darkrelay.deaddropfinance.data.AccountType
 import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
-import net.darkrelay.deaddropfinance.data.ConnectionEntity
-import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
-import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.Purger
 import net.darkrelay.deaddropfinance.domain.BudgetActions
 import net.darkrelay.deaddropfinance.sync.SyncSettings
@@ -31,9 +28,9 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * After Purge data the app opens at the setup wizard, and its SimpleFIN step shows bank sync as connected (the kept
- * connection), with no setup token to paste. The screen needs the debug build's test activity, so release unit tests
- * skip it; the purge itself is tested in sync/PurgeTest. Synthetic data only.
+ * After Purge data the app opens at the setup wizard, whose way-in step is Old School (CSV import or entering things
+ * by hand), with no bank sync step (removed in 1.3.0). The screen needs the debug build's test activity, so release
+ * unit tests skip it; the purge itself is tested in data/PurgeTest. Synthetic data only.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
@@ -50,37 +47,30 @@ class PurgeWizardTest {
 
     @After fun tearDown() = db.close()
 
-    @Test fun afterThePurgeTheAppOpensAtTheWizardWithBankSyncConnected() = runBlocking<Unit> {
+    @Test fun afterThePurgeTheAppOpensAtTheWizardWithOldSchoolAndNoBankSync() = runBlocking<Unit> {
         val store = BudgetStore(db)
         val a = BudgetActions(store)
         store.ensureSystemEnvelopes()
-        val acct = a.saveAccount(null, "Sample Everyday", AccountType.BANK, 100_00, LocalDate.of(2030, 1, 1))
-        db.syncDao().upsertConnection(ConnectionEntity(id = "c1", provider = Provider.SIMPLEFIN, name = "Sample Bridge", createdAt = 1))
-        db.syncDao().upsertLinked(LinkedAccountEntity(id = "l1", connectionId = "c1", providerAccountId = "ACT-1", providerName = "Sample Checking", accountId = acct))
+        a.saveAccount(null, "Sample Everyday", AccountType.BANK, 100_00, LocalDate.of(2030, 1, 1))
         val prefs = ctx.getSharedPreferences("purge-wizard-sync", Context.MODE_PRIVATE).also { it.edit(commit = true) { clear(); putBoolean("setup_done", true) } }
         val settings = SyncSettings(prefs)
         Purger(db, null, listOf(prefs), emptyList()).purge()
         settings.setupAfterPurge = true
-        val connections = db.syncDao().connectionsNow()
         val budget = a.snapshot()
-        // a fresh install's wizard, even though a connection exists
-        assertEquals(SetupMode.WIZARD, setupMode(settings.setupDone, settings.setupCardDismissed, budget.accounts.isNotEmpty(), connections.isNotEmpty(), settings.setupAfterPurge))
-        assertEquals(SetupMode.NONE, setupMode(false, false, hasAccounts = false, hasConnections = true))
-        val links = db.syncDao().linkedOf("c1")
+        assertEquals(SetupMode.WIZARD, setupMode(settings.setupDone, settings.setupCardDismissed, budget.accounts.isNotEmpty(), settings.setupAfterPurge))
         compose.setContent {
             DdfTheme {
                 SetupWizardHost(
-                    page = WizardPage.CONNECT, forced = true, budget = budget, connections = connections, links = links,
-                    ui = ConnectUi(), picks = emptyMap(), linkBusy = false, syncMessage = null, starters = emptySet(),
+                    page = WizardPage.CONNECT, forced = true, budget = budget, starters = emptySet(),
                     more = MoreState(true, true, 5, false, true, false, null, "0.0.0"), hasAccounts = false,
-                    onPage = {}, onDoor = {}, door = Door.EASY, onConnected = {}, wizardConn = "c1", onSimpleFin = {}, onApplyLinks = {},
-                    onPick = { _, _ -> }, onLock = {}, onAddAccount = {}, onImport = {}, onOpen = {}, onToggleStarter = {}, onAddStarters = {}, onFinish = {},
+                    onPage = {}, onLock = {}, onAddAccount = {}, onImport = {}, onToggleStarter = {}, onAddStarters = {}, onFinish = {},
                 )
             }
         }
-        compose.onNodeWithText("Bank sync is connected: Sample Bridge").assertExists()
-        compose.onNodeWithText("Next").assertExists()
-        // and the Link step lists the kept bank account, linked to nothing
-        assertEquals(listOf<String?>(null), links.map { it.accountId })
+        compose.onNodeWithText("Old School").assertExists()
+        compose.onNodeWithText("Import a CSV file").assertExists()
+        compose.onNodeWithText("Setup, step 3 of 5").assertExists()
+        compose.onNodeWithText("SimpleFIN", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Bank sync", substring = true).assertDoesNotExist()
     }
 }

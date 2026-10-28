@@ -13,15 +13,10 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.PaymentMethod
-import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.data.TransactionSource
 import net.darkrelay.deaddropfinance.domain.BillActions.BillDraft
-import net.darkrelay.deaddropfinance.sync.AccountData
-import net.darkrelay.deaddropfinance.sync.ProviderAccount
-import net.darkrelay.deaddropfinance.sync.ProviderTxn
-import net.darkrelay.deaddropfinance.sync.SyncEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -147,7 +142,7 @@ class BillsTest {
         assertEquals(60_00L, Payday.amountFor(b.envelopes.first { it.id == phone }, 0, b, d))
     }
 
-    @Test fun bankSyncAndCsvMarkBillsPaidAndAHandTickTakesTheBankRecord() = world {
+    @Test fun csvMarksBillsPaidAndAHandTickTakesTheBankRecord() = world {
         val stream = bills.saveBill(null, BillDraft("Sample Stream", 12_99, d.plusDays(2), envelopeId = home, matchText = "sample stream"))
         // CSV import
         val csv = "Date,Description,Amount\n${d.plusDays(2)},SAMPLE STREAM SVC,-12.99\n"
@@ -155,13 +150,10 @@ class BillsTest {
         val res = a.importCsv(chk, plan)
         assertEquals(1, bills.matchPayments(res.newIds))
         assertTrue(cycle(stream, d.plusDays(2)).isPaid)
-        // next month: ticked by hand first, then the bank's record arrives through sync
+        // next month: ticked by hand first, then the bank's record arrives in the next CSV
         bills.markPaid(stream, d.plusDays(2).plusMonths(1))
-        val out = SyncEngine(store).apply(
-            Provider.SIMPLEFIN, "ACT", chk,
-            AccountData(ProviderAccount("ACT", "Sample"), listOf(ProviderTxn("X1", d.plusDays(2).plusMonths(1), -12_99, "SAMPLE STREAM SVC", false))),
-            d, d.plusMonths(2),
-        )
+        val csv2 = "Date,Description,Amount\n${d.plusDays(2).plusMonths(1)},SAMPLE STREAM SVC,-12.99\n"
+        val out = a.importCsv(chk, CsvImport.plan(CsvImport.read(csv2, CsvImport.detect(csv2)), chk, b().transactions))
         bills.matchPayments(out.newIds)
         val c = cycle(stream, d.plusDays(2).plusMonths(1))
         assertEquals("the hand tick took the bank record: no double payment", 1, c.payments.size)

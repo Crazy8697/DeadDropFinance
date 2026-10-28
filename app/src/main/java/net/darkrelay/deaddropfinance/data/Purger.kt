@@ -6,11 +6,9 @@ import androidx.room.withTransaction
 import java.io.File
 
 /**
- * Purge data (FEATURES.md): back to a fresh install's state, except the SimpleFIN connection, so no new setup token
- * is needed. Every budget row goes (accounts, transactions, envelopes, bills, paydays, rules, subscriptions, receipts,
- * parked buys, the change log), receipt photos go, and every setting goes back to its default. The connection and
- * its saved login stay; its bank accounts are kept but linked to nothing, ready to link again in the setup wizard.
- * Unlike Erase everything, the database stays open and its key stays.
+ * Purge data (FEATURES.md): back to a fresh install's state. Every budget row goes (accounts, transactions, envelopes,
+ * bills, paydays, rules, subscriptions, receipts, parked buys, the change log), receipt photos go, and every setting
+ * goes back to its default. Unlike Erase everything, the database stays open and its key stays.
  */
 class Purger(
     private val db: AppDatabase,
@@ -31,21 +29,16 @@ class Purger(
                     else -> sql.execSQL("DELETE FROM `$t`")
                 }
             }
-            // the connection's bank accounts wait to be linked again, with their history fetched afresh
-            for (l in db.syncDao().linkedNow()) {
-                db.syncDao().upsertLinked(l.copy(accountId = null, historyFrom = null, lastSyncedDate = null, setStartBalance = false))
-            }
         }
         db.invalidationTracker.refreshVersionsAsync()
         for (d in dirs) d.listFiles()?.forEach { it.deleteRecursively() }
-        // saved secrets: only the bank logins stay (the receipt photo key goes with the photos)
-        secrets?.let { s -> runCatching { s.removeWhere { !it.startsWith(SIMPLEFIN_PREFIX) } } }
+        // saved secrets: the receipt photo key goes with the photos
+        secrets?.let { s -> runCatching { s.removeWhere { true } } }
         for (p in settings) p.edit(commit = true) { clear() }
     }
 
     companion object {
-        /** The bank connection and its accounts, and the database's own bookkeeping. */
-        val KEPT = setOf("connection", "linked_account", "room_master_table", "android_metadata")
-        private const val SIMPLEFIN_PREFIX = "simplefin."
+        /** The database's own bookkeeping. */
+        val KEPT = setOf("room_master_table", "android_metadata")
     }
 }

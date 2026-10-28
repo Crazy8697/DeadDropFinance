@@ -7,7 +7,7 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.ReceiptFiles
 
 /**
- * What new transactions start, however they came in (bank sync, CSV import, a bank notification). The payday deposit
+ * What new transactions start, however they came in (CSV import, a bank notification). The payday deposit
  * starts payday by itself (FEATURES.md, Payday): Rollover sweep, auto-fill, and the checklist. No tap.
  */
 class Arrivals(
@@ -43,7 +43,7 @@ class Arrivals(
     }
 
     /**
-     * Everything that runs on new transactions from bank sync or a CSV import, in order: payday, parked buys'
+     * Everything that runs on new transactions from a CSV import, in order: payday, parked buys'
      * charges, auto-approve (when it's on), bill payments, and receipts waiting for their charge. Each step stands
      * alone, so one failing never stops the rest. Returns the deposits payday ran for.
      */

@@ -6,8 +6,8 @@ import java.io.File
 
 /**
  * Erase everything: the encrypted database (with its -wal, -shm and -journal files), the keys folder (the wrapped
- * database key and the bank credentials file), both Android Keystore keys, every settings file, and the scheduled
- * sync work. Afterwards the app starts like a fresh install. The database must be closed first. There's no backup
+ * database key and the saved-secrets file), both Android Keystore keys, every settings file, and the scheduled
+ * work. Afterwards the app starts like a fresh install. The database must be closed first. There's no backup
  * yet, so nothing can bring any of it back.
  */
 class Eraser(

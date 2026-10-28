@@ -7,7 +7,7 @@ import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionKind
 
 /**
- * What the spend alerts say after a background sync brought new transactions. Pure: the phone side (SpendAlerts)
+ * What the spend alerts say after new transactions came in (a bank notification read). Pure: the phone side (SpendAlerts)
  * only posts what this returns. Several new charges make one notification, never one each; warnings make a second.
  *
  * The lock screen never shows a payee, an envelope or an amount unless the user turns that on: each notice has a
@@ -86,13 +86,13 @@ object Alerts {
                 val r = rows[0]
                 Notice(
                     Kind.SPENDING, "${r.t.payee.ifBlank { "New charge" }} ${Money.format(r.t.amount)}", listOf(describe(r).replaceFirstChar { it.uppercase() }),
-                    PUBLIC_TITLE, "New spending synced", approve, s.amountsOnLockScreen,
+                    PUBLIC_TITLE, "New spending", approve, s.amountsOnLockScreen,
                 )
             } else {
                 Notice(
                     Kind.SPENDING, "${rows.size} new charges, ${Money.format(rows.sumOf { it.t.amount })}",
                     rows.map { "${it.t.payee.ifBlank { "No description" }} ${Money.format(it.t.amount)}: ${describe(it)}" },
-                    PUBLIC_TITLE, "${rows.size} new charges synced", approve, s.amountsOnLockScreen,
+                    PUBLIC_TITLE, "${rows.size} new charges", approve, s.amountsOnLockScreen,
                 )
             }
         }

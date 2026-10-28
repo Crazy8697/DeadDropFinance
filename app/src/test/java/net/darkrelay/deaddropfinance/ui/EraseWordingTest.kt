@@ -35,12 +35,12 @@ class EraseWordingTest {
     }
 
     @Test fun erasedScreenSaysEverythingIsErasedOnlyWhenNothingIsLeft() {
-        compose.setContent { ErasedScreen(emptyList(), onOpen = {}, onStartOver = {}) }
+        compose.setContent { ErasedScreen(emptyList(), onStartOver = {}) }
         compose.onNodeWithText("Everything is erased").assertExists()
     }
 
     @Test fun erasedScreenNamesWhatCouldNotBeRemoved() {
-        compose.setContent { ErasedScreen(listOf("keys folder"), onOpen = {}, onStartOver = {}) }
+        compose.setContent { ErasedScreen(listOf("keys folder"), onStartOver = {}) }
         compose.onNodeWithText("Everything is erased").assertDoesNotExist()
         compose.onNodeWithText("something is left", substring = true).assertExists()
         compose.onNodeWithText("keys folder", substring = true).assertExists()

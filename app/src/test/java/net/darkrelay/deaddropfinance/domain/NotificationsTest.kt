@@ -11,14 +11,9 @@ import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
-import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.data.TransactionSource
-import net.darkrelay.deaddropfinance.sync.AccountData
-import net.darkrelay.deaddropfinance.sync.ProviderAccount
-import net.darkrelay.deaddropfinance.sync.ProviderTxn
-import net.darkrelay.deaddropfinance.sync.SyncEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -129,30 +124,10 @@ class NotificationsTest {
         assertTrue(log.log("com.example.other", p).noAccount)
     }
 
-    @Test fun bankSyncMatchesTheLoggedEntryNeverAddingASecond() = world {
-        val id = log.log("com.example.samplebank", NotifParse.Parsed(20_00, "SAMPLE GRILL", deposit = false)).txId!!
-        a.sortInto(id, food)
-        // the bank's record adds a tip and posts a day later
-        val out = SyncEngine(store).apply(
-            Provider.SIMPLEFIN, "ACT", chk,
-            AccountData(ProviderAccount("ACT", "Sample"), listOf(ProviderTxn("T1", day.plusDays(1), -23_50, "SAMPLE GRILL #12", false))),
-            day.minusDays(5), day.plusDays(5),
-        )
-        assertTrue(out.newIds.isEmpty())
-        assertEquals(1, out.linked)
-        val t = store.dao.transaction(id)!!
-        assertFalse(t.pending)
-        assertEquals(-23_50L, t.amount)
-        assertEquals("the envelope stays", food, store.dao.linesOf(id).single().envelopeId)
-        assertEquals(-23_50L, store.dao.linesOf(id).single().amount)
-        assertEquals(1, b().transactions.size)
-        assertEquals(0L, b().sortedCheck)
-    }
-
-    @Test fun aPaydayDepositNotificationStartsPaydayOnceAndSyncConfirmsIt() = world {
+    @Test fun aPaydayDepositNotificationStartsPaydayOnce() = world {
         // last month's payday, marked by hand
         val last = store.write {
-            val t = put(null, TransactionEntity(accountId = chk, date = day.minusMonths(1), payee = "SAMPLE EMPLOYER", importDescription = "SAMPLE EMPLOYER", amount = 1500_00, source = TransactionSource.SYNC, createdAt = now, updatedAt = now))
+            val t = put(null, TransactionEntity(accountId = chk, date = day.minusMonths(1), payee = "SAMPLE EMPLOYER", importDescription = "SAMPLE EMPLOYER", amount = 1500_00, source = TransactionSource.CSV, createdAt = now, updatedAt = now))
             put(null, TransactionLineEntity(transactionId = t.id, bucket = LineBucket.UNSORTED, amount = 1500_00, createdAt = now, updatedAt = now))
             t.id
         }
@@ -162,23 +137,13 @@ class NotificationsTest {
         val dep = store.dao.transaction(r.txId!!)!!
         assertTrue(dep.isPayday)
         assertEquals(2, b().paydayDates.size)
-        // the bank posts it the next day at a slightly different amount: matched, still one payday, one row
-        val out = SyncEngine(store).apply(
-            Provider.SIMPLEFIN, "ACT", chk,
-            AccountData(ProviderAccount("ACT", "Sample"), listOf(ProviderTxn("D1", day.plusDays(1), 1482_15, "SAMPLE EMPLOYER DIR DEP", false))),
-            day.minusDays(5), day.plusDays(5),
-        )
-        assertTrue(out.newIds.isEmpty())
-        assertEquals(2, b().transactions.count { it.amount > 0 })
-        assertEquals(2, b().paydayDates.size)
-        assertEquals(1482_15L, store.dao.transaction(r.txId!!)!!.amount)
         // a second notification of the same deposit doesn't start payday again
         val again = log.log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
         assertFalse(again.payday)
         assertEquals(0L, b().sortedCheck)
     }
 
-    @Test fun anEntryBankSyncNeverBringsIsFlaggedAfterAWeek() = world {
+    @Test fun anEntryNoImportBringsIsFlaggedAfterAWeek() = world {
         val id = log.log("com.example.samplebank", NotifParse.Parsed(9_99, "SAMPLE KIOSK", deposit = false)).txId!!
         val b = b()
         assertNotNull(NotifLog.stale(b, day.plusDays(8)).firstOrNull { it.id == id })

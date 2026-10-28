@@ -24,12 +24,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import net.darkrelay.deaddropfinance.data.RuleAction
 import net.darkrelay.deaddropfinance.data.RuleEntity
 import net.darkrelay.deaddropfinance.data.RuleOrigin
-import net.darkrelay.deaddropfinance.domain.BalanceCheck
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.Money
 import net.darkrelay.deaddropfinance.domain.Payees
@@ -238,8 +235,6 @@ data class SortAlertState(
     val safeToSpend: Boolean,
     val amountsOnLockScreen: Boolean,
     val notificationsAllowed: Boolean,
-    val backgroundSync: Boolean,
-    val intervalHours: Int,
     val bills: Boolean = true,
     val autopay: Boolean = true,
     val reading: Boolean = false,
@@ -268,9 +263,7 @@ fun SortingAndAlertsSection(
     )
     SectionTitle("Alerts")
     Text(
-        "Alerts come from background bank sync, so they're only as live as sync: " +
-            (if (s.backgroundSync) "every ${s.intervalHours} hours here" else "background sync is off, so there are none") +
-            ", and SimpleFIN's own data updates about once a day.",
+        "Spending alerts come from Read bank notifications, below: they come when your bank app's notification is read.",
         color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
     )
     if (!s.notificationsAllowed) {
@@ -289,7 +282,7 @@ fun SortingAndAlertsSection(
         Column {
             Text("Read bank notifications")
             Text(
-                if (s.reading) "On: spending shows up as soon as your bank app notifies you" else "Off. Faster than sync: logs spending from your bank app's notifications",
+                if (s.reading) "On: spending shows up as soon as your bank app notifies you" else "Off. Logs spending from your bank app's notifications",
                 color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -302,113 +295,3 @@ const val ALERT_SAFE = "safe"
 const val ALERT_LOCK_AMOUNTS = "lock_amounts"
 const val ALERT_BILLS = "bills"
 const val ALERT_AUTOPAY = "autopay"
-
-/** Home card, shown once after bank sync is set up: alerts need the notification permission. */
-@Composable
-fun AlertsCard(onTurnOn: () -> Unit, onNotNow: () -> Unit) {
-    Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-        Column(Modifier.padding(12.dp)) {
-            Text("Alerts for new spending", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Get a notification when background sync brings new spending, with its suggested envelope and what's left. The lock screen shows only a count.",
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
-            Row {
-                TextButton(onClick = onTurnOn) { Text("Turn on") }
-                TextButton(onClick = onNotNow) { Text("Not now") }
-            }
-        }
-    }
-}
-
-// ---- balance check ----------------------------------------------------------------------------------------------
-
-private val asOfFormat = DateTimeFormatter.ofPattern("MMM d")
-
-/**
- * The balance check's result in words. A match says so quietly; a difference is shown plainly, with Add an
- * adjustment (the amount shown first, and only on the user's say-so); a flipped sign says the bank's figure looks
- * wrong and the app's math is trusted.
- */
-@Composable
-fun BalanceCheckView(
-    r: BalanceCheck.Result, accountName: String, onAdjust: ((amount: Long, date: LocalDate) -> Unit)?, confirming: Boolean = false,
-    /**
-     * The wrong-sign case (1.2.2): the account's starting balance as it is, and Adjust, which moves it by what makes the
-     * app match the bank. Null keeps the warning without Adjust (the link screen).
-     */
-    startingBalance: Long? = null,
-    onFixStart: (() -> Unit)? = null,
-) {
-    val asOf = r.asOf?.let { " as of ${it.format(asOfFormat)}" } ?: ""
-    var confirm by remember { mutableStateOf(confirming) }
-    when (r) {
-        is BalanceCheck.Result.Match -> Text("Balance check: matches the bank (${money(r.bank)}$asOf).", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)
-        is BalanceCheck.Result.FlippedSign -> {
-            Text("Balance check: the bank's balance looks to have the wrong sign.", color = DdfColors.Warning)
-            if (onFixStart != null && startingBalance != null) {
-                Text(
-                    "The bank reports ${money(r.bank)}$asOf. The app's own math says ${money(r.app)}: the same amount with the other sign. If the " +
-                        "bank's figure is right, Adjust sets this account's starting balance so the app matches it.",
-                    color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedButton(onClick = { confirm = true }) { Text("Adjust") }
-            } else {
-                Text(
-                    "The bank reports ${money(r.bank)}$asOf. The app's own math says ${money(r.app)}: the same amount with the other sign. The app's figure " +
-                        "is trusted and nothing needs fixing here. Some banks send an overdrawn balance as positive through SimpleFIN.",
-                    color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        is BalanceCheck.Result.Mismatch -> {
-            val d = r.difference
-            Text(
-                "Balance check: the bank says ${money(r.bank)}$asOf, the app says ${money(r.app)}. The app is ${money(kotlin.math.abs(d))} " +
-                    (if (d > 0) "lower" else "higher") + ".",
-                color = DdfColors.Warning,
-            )
-            Text(
-                "Pending transactions and anything after that date aren't counted. A difference usually means a missing or doubled transaction, one " +
-                    "entered by hand that the bank shows differently, or a starting balance that's off. Nothing is changed for you.",
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
-            if (onAdjust != null) OutlinedButton(onClick = { confirm = true }) { Text("Add an adjustment") }
-        }
-    }
-    if (confirm && r is BalanceCheck.Result.FlippedSign && onFixStart != null && startingBalance != null) {
-        val delta = r.bank - r.app
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text("Adjust the starting balance?") },
-            text = {
-                Column {
-                    Text(accountName, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                    Text("Starting balance now: ${money(startingBalance)}")
-                    Text("New starting balance: ${money(startingBalance + delta)}")
-                    Text("The app's balance$asOf becomes ${money(r.app + delta)}, the bank's figure.")
-                    Text("No transaction is added or changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-                }
-            },
-            confirmButton = { TextButton(onClick = { confirm = false; onFixStart() }) { Text("Adjust") } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
-        )
-    }
-    if (confirm && r is BalanceCheck.Result.Mismatch && onAdjust != null) {
-        val d = r.difference
-        val date = r.asOf ?: LocalDate.now()
-        val signed = (if (d > 0) "+" else "") + Money.format(d)
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text("Add an adjustment of $signed?") },
-            text = {
-                Text(
-                    "This adds a Balance adjustment of $signed to $accountName, dated $date, so the app matches the bank. Its money " +
-                        (if (d > 0) "goes into" else "comes out of") + " Ready to Assign. Add it only once you're sure nothing is missing or doubled.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { confirm = false; onAdjust(d, date) }) { Text("Add $signed") } },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
-        )
-    }
-}

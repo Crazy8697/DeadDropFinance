@@ -9,7 +9,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,8 +17,7 @@ import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
-import net.darkrelay.deaddropfinance.sync.FixCode
-import net.darkrelay.deaddropfinance.sync.SyncService
+import net.darkrelay.deaddropfinance.sync.SyncSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -66,7 +64,8 @@ sealed interface Nav {
     /** [intoId]: opened from that envelope's screen, so it starts as Ready to Assign into it. */
     data class MoveMoney(val intoId: String?, val backToReady: Boolean = false) : Nav
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
-    data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null) : Nav
+    /** [envelopeId]: opened from that envelope's Add activity, so it starts with the envelope chosen (1.3.0). */
+    data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null, val envelopeId: String? = null) : Nav
     data class TxDetail(val id: String) : Nav
     /** Bonus income: a new one ([id] null) or an existing one to edit or delete. */
     data class Bonus(val id: String?) : Nav
@@ -80,10 +79,6 @@ sealed interface Nav {
     data object Import : Nav
     data object Erase : Nav
     data object Purge : Nav
-    data object BankSync : Nav
-    /** The SimpleFIN connect screen; [fixId] repairs that connection with a new token instead of adding one. */
-    data class SyncConnect(val fixId: String? = null) : Nav
-    data class SyncLink(val connectionId: String) : Nav
     data object Rules : Nav
     /** A rule to edit, or a new one ([id] null), optionally started from a transaction. */
     data class RuleEdit(val id: String?, val fromTx: String? = null) : Nav
@@ -139,11 +134,9 @@ interface Platform {
     fun updateDownloadSize(onSize: (Long?) -> Unit)
     /** Opens Android's "install unknown apps" screen for this app. */
     fun openInstallPermissionSettings()
-    /** Puts the background sync job in line with the settings. */
-    fun scheduleSync(hasConnections: Boolean)
     /** Erase everything and start over (the activity shows what's next). */
     fun eraseEverything()
-    /** Purge data: everything but the SimpleFIN connection; the app then starts at the setup wizard. */
+    /** Purge data: everything goes; the app then starts at the setup wizard. */
     fun purgeData()
     val more: MoreState
     fun setLock(on: Boolean)
@@ -211,7 +204,7 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(
-    store: BudgetStore, sync: SyncService, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
+    store: BudgetStore, appSettings: SyncSettings, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
     /** Called once a shared file or a notification's destination is taken, so it isn't taken again later. */
     onTaken: () -> Unit = {},
     /** Rises each time the app comes back to the front: what Android's settings may have changed is read again. */
@@ -237,7 +230,7 @@ fun AppRoot(
     val notifApps by remember(store) { store.dao.notifApps() }.collectAsState(initial = emptyList())
     // bumped when something outside Compose changes (the payday correction, reading access, the pending inbox)
     var planTick by remember { mutableIntStateOf(0) }
-    var readingOn by remember { mutableStateOf(sync.settings.notifReading) }
+    var readingOn by remember { mutableStateOf(appSettings.notifReading) }
     val receipts by remember(store) { store.dao.receipts() }.collectAsState(initial = emptyList())
     val receiptItems by remember(store) { store.dao.receiptItems() }.collectAsState(initial = emptyList())
     val itemReturns by remember(store) { store.dao.itemReturns() }.collectAsState(initial = emptyList())
@@ -249,16 +242,11 @@ fun AppRoot(
     var scanning by remember { mutableStateOf(false) }
     val rules by remember(store) { store.dao.rules() }.collectAsState(initial = emptyList())
     var offer by remember { mutableStateOf<Sorting.Learned.Offer?>(null) }
-    var autoApprove by remember { mutableStateOf(sync.settings.autoApprove) }
+    var autoApprove by remember { mutableStateOf(appSettings.autoApprove) }
     // bumped when an alert setting or the permission changes; the settings themselves aren't Compose state
     var alertTick by remember { mutableIntStateOf(0) }
-    var alertsAsked by remember { mutableStateOf(sync.settings.alertsAsked) }
+    var alertsAsked by remember { mutableStateOf(appSettings.alertsAsked) }
     val budget by remember(store) { budgetFlow(store) }.collectAsState(initial = null)
-    val connections by remember(store) { store.sync.connections() }.collectAsState(initial = emptyList())
-    val links by remember(store) { store.sync.linkedAccounts() }.collectAsState(initial = emptyList())
-    val syncLog by remember(store) { store.sync.recentLog(20) }.collectAsState(initial = emptyList())
-    val prompt by sync.prompt.collectAsState()
-    val syncBusy by sync.busy.collectAsState()
     val stack = remember { mutableStateListOf<Nav>(Nav.Home) }
     var error by remember { mutableStateOf<String?>(null) }
     // a user action is running (run): another tap waits for it
@@ -274,22 +262,12 @@ fun AppRoot(
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
 
-    // bank sync and setup
-    val ctl = remember(sync) { SyncController(sync, platform, scope) }
-    val connectUi = remember { ConnectUi() }
-    val picks = remember { mutableStateMapOf<String, LinkPick>() }
-    var linkBusy by remember { mutableStateOf(false) }
-    var syncMessage by remember { mutableStateOf<String?>(null) }
-    var refreshing by remember { mutableStateOf(false) }
+    // setup
     var erasing by remember { mutableStateOf(false) }
-    var background by remember { mutableStateOf(sync.settings.backgroundEnabled) }
-    var interval by remember { mutableIntStateOf(sync.settings.intervalHours) }
-    var setupDone by remember { mutableStateOf(sync.settings.setupDone) }
-    var cardDismissed by remember { mutableStateOf(sync.settings.setupCardDismissed) }
+    var setupDone by remember { mutableStateOf(appSettings.setupDone) }
+    var cardDismissed by remember { mutableStateOf(appSettings.setupCardDismissed) }
     var wizard by remember { mutableStateOf<WizardPage?>(null) }
     var wizardForced by remember { mutableStateOf(false) }
-    var wizardDoor by remember { mutableStateOf<Door?>(null) }
-    var wizardConn by remember { mutableStateOf<String?>(null) }
     var starters by remember { mutableStateOf(setOf<String>()) }
 
     fun go(n: Nav) { error = null; message = null; stack.add(n) }
@@ -319,25 +297,21 @@ fun AppRoot(
     }
     /** After a restore: the settings it brought are read again, and applied where the phone needs it. */
     fun reloadSettings() {
-        val st = sync.settings
+        val st = appSettings
         st.setupDone = true
         setupDone = true
         autoApprove = st.autoApprove
-        background = st.backgroundEnabled
-        interval = st.intervalHours
         alertsAsked = st.alertsAsked
         more = platform.more
         platform.setHide(more.hideScreen)
         alertTick++
         planTick++
-        scope.launch { parkWait = parkedOps.defaultWait(); platform.scheduleSync(store.sync.connectionsNow().isNotEmpty()) }
+        scope.launch { parkWait = parkedOps.defaultWait() }
     }
     /** The settings a setup file changes, applied where each one lives. */
     fun applySettings(s: net.darkrelay.deaddropfinance.domain.SetupImport.SettingsIn) {
-        val st = sync.settings
+        val st = appSettings
         s.autoApprove?.let { st.autoApprove = it; autoApprove = it }
-        s.backgroundSync?.let { st.backgroundEnabled = it; background = it }
-        s.syncEveryHours?.let { st.intervalHours = it; interval = it }
         s.alertSpending?.let { st.alertSpending = it }
         s.alertLowOrOverspent?.let { st.alertLowOrOverspent = it }
         s.alertSafeToSpendNegative?.let { st.alertSafeToSpend = it }
@@ -351,35 +325,24 @@ fun AppRoot(
         s.parkingLotWait?.let { parkWait = it }
         more = platform.more
         alertTick++
-        scope.launch { platform.scheduleSync(store.sync.connectionsNow().isNotEmpty()) }
     }
-    fun lastBackupText(): String? = sync.settings.lastBackupAt.takeIf { it > 0 }?.let { at ->
-        "${syncTime(at)}, ${sync.settings.lastBackupName}"
+    fun lastBackupText(): String? = appSettings.lastBackupAt.takeIf { it > 0 }?.let { at ->
+        "${whenText(at)}, ${appSettings.lastBackupName}"
     }
-    fun openWizard() { picks.clear(); wizardConn = null; wizardDoor = null; starters = emptySet(); wizard = WizardPage.WELCOME }
-    fun refresh() = scope.launch {
-        refreshing = true
-        try { sync.syncAll(SyncService.Trigger.MANUAL) } finally { refreshing = false }
-    }
+    fun openWizard() { starters = emptySet(); wizard = WizardPage.WELCOME }
 
-    LaunchedEffect(connections.isNotEmpty()) {
-        if (connections.isNotEmpty() && !cardDismissed) { sync.settings.setupCardDismissed = true; cardDismissed = true }
-    }
     LaunchedEffect(Unit) {
         store.ensureSystemEnvelopes()
         store.ensureCategories()
         // 1.1.1: an install that was already budgeting starts its budget today; a new one starts when setup finishes
-        if (store.ensureBudgetStart(java.time.LocalDate.now(), sync.settings.setupDone)) runCatching { sorting.labelHistory() }
+        if (store.ensureBudgetStart(java.time.LocalDate.now(), appSettings.setupDone)) runCatching { sorting.labelHistory() }
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
-        val afterPurge = sync.settings.setupAfterPurge
-        val mode = setupMode(sync.settings.setupDone, sync.settings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), store.sync.connectionsNow().isNotEmpty(), afterPurge)
+        val afterPurge = appSettings.setupAfterPurge
+        val mode = setupMode(appSettings.setupDone, appSettings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), afterPurge)
         if (mode == SetupMode.WIZARD) {
             openWizard()
             wizardForced = true
-            if (afterPurge) store.sync.connectionsNow().firstOrNull()?.let { c -> wizardDoor = Door.EASY; wizardConn = c.id }
         }
-        platform.scheduleSync(store.sync.connectionsNow().isNotEmpty())
-        launch { sync.syncAll(SyncService.Trigger.OPEN) }
         if (startupUpdateCheck) {
             delay(net.darkrelay.deaddropfinance.Updates.STARTUP_DELAY_MS)
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
@@ -448,7 +411,7 @@ fun AppRoot(
     }
     BackHandler(enabled = stack.size > 1) { back() }
     BackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
-        wizard = WizardPage.entries[wizard!!.ordinal - 1].let { if (it == WizardPage.LINK && wizardConn == null) WizardPage.CONNECT else it }
+        wizard = WizardPage.entries[wizard!!.ordinal - 1]
     }
 
     val b = budget ?: return
@@ -463,7 +426,7 @@ fun AppRoot(
     val checklist = remember(b, nextPayday) { net.darkrelay.deaddropfinance.domain.Bills.checklist(b.bills, b.billPayments, b.paydayDates.lastOrNull(), nextPayday ?: today.plusDays(14)) }
     fun askNotifications() = platform.requestNotifications { _ ->
         alertTick++
-        sync.settings.alertsAsked = true
+        appSettings.alertsAsked = true
         alertsAsked = true
     }
     /** Starts a new scan (for a transaction, or to match later). */
@@ -521,61 +484,55 @@ fun AppRoot(
     fun screen(top: Nav) {
         when (top) {
             Nav.Home -> {
-                val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true, hasConnections = connections.isNotEmpty()) == SetupMode.CARD
-                // alerts are offered once bank sync is set up, never at first launch
-                val showAlerts = !showCard && connections.isNotEmpty() && !alertsAsked && key(alertTick) { !platform.notificationsAllowed() }
+                val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true) == SetupMode.CARD
                 val r = release
-                val head: (@Composable () -> Unit)? = if (!showCard && r == null && !showAlerts) null else {
+                val head: (@Composable () -> Unit)? = if (!showCard && r == null) null else {
                     {
                         Column {
-                            if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { sync.settings.setupCardDismissed = true; cardDismissed = true })
-                            if (showAlerts) AlertsCard(onTurnOn = { askNotifications() }, onNotNow = { sync.settings.alertsAsked = true; alertsAsked = true })
+                            if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { appSettings.setupCardDismissed = true; cardDismissed = true })
                             if (r != null) updateBar(r)
                         }
                     }
                 }
                 val late = prediction.late && prediction.next != null
-                Refreshable(connections.isNotEmpty(), refreshing, { refresh() }) {
-                    HomeScreen(
-                        b, top = head,
-                        onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
-                        onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
-                        onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
-                        onBonus = { go(Nav.Bonus(null)) },
-                        envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
-                        parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
-                        parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
-                        onParked = { go(Nav.ParkedBuys) },
-                        forecast = if (forecast == null && !late) null else {
-                            {
-                                Column {
-                                    if (late) LatePaydayNote(prediction.next!!, today)
-                                    forecast?.let { ForecastCard(it) { go(Nav.Forecast) } }
-                                }
+                HomeScreen(
+                    b, top = head,
+                    onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
+                    onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
+                    onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
+                    onBonus = { go(Nav.Bonus(null)) },
+                    envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
+                    parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
+                    parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
+                    onParked = { go(Nav.ParkedBuys) },
+                    forecast = if (forecast == null && !late) null else {
+                        {
+                            Column {
+                                if (late) LatePaydayNote(prediction.next!!, today)
+                                forecast?.let { ForecastCard(it) { go(Nav.Forecast) } }
                             }
-                        },
-                        checklist = if (checklist.isEmpty()) null else {
-                            {
-                                PaydayChecklistCard(
-                                    checklist,
-                                    onTick = { c, on -> run(scope) { if (on) billActions.markPaid(c.bill.id, c.due) else billActions.unmarkPaid(c.bill.id, c.due) } },
-                                    onBill = { go(Nav.Bill(it)) },
-                                )
-                            }
-                        },
-                    )
-                }
+                        }
+                    },
+                    checklist = if (checklist.isEmpty()) null else {
+                        {
+                            PaydayChecklistCard(
+                                checklist,
+                                onTick = { c, on -> run(scope) { if (on) billActions.markPaid(c.bill.id, c.due) else billActions.unmarkPaid(c.bill.id, c.due) } },
+                                onBill = { go(Nav.Bill(it)) },
+                            )
+                        }
+                    },
+                )
             }
             Nav.Envelopes -> EnvelopesScreen(
                 b, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.EnvelopeEdit(null)) }, onMove = { go(Nav.MoveMoney(null)) },
                 onReorder = { ids -> run(scope) { actions.reorderEnvelopes(ids) } },
             )
-            Nav.Activity -> Refreshable(connections.isNotEmpty(), refreshing, { refresh() }) {
+            Nav.Activity -> {
                 val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
                 ActivityScreen(
                     b, onAdd = { go(Nav.TxEdit(null)) }, onTransaction = { id -> go(if (b.transactions.firstOrNull { it.id == id }?.kind == net.darkrelay.deaddropfinance.data.TransactionKind.BONUS) Nav.Bonus(id) else Nav.TxDetail(id)) },
                     onSort = { id, env, rta -> handSort(id, env, rta) }, onSplit = { go(Nav.TxEdit(it, split = true)) },
-                    syncNotes = syncLog.filter { it.removed > 0 && it.at > weekAgo }.map { it.message },
                     sorting = SortingUi(
                         suggestions = suggestions,
                         onApprove = { id ->
@@ -608,9 +565,6 @@ fun AppRoot(
                         onAdd = { id -> go(Nav.TxEdit(null, accountId = id)) },
                         onScan = { startScan(null) },
                         onImport = { id -> importState = ImportState(accountId = id); go(Nav.Import) },
-                        lastSync = { id ->
-                            links.firstOrNull { it.accountId == id }?.let { l -> connections.firstOrNull { it.id == l.connectionId } }?.let { "Last sync ${syncTime(it.lastSyncAt)}" }
-                        },
                     ),
                 )
             }
@@ -629,7 +583,6 @@ fun AppRoot(
                 updateBar = release?.takeIf { updateFromMore }?.let { r -> { updateBar(r) } },
                 budgetStart = b.budgetStart,
                 onBudgetStart = { d -> run(scope) { store.setBudgetStart(d); sorting.labelHistory() } },
-                onBankSync = { syncMessage = null; go(Nav.BankSync) },
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
                 onPurge = { go(Nav.Purge) },
@@ -642,12 +595,12 @@ fun AppRoot(
                 parkWait = parkWait,
                 onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
                 sortAlerts = {
-                    val st = sync.settings
+                    val st = appSettings
                     val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
                     SortingAndAlertsSection(
                         SortAlertState(
                             rules.size, autoApprove, st.alertSpending, st.alertLowOrOverspent, st.alertSafeToSpend, st.alertAmountsOnLockScreen,
-                            notificationsAllowed, background && connections.isNotEmpty(), interval, st.alertBills, st.alertAutopay, readingOn,
+                            notificationsAllowed, st.alertBills, st.alertAutopay, readingOn,
                         ),
                         onReading = { go(Nav.Reading) },
                         onRules = { go(Nav.Rules) },
@@ -667,9 +620,6 @@ fun AppRoot(
                         onAllowNotifications = { askNotifications() },
                     )
                 },
-                syncLine = if (connections.isEmpty()) null else
-                    "${connections.size} connection${if (connections.size == 1) "" else "s"}, last sync ${syncTime(connections.mapNotNull { it.lastSyncAt }.maxOrNull())}" +
-                        if (connections.any { it.status == net.darkrelay.deaddropfinance.data.ConnectionStatus.NEEDS_FIX }) ". One needs attention." else "",
             )
             is Nav.Envelope -> {
                 val e = b.envelopes.firstOrNull { it.id == top.id }
@@ -678,6 +628,7 @@ fun AppRoot(
                     onCover = { run(scope) { actions.coverFromRollover(e.id) } },
                     onUseTarget = { avg -> run(scope) { actions.saveEnvelope(e.id, BudgetActions.EnvelopeDraft(e.name, e.mode, target = avg)) } },
                     onArchive = { a -> run(scope) { actions.setEnvelopeArchived(e.id, a) } }, onTransaction = { go(Nav.TxDetail(it)) },
+                    onAddActivity = { go(Nav.TxEdit(null, envelopeId = e.id)) },
                 )
             }
             is Nav.EnvelopeEdit -> {
@@ -706,7 +657,7 @@ fun AppRoot(
                 shortfalls = top.shortfalls,
             )
             is Nav.TxEdit -> TransactionEditScreen(
-                b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId,
+                b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId, presetEnvelope = top.envelopeId,
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
             )
@@ -910,8 +861,8 @@ fun AppRoot(
                             backupState = backupState.copy(working = "Backing up...", message = null, error = null)
                             backupState = try {
                                 val s = platform.writeBackup(uri, pw.toCharArray())
-                                sync.settings.lastBackupAt = System.currentTimeMillis()
-                                sync.settings.lastBackupName = platform.displayName(uri)
+                                appSettings.lastBackupAt = System.currentTimeMillis()
+                                appSettings.lastBackupName = platform.displayName(uri)
                                 backupState.copy(
                                     working = null, lastBackup = lastBackupText(),
                                     message = "Backed up: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos.",
@@ -1021,13 +972,13 @@ fun AppRoot(
                     onPick = { pkg, label, acct ->
                         run(scope) {
                             billActions.pickApp(pkg, label, acct)
-                            sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
+                            appSettings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
                         }
                     },
                     onDrop = { pkg ->
                         run(scope) {
                             billActions.dropApp(pkg); platform.clearNotifPending(pkg)
-                            sync.settings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
+                            appSettings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
                         }
                     },
                     onTeach = { pkg, t ->
@@ -1093,16 +1044,6 @@ fun AppRoot(
                     a, error, ::back,
                     onSave = { f -> run(scope, popAfter = true) { actions.saveAccount(top.id, f.name, f.type, f.startingBalance, f.startDate, f.trackOnly, f.heldAmount, f.showInActivity) } },
                     onArchive = { v -> run(scope, popAfter = true) { actions.setAccountArchived(a!!.id, v) } },
-                    syncSection = if (a == null) null else {
-                        {
-                            AccountSyncSection(
-                                b, a.id, links, connections, onAdjust = { amount, date -> run(scope) { actions.addAdjustment(a.id, amount, date) } },
-                                onChangeLink = { lid, acct, remove -> run(scope) { sync.setLink(lid, acct, remove) } },
-                                onSignFlipped = { lid, on -> run(scope) { sync.setSignFlipped(lid, on) } },
-                                onFixStart = { bank, asOf -> run(scope) { actions.matchStartingBalanceToBank(a.id, bank, asOf) } },
-                            )
-                        }
-                    },
                     budget = b,
                     onDelete = if (a == null) null else {
                         { run(scope) { actions.deleteAccount(a.id); stack.removeAll { it is Nav.AccountEdit } } }
@@ -1111,7 +1052,7 @@ fun AppRoot(
                 )
             }
             Nav.Erase -> EraseScreen(::back, working = erasing) { erasing = true; platform.eraseEverything() }
-            Nav.Purge -> PurgeScreen(::back, working = erasing, connectionNames = connections.map { it.name }) { erasing = true; platform.purgeData() }
+            Nav.Purge -> PurgeScreen(::back, working = erasing) { erasing = true; platform.purgeData() }
             Nav.Import -> ImportScreen(
                 b, importState, ::back,
                 onPick = {
@@ -1127,58 +1068,12 @@ fun AppRoot(
                     val acct = importState.accountId ?: return@ImportScreen
                     run(scope) {
                         val res = actions.importCsv(acct, plan)
-                        // the same as bank sync: payday runs by itself when its deposit is in the file
-                        net.darkrelay.deaddropfinance.domain.Arrivals(store, actions, files = platform.receiptFiles).landed(res.newIds, sync.settings.autoApprove)
+                        // payday runs by itself when its deposit is in the file
+                        net.darkrelay.deaddropfinance.domain.Arrivals(store, actions, files = platform.receiptFiles).landed(res.newIds, appSettings.autoApprove)
                         importState = ImportState(result = res)
                     }
                 },
             )
-            Nav.BankSync -> {
-                val hints by produceState(emptyMap<String, String?>(), connections) {
-                    value = withContext(Dispatchers.IO) { connections.associate { it.id to runCatching { sync.secretHint(it) }.getOrNull() } }
-                }
-                BankSyncScreen(
-                    connections, links, b.accounts, hints, background, interval, syncBusy, syncMessage, ::back,
-                    onAdd = { syncMessage = null; connectUi.error = null; go(Nav.SyncConnect()) },
-                    onSyncNow = { id -> scope.launch { syncMessage = sync.syncConnection(id, SyncService.Trigger.MANUAL).message } },
-                    onFix = { c -> fixConnection(c.id, c.fixCode, ctl, connectUi, connections, { n -> if (stack.last() != n) go(n) }, scope, sync, platform::openUrl) },
-                    onLinks = { id -> picks.clear(); go(Nav.SyncLink(id)) },
-                    onDisconnect = { id, remove, offBudget ->
-                        run(scope) {
-                            sync.disconnect(id, remove, offBudget)
-                            platform.scheduleSync(store.sync.connectionsNow().isNotEmpty())
-                            syncMessage = if (remove) "Disconnected. Its transactions were removed." else "Disconnected. Its transactions were kept."
-                        }
-                    },
-                    onBackground = { sync.settings.backgroundEnabled = it; background = it; platform.scheduleSync(connections.isNotEmpty()) },
-                    onInterval = { sync.settings.intervalHours = it; interval = it; platform.scheduleSync(connections.isNotEmpty()) },
-                )
-            }
-            is Nav.SyncConnect -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                val fix = top.fixId?.let { id -> connections.firstOrNull { it.id == id } }
-                ScreenTitle("SimpleFIN", ::back)
-                SimpleFinDoor(connectUi, platform::openUrl) {
-                    ctl.connectSimpleFin(connectUi, fix?.id) { id ->
-                        if (fix != null) {
-                            scope.launch { syncMessage = sync.syncConnection(id).message }
-                            // the result shows on Bank sync, also when the repair started from Home's prompt
-                            if (stack.contains(Nav.BankSync)) backTo(Nav.BankSync) else { stack.removeAt(stack.lastIndex); go(Nav.BankSync) }
-                        } else { back(); go(Nav.SyncLink(id)) }
-                    }
-                }
-            }
-            is Nav.SyncLink -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                ScreenTitle("Link accounts", ::back) { TextButton(onClick = { scope.launch { runCatching { sync.refreshAccounts(top.connectionId) }.onFailure { syncMessage = "The list couldn't be refreshed. Check the connection and try again." } } }) { Text("Refresh list") } }
-                LinkPanel(
-                    links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { id, p -> picks[id] = p }, linkBusy, null, budget = b,
-                    onApply = {
-                        ctl.applyLinks(top.connectionId, links.filter { it.connectionId == top.connectionId }, b.accounts, picks, { linkBusy = it }) { msg ->
-                            syncMessage = msg
-                            if (stack.contains(Nav.BankSync)) backTo(Nav.BankSync) else { stack.removeAt(stack.lastIndex); go(Nav.BankSync) }
-                        }
-                    },
-                )
-            }
         }
     }
 
@@ -1186,21 +1081,11 @@ fun AppRoot(
     val page = wizard
     if (page != null && (stack.size == 1 || (top !is Nav.AccountEdit && top != Nav.Import))) {
         SetupWizardHost(
-            page, wizardForced, b, connections, links, connectUi, picks, linkBusy, syncMessage, starters, more, hasAccounts,
+            page, wizardForced, b, starters, more, hasAccounts,
             onPage = { wizard = it },
-            onDoor = { d -> wizardDoor = d; connectUi.error = null; wizard = WizardPage.CONNECT },
-            door = wizardDoor,
-            onConnected = { id -> wizardConn = id; picks.clear(); wizard = WizardPage.LINK },
-            wizardConn = wizardConn,
-            onSimpleFin = { ctl.connectSimpleFin(connectUi, null) { id -> wizardConn = id; picks.clear(); wizard = WizardPage.LINK } },
-            onApplyLinks = { id ->
-                ctl.applyLinks(id, links.filter { it.connectionId == id }, b.accounts, picks, { linkBusy = it }) { msg -> syncMessage = msg; wizard = WizardPage.STARTER }
-            },
-            onPick = { id, p -> picks[id] = p },
             onLock = { platform.setLock(it); more = platform.more },
             onAddAccount = { go(Nav.AccountEdit(null)) },
             onImport = { importState = ImportState(); go(Nav.Import) },
-            onOpen = platform::openUrl,
             onToggleStarter = { n -> starters = if (n in starters) starters - n else starters + n },
             onAddStarters = {
                 val have = b.envelopes.map { it.name.lowercase() }.toSet()
@@ -1215,12 +1100,11 @@ fun AppRoot(
             onFinish = {
                 // the budget starts the day setup finishes (a new install, or after Purge or Erase); running setup again keeps it
                 scope.launch { if (store.budgetStart() == null) { store.setBudgetStart(java.time.LocalDate.now()); runCatching { sorting.labelHistory() } } }
-                sync.settings.setupAfterPurge = false
-                sync.settings.setupDone = true
+                appSettings.setupAfterPurge = false
+                appSettings.setupDone = true
                 setupDone = true
                 wizard = null
                 wizardForced = false
-                connectUi.clearSecrets()
                 tab(Nav.Home)
             },
         )
@@ -1243,29 +1127,6 @@ fun AppRoot(
             Box(Modifier.fillMaxSize()) { screen(top) }
         }
     }
-
-    val p = prompt
-    if (p != null && wizard == null) {
-        FixDialog(p, onFix = {
-            sync.dismissPrompt()
-            fixConnection(p.connectionId, p.code, ctl, connectUi, connections, { n -> if (stack.last() != n) go(n) }, scope, sync, platform::openUrl)
-        }, onLater = { sync.dismissPrompt() })
-    }
-}
-
-/** Sends the user straight to the fix for a connection that needs one. */
-private fun fixConnection(
-    connectionId: String, code: String?, ctl: SyncController, ui: ConnectUi, connections: List<net.darkrelay.deaddropfinance.data.ConnectionEntity>,
-    go: (Nav) -> Unit, scope: CoroutineScope, sync: SyncService, openUrl: (String) -> Unit,
-) {
-    val c = connections.firstOrNull { it.id == connectionId } ?: return
-    ui.error = null
-    when (code) {
-        FixCode.SIMPLEFIN_TOKEN -> go(Nav.SyncConnect(c.id))
-        // payment is settled on the SimpleFIN Bridge itself
-        FixCode.SIMPLEFIN_PAYMENT -> openUrl(ProviderLinks.SIMPLEFIN_BRIDGE)
-        else -> go(Nav.BankSync)
-    }
 }
 
 /**
@@ -1275,14 +1136,6 @@ private fun fixConnection(
 @Composable
 private fun Gone(onGone: () -> Unit) {
     LaunchedEffect(Unit) { delay(400); onGone() }
-}
-
-/** Pull down to sync, when there is a bank connection to sync. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun Refreshable(enabled: Boolean, refreshing: Boolean, onRefresh: () -> Unit, content: @Composable () -> Unit) {
-    if (!enabled) { content(); return }
-    PullToRefreshBox(isRefreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) { content() }
 }
 
 /** Starter envelopes that count in Safe to Spend when the wizard makes them. */

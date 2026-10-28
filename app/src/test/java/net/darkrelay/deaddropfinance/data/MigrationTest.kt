@@ -52,7 +52,7 @@ class MigrationTest {
         db.close()
     }
 
-    @Test fun oneToLatestKeepsEveryRowAndAddsTheSyncTables() = runBlocking<Unit> {
+    @Test fun oneToLatestKeepsEveryRow() = runBlocking<Unit> {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val file = ctx.getDatabasePath("migration-test.db").apply { parentFile?.mkdirs(); delete() }
         createVersion(file, 1)
@@ -66,10 +66,6 @@ class MigrationTest {
             assertNull(t.externalId)
             assertEquals(1, d.linesOf("t1").size)
             assertEquals(1, d.changes().size)
-            assertTrue(db.syncDao().connectionsNow().isEmpty())
-            // the new tables work
-            db.syncDao().upsertConnection(ConnectionEntity(provider = Provider.SIMPLEFIN, name = "Sample", createdAt = 1))
-            assertEquals(1, db.syncDao().connectionsNow().size)
             // and every later version's columns arrived with their safe defaults (latest: schema 5)
             assertNull(t.sortedBy)
             assertNull(t.returnOf)
@@ -103,25 +99,6 @@ class MigrationTest {
         }
     }
 
-    @Test fun threeToFourAddsTheBankBalanceDate() = runBlocking<Unit> {
-        val ctx = ApplicationProvider.getApplicationContext<Context>()
-        val file = ctx.getDatabasePath("migration-test-3.db").apply { parentFile?.mkdirs(); delete() }
-        createVersion(file, 3)
-        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
-        raw.execSQL("INSERT INTO connection (id, provider, name, status, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 1)")
-        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, set_start_balance) VALUES ('l1', 'c1', 'ACT', 'Sample', '', 'a1', -4107, 0)")
-        raw.close()
-        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
-        try {
-            val l = db.syncDao().linkedNow().single()
-            assertEquals(-4107L, l.providerBalance)
-            assertEquals(null, l.providerBalanceDate)
-            assertEquals("Sample Account", db.dao().account("a1")!!.name)
-        } finally {
-            db.close()
-        }
-    }
-
     @Test fun fourToFiveAddsRulesAndSortingWithEverythingKept() = runBlocking<Unit> {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
         val file = ctx.getDatabasePath("migration-test-4.db").apply { parentFile?.mkdirs(); delete() }
@@ -144,10 +121,10 @@ class MigrationTest {
             val t2 = d.transaction("t2")!!
             assertNull(t1.sortedBy); assertNull(t1.sortedAt); assertNull(t1.ruleId); assertNull(t1.returnOf)
             assertNull(t2.sortedBy)
-            assertEquals(true, t2.pending)
+            assertEquals("synced and pending: an ordinary posted row since 1.3.0", false, t2.pending)
+            assertNull(t2.externalId)
             assertEquals("e1", d.linesOf("t2").single().envelopeId)
             assertEquals(false, d.envelope("e1")!!.everyday)
-            assertEquals(1900000000L, db.syncDao().linkedNow().single().providerBalanceDate)
             assertEquals(1, d.changes().size)
             // the rule table works, through the store (with its change log row)
             val store = BudgetStore(db)
@@ -362,25 +339,69 @@ class MigrationTest {
         }
     }
 
-    @Test fun tenToElevenAddsTheSignChoiceOffAndKeepsTheLink() = runBlocking<Unit> {
+    /**
+     * 11 to 12 (1.3.0): bank sync removed. A 1.2.x budget with a SimpleFIN connection, a linked account with the sign
+     * choice set, its sync log, the request count, synced transactions (one still pending) and a hand-entered one
+     * migrates with every budget row and value kept; the bank's tables and data go; the account is a manual account; its
+     * balance and Ready to Assign are what 1.2.x showed.
+     */
+    @Test fun elevenToTwelveDropsBankSyncAndKeepsEveryBudgetRow() = runBlocking<Unit> {
         val ctx = ApplicationProvider.getApplicationContext<Context>()
-        val file = ctx.getDatabasePath("migration-test-10.db").apply { parentFile?.mkdirs(); delete() }
-        createVersion(file, 10)
+        val file = ctx.getDatabasePath("migration-test-11.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 11)
         val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
-        raw.execSQL("INSERT INTO connection (id, provider, name, status, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 1)")
-        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, provider_balance_date, set_start_balance) VALUES ('l1', 'c1', 'ACT', 'Sample', '', 'a1', 2314, 1900000000, 0)")
+        raw.execSQL("INSERT INTO envelope (id, name, mode, archived, sort_order, everyday, reminder, reminder_days, is_unplanned, created_at, updated_at, deleted) VALUES ('e1', 'Food', 'FILL_TO_TARGET', 0, 1, 1, 0, 2, 0, 1, 1, 0)")
+        raw.execSQL("INSERT INTO envelope_move (id, from_envelope_id, to_envelope_id, amount, date, kind, created_at, updated_at, deleted) VALUES ('m1', NULL, 'e1', 4000, '2030-01-02', 'ASSIGN', 1, 1, 0)")
+        raw.execSQL(
+            "INSERT INTO txn (id, account_id, kind, transfer_account_id, date, payee, memo, amount, pending, wash_group_id, is_payday, fee, fee_rebate, source, import_description, external_id, created_at, updated_at, deleted) " +
+                "VALUES ('s1','a1','NORMAL',NULL,'2030-01-03','Sample Shop','',-560,0,NULL,0,0,0,'SYNC','SAMPLE SHOP','simplefin:ACT:S1',2,2,0)",
+        )
+        raw.execSQL(
+            "INSERT INTO txn (id, account_id, kind, transfer_account_id, date, payee, memo, amount, pending, wash_group_id, is_payday, fee, fee_rebate, source, import_description, external_id, created_at, updated_at, deleted) " +
+                "VALUES ('s2','a1','NORMAL',NULL,'2030-01-04','Sample Cafe','',-300,1,NULL,0,0,0,'SYNC','SAMPLE CAFE','simplefin:ACT:S2',3,3,0)",
+        )
+        raw.execSQL("INSERT INTO txn_line (id, transaction_id, bucket, envelope_id, amount, sort_order, created_at, updated_at, deleted) VALUES ('ls1','s1','ENVELOPE','e1',-560,0,2,2,0)")
+        raw.execSQL("INSERT INTO txn_line (id, transaction_id, bucket, envelope_id, amount, sort_order, created_at, updated_at, deleted) VALUES ('ls2','s2','ENVELOPE','e1',-300,0,3,3,0)")
+        raw.execSQL("INSERT INTO connection (id, provider, name, status, last_sync_at, created_at) VALUES ('c1', 'SIMPLEFIN', 'Sample', 'OK', 5, 1)")
+        raw.execSQL("INSERT INTO linked_account (id, connection_id, provider_account_id, provider_name, mask, account_id, provider_balance, provider_balance_date, set_start_balance, balance_sign_flipped) VALUES ('l1', 'c1', 'ACT', 'Sample', '1234', 'a1', 8306, 1900000000, 0, 1)")
+        raw.execSQL("INSERT INTO sync_log (id, connection_id, at, ok, added, updated, removed, message) VALUES ('g1', 'c1', 5, 1, 2, 0, 0, 'Sample result.')")
+        raw.execSQL("INSERT INTO meta (`key`, value) VALUES ('simplefin.requests.c1', '1,2,3')")
+        raw.execSQL("INSERT INTO meta (`key`, value) VALUES ('budget_start', '2030-01-01')")
         raw.close()
         val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
         try {
-            val l = db.syncDao().linkedNow().single()
-            assertEquals("a1", l.accountId)
-            assertEquals(2314L, l.providerBalance)
-            assertEquals("off: the bank's figure is read as sent", false, l.balanceSignFlipped)
-            assertEquals(2314L, l.bankBalance)
-            assertEquals("Sample Account", db.dao().account("a1")!!.name)
-            assertEquals(-1234L, db.dao().transaction("t1")!!.amount)
-            assertTrue(db.dao().account("a1")!!.showInActivity)
-            assertEquals(1, db.dao().changes().size)
+            val d = db.dao()
+            // every budget row and value is kept
+            assertEquals("Sample Account", d.account("a1")!!.name)
+            assertEquals(10000L, d.account("a1")!!.startingBalance)
+            assertEquals(listOf("s1", "s2", "t1"), d.transactionsNow().map { it.id }.sorted())
+            val s1 = d.transaction("s1")!!
+            val s2 = d.transaction("s2")!!
+            assertEquals(-560L, s1.amount); assertEquals(-300L, s2.amount); assertEquals(-1234L, d.transaction("t1")!!.amount)
+            assertEquals("SAMPLE CAFE", s2.importDescription)
+            assertEquals(TransactionSource.SYNC, s2.source)
+            assertEquals("the pending synced row is an ordinary posted one", false, s2.pending)
+            assertNull("the bank's ids go", s1.externalId)
+            assertNull(s2.externalId)
+            assertEquals("e1", d.linesOf("s2").single().envelopeId)
+            assertEquals(4000L, d.movesNow().single().amount)
+            assertEquals(1, d.changes().size)
+            assertEquals("2030-01-01", d.meta("budget_start"))
+            // the bank's tables and its request count are gone
+            val tables = mutableListOf<String>()
+            db.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { c -> while (c.moveToNext()) tables += c.getString(0) }
+            assertTrue(tables.toString(), tables.none { it in setOf("connection", "linked_account", "sync_log") })
+            assertNull(d.meta("simplefin.requests.c1"))
+            // the balance and Ready to Assign are what 1.2.x showed (the same rows, the pending one still pending)
+            val after = net.darkrelay.deaddropfinance.domain.Budget(d.accountsNow(), d.envelopesNow(), d.transactionsNow(), d.linesNow(), d.movesNow())
+            val before = net.darkrelay.deaddropfinance.domain.Budget(
+                d.accountsNow(), d.envelopesNow(), d.transactionsNow().map { if (it.id == "s2") it.copy(pending = true) else it }, d.linesNow(), d.movesNow(),
+            )
+            assertEquals(before.accountBalance("a1"), after.accountBalance("a1"))
+            assertEquals(10000L - 1234 - 560 - 300, after.accountBalance("a1"))
+            assertEquals(before.readyToAssign, after.readyToAssign)
+            assertEquals(before.envelopeBalance("e1"), after.envelopeBalance("e1"))
+            assertTrue(d.account("a1")!!.showInActivity)
         } finally {
             db.close()
         }

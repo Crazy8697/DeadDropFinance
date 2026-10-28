@@ -1,7 +1,10 @@
 package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -109,6 +112,7 @@ private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelo
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EnvelopeDetailScreen(
     envelope: EnvelopeEntity,
@@ -121,6 +125,8 @@ fun EnvelopeDetailScreen(
     onUseTarget: (Long) -> Unit,
     onArchive: (Boolean) -> Unit,
     onTransaction: (String) -> Unit,
+    /** Add activity (1.3.0): the Add transaction screen with this envelope chosen. */
+    onAddActivity: () -> Unit = {},
 ) {
     val bal = budget.envelopeBalance(envelope.id)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -166,9 +172,10 @@ fun EnvelopeDetailScreen(
             }
         }
         Gap()
-        Row {
+        // three buttons don't fit one line on a narrow phone, so they wrap
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onAddActivity) { Text("Add activity") }
             OutlinedButton(onClick = onMove) { Text("Move money") }
-            HGap()
             if (envelope.mode != EnvelopeMode.ROLLOVER) OutlinedButton(onClick = { onArchive(!envelope.archived) }) { Text(if (envelope.archived) "Unarchive" else "Archive") }
         }
         SectionTitle("Activity")

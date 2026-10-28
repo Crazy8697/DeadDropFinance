@@ -14,22 +14,27 @@ import kotlinx.coroutines.runBlocking
 import net.darkrelay.deaddropfinance.data.AccountType
 import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
-import net.darkrelay.deaddropfinance.data.ConnectionEntity
-import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
-import net.darkrelay.deaddropfinance.data.Provider
 import net.darkrelay.deaddropfinance.data.ReceiptEntity
 import net.darkrelay.deaddropfinance.data.ReceiptImages
 import net.darkrelay.deaddropfinance.data.ReceiptItemEntity
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
+import net.darkrelay.deaddropfinance.data.TransactionSource
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
+import org.json.JSONArray
+import org.json.JSONObject
 import net.darkrelay.deaddropfinance.domain.BillActions
 import net.darkrelay.deaddropfinance.domain.BudgetActions
 import net.darkrelay.deaddropfinance.domain.ParkedBuys
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -94,9 +99,7 @@ class BackupTest {
         actions.move(null, food, 250_00)
         store.ensureCategories()
         store.setBudgetStart(day.minusDays(7))
-        actions.saveAccount(acct, "Sample Checking", AccountType.BANK, 800_00, day.minusDays(30), showInActivity = false)
-        // the wrong-sign Adjust (1.2.2): the bank says the app's balance with the other sign
-        actions.matchStartingBalanceToBank(acct, -actions.snapshot().postedBalanceOn(acct, day), day)
+        actions.saveAccount(acct, "Sample Checking", AccountType.BANK, -800_00, day.minusDays(30), showInActivity = false)
         net.darkrelay.deaddropfinance.domain.CategoryActions(store).setClaims(food, setOf(actions.snapshot().categories.first { it.name == "Groceries" }.id))
         val tx = store.write {
             val t = put(null, TransactionEntity(accountId = acct, date = day, payee = "SAMPLE MARKET", amount = -42_10, createdAt = now, updatedAt = now))
@@ -154,7 +157,7 @@ class BackupTest {
         assertEquals(before, b.dump())
         assertEquals(bDevice, b.store.deviceId())
         assertArrayEquals(photo1, b.images.read(rid, 0))
-        assertEquals(12, b.prefs.getValue("sync").getInt("interval_hours", 6))
+        assertFalse("bank sync's interval is gone since 1.3.0 and doesn't travel", b.prefs.getValue("sync").contains("interval_hours"))
         val budget = b.actions.snapshot()
         assertEquals(0L, budget.sortedCheck)
         assertEquals("bonus income comes back", 30_00L, budget.bonusTotal)
@@ -164,26 +167,68 @@ class BackupTest {
         assertEquals("Unplanned", budget.unplannedEnvelope!!.name)
         assertEquals("the budget start date comes back", day.minusDays(7), b.store.budgetStart())
         assertEquals("Show in Activity comes back", false, budget.accounts.single().showInActivity)
-        assertEquals("the adjusted starting balance comes back", -800_00L, budget.accounts.single().startingBalance)
+        assertEquals("the starting balance comes back", -800_00L, budget.accounts.single().startingBalance)
         assertEquals(250_00L - 42_10, budget.envelopeBalance(budget.envelopes.first { it.name == "Sample Groceries" }.id))
     }
 
-    @Test fun theBankConnectionStaysOutOfTheBackupAndRestoreLeavesThePhonesOwn() = runBlocking<Unit> {
+    /**
+     * A backup made before 1.3.0, as that version wrote it (schema 11): its transactions can carry the bank's ids and a
+     * synced row still pending, its settings bank sync's interval, and an older or hand-made file a bank link with the
+     * sign choice. It restores without error and the bank data in it is ignored.
+     */
+    @Test fun anOlderBackupWithBankDataRestoresAndItsBankDataIsIgnored() = runBlocking<Unit> {
         val a = Phone("c")
         a.fill()
-        a.db.syncDao().upsertConnection(ConnectionEntity(id = "conn-a", provider = Provider.SIMPLEFIN, name = "Sample Bridge", createdAt = 1))
-        val file = a.backup("sample words")
+        val synced = a.store.write {
+            val t = put(null, TransactionEntity(accountId = a.store.dao.accountsNow().first().id, date = day, payee = "SAMPLE SYNCED", amount = -5_00, pending = true,
+                source = TransactionSource.SYNC, createdAt = now, updatedAt = now))
+            put(null, TransactionLineEntity(transactionId = t.id, bucket = LineBucket.UNSORTED, amount = -5_00, createdAt = now, updatedAt = now))
+            t.id
+        }
+        val old = olderBackup(a.backup("sample words"), "sample words", synced)
         val b = Phone("d")
-        b.db.syncDao().upsertConnection(ConnectionEntity(id = "conn-b", provider = Provider.SIMPLEFIN, name = "Other Sample Bridge", createdAt = 1))
-        b.backups.restore(ByteArrayInputStream(file), "sample words".toCharArray())
-        assertEquals(listOf("conn-b"), b.db.syncDao().connectionsNow().map { it.id })
-        // the bank balance sign choice is the phone's own, on its bank link: a backup and restore keeps it there
-        a.db.syncDao().upsertLinked(LinkedAccountEntity(id = "link-a", connectionId = "conn-a", providerAccountId = "ACT", providerName = "Sample", providerBalance = 41_07, balanceSignFlipped = true))
-        val again = a.backup("sample words")
-        a.backups.restore(ByteArrayInputStream(again), "sample words".toCharArray())
-        val kept = a.db.syncDao().linkedNow().single()
-        assertEquals(true, kept.balanceSignFlipped)
-        assertEquals(-41_07L, kept.bankBalance)
+        b.backups.restore(ByteArrayInputStream(old), "sample words".toCharArray())
+        val t = b.store.dao.transaction(synced)!!
+        assertNull("the bank's id is dropped", t.externalId)
+        assertFalse("a synced row still pending is an ordinary posted one", t.pending)
+        assertEquals(-5_00L, t.amount)
+        assertEquals(TransactionSource.SYNC, t.source)
+        assertEquals(a.dump().keys, b.dump().keys)
+        assertFalse(b.prefs.getValue("sync").contains("background"))
+        assertFalse(b.prefs.getValue("sync").contains("interval_hours"))
+        assertTrue(b.prefs.getValue("sync").getBoolean("auto_approve", false))
+        val names = mutableListOf<String>()
+        b.db.openHelper.readableDatabase.query("SELECT name FROM sqlite_master WHERE type = 'table'").use { c -> while (c.moveToNext()) names += c.getString(0) }
+        assertTrue(names.none { it in setOf("connection", "linked_account", "sync_log") })
+    }
+
+    /** Rewrites a backup as 1.2.3 could have written it: schema 11, bank ids, the sign choice, bank sync's settings. */
+    private fun olderBackup(file: ByteArray, words: String, syncedId: String): ByteArray {
+        val entries = linkedMapOf<String, ByteArray>()
+        ZipInputStream(BackupCrypto.decrypting(ByteArrayInputStream(file), words.toCharArray())).use { z ->
+            while (true) { val e = z.nextEntry ?: break; entries[e.name] = z.readBytes() }
+        }
+        val m = JSONObject(String(entries.getValue("manifest.json"))).put("schema", 11)
+        entries["manifest.json"] = m.toString().toByteArray()
+        val txn = JSONArray(String(entries.getValue("tables/txn.json")))
+        for (k in 0 until txn.length()) {
+            val r = txn.getJSONObject(k)
+            if (r.getString("id") == syncedId) r.put("external_id", "simplefin:ACT-1:T1")
+        }
+        entries["tables/txn.json"] = txn.toString().toByteArray()
+        entries["tables/connection.json"] = JSONArray().put(JSONObject().put("id", "c1").put("provider", "SIMPLEFIN").put("name", "Sample Bridge").put("status", "OK").put("created_at", 1)).toString().toByteArray()
+        entries["tables/linked_account.json"] = JSONArray().put(
+            JSONObject().put("id", "l1").put("connection_id", "c1").put("provider_account_id", "ACT-1").put("provider_name", "Sample").put("mask", "")
+                .put("provider_balance", 41_07).put("set_start_balance", 0).put("balance_sign_flipped", 1),
+        ).toString().toByteArray()
+        val settings = JSONObject(String(entries.getValue("settings.json")))
+        settings.getJSONObject("sync").put("background", false).put("interval_hours", 24)
+        entries["settings.json"] = settings.toString().toByteArray()
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(BackupCrypto.encrypting(out, words.toCharArray(), rounds)).use { z ->
+            for ((n, bytes) in entries) { z.putNextEntry(ZipEntry(n)); z.write(bytes); z.closeEntry() }
+        }
+        return out.toByteArray()
     }
 
     @Test fun aWrongPasswordOrABadFileFailsCleanlyAndChangesNothing() = runBlocking<Unit> {

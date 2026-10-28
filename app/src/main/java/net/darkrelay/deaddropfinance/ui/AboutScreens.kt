@@ -24,7 +24,6 @@ import net.darkrelay.deaddropfinance.R
 object DarkRelayLinks {
     const val SITE = "https://darkrelay.net"
     const val CHEESE = "https://buymeacoffee.com/crazy8697"
-    const val SIMPLEFIN = "https://www.simplefin.org"
 }
 
 /** The documents the app carries (assets/licenses), by file name, with what each one is. */
@@ -36,9 +35,8 @@ val APP_DOCS = listOf(
     "TERMS.md" to "End user agreement",
 )
 
-/** Credits for what the app is built with: the services and every shipped component whose license asks for one. */
+/** Credits for what the app is built with: every shipped component whose license asks for one. */
 val CREDITS = listOf(
-    "Bank sync" to "SimpleFIN Bridge, from SimpleFIN (simplefin.org). A separate service you sign up for with SimpleFIN; DarkRelay isn't affiliated with it.",
     "Encrypted database" to "SQLCipher for Android, Copyright (c) 2008-2026, ZETETIC, LLC, under its BSD-style license. It contains SQLite and LibTomCrypt, both in the public domain.",
     "Receipt text recognition" to "Tesseract OCR and Tesseract4Android (Apache License 2.0), with Leptonica (Copyright (C) 2001-2020 Leptonica), libpng, and libjpeg: this software is based in part on the work of the Independent JPEG Group.",
     "Kotlin" to "The Kotlin standard library, kotlinx.coroutines (Copyright 2016-2025 JetBrains s.r.o and contributors) and kotlinx.serialization (Copyright 2017-2019 JetBrains s.r.o and respective authors and developers), Apache License 2.0. Parts of the standard library come from ThreeTen-Backport (Copyright (c) 2007-present, Stephen Colebourne & Michael Nascimento Santos) and Boost (Copyright Eric Ford & Hubert Holin 2001).",
@@ -65,7 +63,6 @@ fun AboutScreen(version: String, onBack: () -> Unit, onOpen: (String) -> Unit, o
             Text(what, modifier = Modifier.padding(top = 6.dp))
             Text(who, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
-        TextButton(onClick = { onOpen(DarkRelayLinks.SIMPLEFIN) }) { Text("simplefin.org", color = DdfColors.Cyan) }
         SectionTitle("Legal")
         ListRow(onLicenses) { Column { Text("Licenses"); Text("Full license texts for the app and everything it ships", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         ListRow({ onDoc("PRIVACY.md") }) { Text("Privacy policy") }

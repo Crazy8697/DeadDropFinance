@@ -24,7 +24,7 @@ class SpendAlertsTest {
 
     private fun notice(lock: Boolean, approve: List<String> = listOf("t1", "t2")) = Alerts.Notice(
         Alerts.Kind.SPENDING, "2 new charges, -\$17.00", listOf("SAMPLE MARKET -\$10.00: suggested Food", "SAMPLE CAFE -\$7.00: not sorted yet"),
-        Alerts.PUBLIC_TITLE, "2 new charges synced", approve, lock,
+        Alerts.PUBLIC_TITLE, "2 new charges", approve, lock,
     )
 
     @Test fun privateByDefaultWithACountOnlyPublicVersion() {
@@ -33,7 +33,7 @@ class SpendAlertsTest {
         val pub = n.publicVersion
         assertNotNull(pub)
         val text = "${pub.extras.getCharSequence(Notification.EXTRA_TITLE)} ${pub.extras.getCharSequence(Notification.EXTRA_TEXT)}"
-        assertEquals("Dead Drop Finance 2 new charges synced", text)
+        assertEquals("Dead Drop Finance 2 new charges", text)
         assertFalse(text.contains("$"))
         assertEquals(SpendAlerts.CHANNEL_SPENDING, n.channelId)
     }

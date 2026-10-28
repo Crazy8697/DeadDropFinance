@@ -81,16 +81,6 @@ class DeleteAndEraseTest {
         assertEquals(0L, b.sortedCheck)
     }
 
-    @Test fun deletingAnAccountRemovesItsBankLink() = withStore { store, a ->
-        val acct = a.saveAccount(null, "Linked", AccountType.BANK, 0, d)
-        store.sync.upsertConnection(ConnectionEntity(id = "c1", provider = Provider.SIMPLEFIN, name = "SimpleFIN", createdAt = 1))
-        store.sync.upsertLinked(LinkedAccountEntity(id = "l1", connectionId = "c1", providerAccountId = "ACT", providerName = "Sample", accountId = acct, lastSyncedDate = d))
-        a.deleteAccount(acct)
-        val l = store.sync.linkedNow().single()
-        assertNull(l.accountId)
-        assertNull(l.lastSyncedDate)
-    }
-
     private class FakeWrapper : KeyWrapper {
         override fun wrap(plain: ByteArray) = byteArrayOf(1) + plain
         override fun unwrap(blob: ByteArray) = blob.drop(1).toByteArray()
@@ -137,7 +127,6 @@ class DeleteAndEraseTest {
                 store.ensureSystemEnvelopes()
                 assertTrue(store.dao.accountsNow().isEmpty())
                 assertEquals(1, store.dao.envelopesNow().size)
-                assertTrue(store.sync.connectionsNow().isEmpty())
                 assertEquals("no budget start date until setup finishes", null, store.budgetStart())
             }
         } finally {

@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Bank sync with SimpleFIN (only when set up) and the update check (one anonymous GET of this app's GitHub releases). -->
+    <!-- Only the update check and its download (one anonymous GET of this app's GitHub releases). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- App lock: fingerprint or the phone's PIN through the system prompt -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <!-- Spend alerts after a background sync. Asked for once bank sync is set up, never at first launch. -->
+    <!-- Spend alerts and bill reminders. Asked for when an alert is turned on, never at first launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Download and install (0.15.1): installing the verified release APK through PackageInstaller. Android asks
          the user to turn this on the first time; the app never installs anything unverified. -->

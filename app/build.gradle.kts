@@ -303,7 +303,7 @@ dependencies {
     implementation("net.zetetic:sqlcipher-android:4.19.1")
     // app lock timing: how long the whole app has been in the background
     implementation("androidx.lifecycle:lifecycle-process:2.11.0")
-    // bank sync in the background (periodic, network required)
+    // bill reminders in the background (periodic)
     implementation("androidx.work:work-runtime:2.12.0")
     // Receipt text recognition on the phone: Tesseract OCR, Leptonica, libjpeg and libpng, wrapped for Android.
     // No network code and no permissions (checked in the AAR); the English model is in assets/tessdata.

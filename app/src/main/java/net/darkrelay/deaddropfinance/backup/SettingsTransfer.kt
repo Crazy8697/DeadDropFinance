@@ -5,7 +5,7 @@ import androidx.core.content.edit
 import org.json.JSONObject
 
 /**
- * The settings a backup carries: the user's own choices (sync, sorting, alerts, app lock, hide screen, update
+ * The settings a backup carries: the user's own choices (sorting, alerts, app lock, hide screen, update
  * checks). Not setup progress, alert bookkeeping, a skipped version or notification reading (that needs Android's
  * permission on each phone). [files] are the settings files by name: "sync", "lock" and "updates".
  */
@@ -47,7 +47,7 @@ class SettingsTransfer(private val files: Map<String, SharedPreferences>) {
     companion object {
         val CARRIED = mapOf(
             "sync" to listOf(
-                "background", "interval_hours", "auto_approve", "alert_spending", "alert_low", "alert_safe_to_spend",
+                "auto_approve", "alert_spending", "alert_low", "alert_safe_to_spend",
                 "alert_lock_screen_amounts", "alert_bills", "alert_autopay",
             ),
             "lock" to listOf("lock_enabled", "lock_timeout_minutes", "hide_screen"),

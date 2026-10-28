@@ -26,7 +26,6 @@ import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.CsvImport
 import net.darkrelay.deaddropfinance.domain.Payday
-import net.darkrelay.deaddropfinance.domain.BalanceCheck
 import net.darkrelay.deaddropfinance.domain.Sorting
 import net.darkrelay.deaddropfinance.domain.Suggest
 import net.darkrelay.deaddropfinance.data.RuleAction
@@ -67,12 +66,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
-import net.darkrelay.deaddropfinance.data.ConnectionEntity
-import net.darkrelay.deaddropfinance.data.ConnectionStatus
-import net.darkrelay.deaddropfinance.data.LinkedAccountEntity
-import net.darkrelay.deaddropfinance.data.Provider
-import net.darkrelay.deaddropfinance.sync.FixCode
-import net.darkrelay.deaddropfinance.sync.SyncService
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -175,6 +168,13 @@ class ScreenshotTest {
     @Test fun moveMoneyFromEnvelope() = shot("1233-move-money-from-envelope") {
         MoveMoneyScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), "g", null, {}) { _, _, _ -> }
     }
+    // 1.3.0: Add activity on an envelope's screen, and the Add transaction screen it opens with the envelope chosen
+    @Test fun envelopeAddActivity() = shot("1300-envelope-add-activity") {
+        EnvelopeDetailScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.food, net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.today, {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun addActivityTransaction() = shot("1301-add-transaction-from-envelope") {
+        TransactionEditScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), null, false, null, {}, {}, { _, _, _, _, _, _ -> }, presetEnvelope = "f")
+    }
     @Test @Config(qualifiers = TALL) fun assign() = shot("10-assign") {
         AssignScreen(budget, today, null, {}, {}, { _, _ -> }, listOf(Payday.Shortfall("heat", 40_00, 15_00)))
     }
@@ -203,89 +203,32 @@ class ScreenshotTest {
     @Test fun lock() = shot("23-lock") { LockScreen({}, null) }
     @Test fun unavailable() = shot("24-data-unavailable") { DataUnavailableScreen("the stored key can't be unlocked on this phone") }
 
-    // ---- 0.7.0: setup wizard and bank sync (invented connections; no secret, masked or not, looks real) ------------
+    // ---- 0.7.0: setup wizard ----------------------------------------------------------------------------------------
     private val at = today.atTime(9, 30).toEpochSecond(java.time.ZoneOffset.UTC) * 1000
-    private val conns = listOf(
-        ConnectionEntity("c1", Provider.SIMPLEFIN, "SimpleFIN", null, ConnectionStatus.OK, null, at, "3 new transactions, 1 updated.", null, 0),
-        ConnectionEntity("c2", Provider.SIMPLEFIN, "SimpleFIN", null, ConnectionStatus.NEEDS_FIX, FixCode.SIMPLEFIN_TOKEN, at - 86_400_000,
-            "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again.", "Example Credit Union needs you to log in again.", 0),
-    )
-    private val links = listOf(
-        LinkedAccountEntity("l1", "c1", "ACT-A", "Sample Bank Checking", "", "chk", 240_00, at),
-        LinkedAccountEntity("l2", "c1", "ACT-B", "Sample Bank Savings", "", null, 1_000_00, at),
-        LinkedAccountEntity("l3", "c2", "ACT-1", "Example Credit Union Card", "", "app", -55_00, at),
-    )
     @Composable private fun Page(content: @Composable () -> Unit) = Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) { content() }
 
     @Test fun wizardWelcome() = shot("30-wizard-welcome") { WizardFrame(WizardPage.WELCOME, "Welcome", null, "Start" to {}) { WelcomePage() } }
     @Test fun wizardLock() = shot("31-wizard-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(true, true) {} } }
     @Test fun wizardLockNoScreenLock() = shot("32-wizard-lock-no-screen-lock") { WizardFrame(WizardPage.LOCK, "App lock", {}, "Next" to {}) { LockPage(false, false) {} } }
-    @Test fun wizardDoor() = shot("33-wizard-door") { WizardFrame(WizardPage.DOOR, "Pick your door", {}, null) { DoorList({}) } }
-    @Test @Config(qualifiers = TALL) fun wizardSimpleFin() = shot("36-wizard-simplefin") {
-        val ui = ConnectUi().apply { error = "SimpleFIN says that token is already used or doesn't exist. Setup tokens work once. If you didn't use it, someone else may have: disable it in your SimpleFIN account, then get a new setup token." }
-        WizardFrame(WizardPage.CONNECT, "Connect with SimpleFIN", {}, "Skip for now" to {}) { SimpleFinDoor(ui, {}, {}) }
-    }
     @Test fun wizardOldSchool() = shot("37-wizard-old-school") { WizardFrame(WizardPage.CONNECT, "Old School", {}, null) { OldSchoolDoor(false, {}, {}, {}) } }
-    @Test @Config(qualifiers = TALL) fun wizardLink() = shot("38-wizard-link") {
-        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(links.filter { it.connectionId == "c1" }.map { it.copy(accountId = null) }, budget.accounts, mapOf("l1" to LinkPick("chk")), { _, _ -> }, false, null, today, null)
-        }
-    }
     @Test @Config(qualifiers = TALL) fun wizardStarter() = shot("39-wizard-starter") {
         WizardFrame(WizardPage.STARTER, "Starter envelopes", {}, "Add 2" to {}) { StarterPage(setOf("Groceries", "Phone"), setOf("Rollover", "Gas"), {}, {}) }
     }
     @Test fun wizardFinish() = shot("40-wizard-finish") {
         WizardFrame(WizardPage.FINISH, "Finish", {}, "Finish" to {}) {
-            FinishPage(listOf("App lock is on.", "Connected: SimpleFIN", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup. Add or change bank connections from More, Bank sync."))
+            FinishPage(listOf("App lock is on.", "Import a CSV or add transactions any time.", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup."))
         }
     }
-    @Test fun bankSyncEmpty() = shot("41-bank-sync-empty") { BankSyncScreen(emptyList(), emptyList(), budget.accounts, emptyMap(), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {}) }
-    @Test @Config(qualifiers = TALL) fun bankSync() = shot("42-bank-sync") {
-        BankSyncScreen(conns, links, budget.accounts, mapOf("c1" to "...TEST", "c2" to "...TEST"), true, 6, false, null, {}, {}, {}, {}, {}, { _, _, _ -> }, {}, {})
-    }
-    @Test fun syncLinksFromBankSync() = shot("43-bank-sync-accounts") {
-        Page { ScreenTitle("Link accounts", {}); LinkPanel(links.filter { it.connectionId == "c1" }, budget.accounts, emptyMap(), { _, _ -> }, false, null, today, onApply = {}) }
-    }
-    @Test @Config(qualifiers = TALL) fun accountSyncMismatch() = shot("44-account-balance-check") {
-        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", links, conns, today) { _, _, _ -> } }, budget = budget)
-    }
-    @Test @Config(qualifiers = TALL) fun accountNotLinked() = shot("45-account-not-linked") {
-        AccountEditScreen(budget.accounts[2], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "cash", links, conns, today) { _, _, _ -> } }, budget = budget)
-    }
     @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun fixDialog() = shot("47-fix-dialog") {
-        HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {})
-        FixDialog(SyncService.FixPrompt("c2", FixCode.SIMPLEFIN_TOKEN, "SimpleFIN no longer accepts this connection. Get a new setup token from the Bridge and connect again."), {}, {})
-    }
-    @Test fun activitySyncNote() = shot("48-activity-sync-note") {
-        ActivityScreen(budget, {}, {}, { _, _, _ -> }, {}, listOf("0 new transactions, 1 pending removed. A pending SAMPLE HOLD for -\$9.99 on 2030-03-14 disappeared without posting and was removed."))
-    }
-    @Test fun moreWithSync() = shot("49-more-bank-sync") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "2 connections, last sync Mar 15, 9:30 AM. One needs attention.") }
 
     // ---- 0.7.2 ---------------------------------------------------------------------------------------------------
     @Test fun bottomTabsNarrow() = shot("50-bottom-tabs-narrow") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Home) {} } }
     @Test @Config(qualifiers = "w600dp-h400dp-xhdpi") fun bottomTabsWide() = shot("51-bottom-tabs-wide") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Activity) {} } }
     @Test @Config(qualifiers = "w320dp-h500dp-xhdpi") fun bottomTabsSmallest() = shot("52-bottom-tabs-320dp") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Envelopes) {} } }
-    @Test @Config(qualifiers = TALL) fun linkOverdrawn() = shot("53-link-overdrawn-and-track-only") {
-        val od = listOf(
-            LinkedAccountEntity("o1", "c1", "ACT-O", "Sample Overdrawn Checking", "", null, -42_17, at),
-            LinkedAccountEntity("o2", "c1", "ACT-S", "Sample Membership Share", "", null, 5_00, at),
-        )
-        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new"), "o2" to LinkPick("track")), { _, _ -> }, false, null, today, null)
-        }
-    }
-    @Test @Config(qualifiers = TALL) fun linkActuallyNegativeOn() = shot("53b-link-actually-negative-on") {
-        val od = listOf(LinkedAccountEntity("o1", "c1", "ACT-O", "Sample Overdrawn Checking", "", null, 42_17, at))
-        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(od, budget.accounts, mapOf("o1" to LinkPick("new", actuallyNegative = true)), { _, _ -> }, false, null, today, null)
-        }
-    }
     @Test fun homeMobileDataQuestion() = shot("02d-home-mobile-data-question") {
         HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {})
         MobileDataDialog(41_165_299L, {}, {})
     }
-    @Test fun unlinkDialog() = shot("54-unlink-choice") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}); UnlinkDialog("Everyday Checking", {}, {}) }
     private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
     private val shareTrack = acct("share", "Membership Share", AccountType.BANK, 5_00).copy(trackOnly = true)
     private val budget2 = Budget(budget.accounts + listOf(savingsHeld, shareTrack), budget.envelopes, budget.transactions, budget.lines, budget.moves)
@@ -302,17 +245,6 @@ class ScreenshotTest {
 
     // ---- 0.7.3 ---------------------------------------------------------------------------------------------------
     private fun epochOf(d: java.time.LocalDate) = d.atTime(9, 0).toEpochSecond(java.time.ZoneOffset.UTC)
-    @Test @Config(qualifiers = TALL) fun linkStaleBankData() = shot("60-link-bank-data-as-of") {
-        val ls = listOf(
-            LinkedAccountEntity("s1", "c1", "ACT-1", "Sample Checking", "", "chk", -41_07, at, epochOf(today.minusDays(12))),
-            LinkedAccountEntity("s2", "c1", "ACT-2", "Sample Savings", "", null, 5_00, at, epochOf(today)),
-        )
-        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) { LinkPanel(ls, budget.accounts, emptyMap(), { _, _ -> }, false, null, today, null) }
-    }
-    @Test @Config(qualifiers = TALL) fun accountBalanceCheckStale() = shot("61-account-balance-check-stale") {
-        val ls = listOf(LinkedAccountEntity("s1", "c1", "ACT-1", "Sample Checking", "", "chk", -41_07, at, epochOf(today.minusDays(12))))
-        AccountEditScreen(budget.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget, "chk", ls, conns, today) { _, _, _ -> } }, budget = budget, onDelete = {}, deleteCount = 7)
-    }
     @Test fun deleteAccountDialog() = shot("62-delete-account") {
         Box {
             AccountEditScreen(budget.accounts[1], null, {}, {}, {}, budget = budget, onDelete = {}, deleteCount = 1)
@@ -320,9 +252,9 @@ class ScreenshotTest {
         }
     }
     @Test @Config(qualifiers = TALL) fun eraseScreen() = shot("63-erase-everything") { EraseScreen({}, false) {} }
-    @Test fun erasedScreen() = shot("64-erased") { ErasedScreen(emptyList(), {}, {}) }
-    @Test fun erasedScreenLeftSomething() = shot("64b-erased-left-something") { ErasedScreen(listOf("keys folder"), {}, {}) }
-    @Test @Config(qualifiers = TALL) fun moreWithErase() = shot("65-more-erase-row") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, null, {}) }
+    @Test fun erasedScreen() = shot("64-erased") { ErasedScreen(emptyList(), {}) }
+    @Test fun erasedScreenLeftSomething() = shot("64b-erased-left-something") { ErasedScreen(listOf("keys folder"), {}) }
+    @Test @Config(qualifiers = TALL) fun moreWithErase() = shot("65-more-erase-row") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun transactionBeforeStart() = shot("66-transaction-before-start") {
         val old = tx("old", "chk", "Sample Old Charge", -9_99, 60)
         val b = Budget(budget.accounts, budget.envelopes, budget.transactions + old, budget.lines + line("old", -9_99), budget.moves)
@@ -382,8 +314,8 @@ class ScreenshotTest {
         RuleEditScreen(null, RulePrefill("quick fuel stop", -1, null, "fuel"), budget8, rules8, null, {}, {}, null)
     }
     @Test @Config(qualifiers = TALL) fun moreSortingAlerts() = shot("73-more-sorting-alerts") {
-        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, sortAlerts = {
-            SortingAndAlertsSection(SortAlertState(6, false, true, true, true, false, false, true, 6), {}, {}, { _, _ -> }, {})
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, sortAlerts = {
+            SortingAndAlertsSection(SortAlertState(6, false, true, true, true, false, false), {}, {}, { _, _ -> }, {})
         })
     }
     @Test @Config(qualifiers = TALL) fun returnPicker() = shot("74-this-is-a-return") {
@@ -396,29 +328,6 @@ class ScreenshotTest {
         val b = Budget(budget8.accounts, budget8.envelopes, budget8.transactions.map { if (it.id == "s3") credit else it }, lines, budget8.moves)
         TransactionDetailScreen(credit, b, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {})
     }
-    private fun checkLink(bank: Long) = listOf(LinkedAccountEntity(id = "s1", connectionId = "c1", providerAccountId = "ACT-1", providerName = "Sample Checking", accountId = "chk",
-        providerBalance = bank, providerBalanceAt = at, providerBalanceDate = epochOf(today)))
-    private val appBalance get() = budget8.postedBalanceOn("chk", today)
-    @Test @Config(qualifiers = TALL) fun balanceMismatch() = shot("76-balance-check-mismatch") {
-        AccountEditScreen(budget8.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget8, "chk", checkLink(appBalance + 25_00), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = budget8)
-    }
-    @Test fun balanceAdjustDialog() = shot("77-balance-check-adjustment") {
-        Page { BalanceCheckView(BalanceCheck.check(budget8, "chk", appBalance + 25_00, today), "Everyday Checking", { _, _ -> }, confirming = true) }
-    }
-    @Test @Config(qualifiers = TALL) fun balanceFlipped() = shot("78-balance-check-flipped-sign") {
-        val over = Budget(budget8.accounts, budget8.envelopes, budget8.transactions + tx("big", "chk", "Sample Rent Co", -2500_00, 3), budget8.lines + line("big", -2500_00), budget8.moves)
-        val app = over.postedBalanceOn("chk", today)
-        AccountEditScreen(over.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(over, "chk", checkLink(-app), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = over)
-    }
-    @Test @Config(qualifiers = TALL) fun balanceMatch() = shot("79-balance-check-match") {
-        AccountEditScreen(budget8.accounts[0], null, {}, {}, {}, syncSection = { AccountSyncSection(budget8, "chk", checkLink(appBalance), conns, today, onAdjust = { _, _ -> }) { _, _, _ -> } }, budget = budget8)
-    }
-    @Test @Config(qualifiers = TALL) fun linkBalanceCheck() = shot("80-link-balance-check") {
-        WizardFrame(WizardPage.LINK, "Link accounts", {}, "Link and sync" to {}) {
-            LinkPanel(checkLink(appBalance + 25_00).map { it.copy(accountId = null) }, budget8.accounts, mapOf("s1" to LinkPick("chk")), { _, _ -> }, false, null, today, null, budget = budget8)
-        }
-    }
-    @Test fun homeAlertsCard() = shot("81-home-alerts-card") { HomeScreen(budget8, { AlertsCard({}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
     @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
 
     // ---- 0.9.0: receipts ----------------------------------------------------------------------------------------
@@ -484,7 +393,7 @@ class ScreenshotTest {
         TransactionDetailScreen(budget8.transactions.first { it.id == "gas" }, budget8, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {}, onAddReceipt = {})
     }
     @Test @Config(qualifiers = TALL) fun moreReceiptsRow() = shot("95-more-receipts-row") {
-        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {})
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {})
     }
 
     // ---- 0.10.0: bills, paydays, subscriptions, forecast, reading bank notifications -------------------------------
@@ -581,8 +490,8 @@ class ScreenshotTest {
         ForecastScreen(Forecast.build(thin, series10, today, pred10.next!!), {})
     }
     @Test @Config(qualifiers = TALL) fun moreAlertsStage10() = shot("108-more-alerts-bills-reading") {
-        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, null, {}, sortAlerts = {
-            SortingAndAlertsSection(SortAlertState(4, false, true, true, true, false, true, true, 6, bills = true, autopay = true, reading = true), {}, {}, { _, _ -> }, {})
+        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, sortAlerts = {
+            SortingAndAlertsSection(SortAlertState(4, false, true, true, true, false, true, bills = true, autopay = true, reading = true), {}, {}, { _, _ -> }, {})
         })
     }
     private val bankApp = NotifAppEntity("com.example.samplebank", "Sample Bank", "chk", templates = NotifParse.encode(listOf(NotifParse.Template(false, "of", "at", "with card"))), lastAmount = 42_18, lastPayee = "SAMPLE MARKET 0042", lastAt = at)
@@ -702,18 +611,16 @@ class ScreenshotTest {
             {}, {}, {}, {}, {},
         )
     }
-    @Test @Config(qualifiers = TALL) fun purge() = shot("128-purge-data") { PurgeScreen({}, false, listOf("Sample Bridge")) {} }
+    @Test @Config(qualifiers = TALL) fun purge() = shot("128-purge-data") { PurgeScreen({}, false) {} }
     @Test fun wizardAfterPurge() = shot("129-wizard-after-purge") {
-        val c = net.darkrelay.deaddropfinance.data.ConnectionEntity(id = "c1", provider = net.darkrelay.deaddropfinance.data.Provider.SIMPLEFIN, name = "Sample Bridge", createdAt = 0)
         SetupWizardHost(
-            page = WizardPage.CONNECT, forced = true, budget = empty, connections = listOf(c), links = emptyList(), ui = ConnectUi(), picks = emptyMap(), linkBusy = false,
-            syncMessage = null, starters = emptySet(), more = more, hasAccounts = false, onPage = {}, onDoor = {}, door = Door.EASY, onConnected = {}, wizardConn = "c1",
-            onSimpleFin = {}, onApplyLinks = {}, onPick = { _, _ -> }, onLock = {}, onAddAccount = {}, onImport = {}, onOpen = {}, onToggleStarter = {}, onAddStarters = {}, onFinish = {},
+            page = WizardPage.CONNECT, forced = true, budget = empty, starters = emptySet(), more = more, hasAccounts = false,
+            onPage = {}, onLock = {}, onAddAccount = {}, onImport = {}, onToggleStarter = {}, onAddStarters = {}, onFinish = {},
         )
     }
     @Test @Config(qualifiers = TALL) fun moreFull() = shot("130-more-backup-import-purge-about") {
         MoreScreen(
-            more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, "1 connection, last sync Mar 15, 9:30 AM", {}, onReceipts = {}, onParked = {}, onBackup = {},
+            more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onParked = {}, onBackup = {},
             backupLine = "Last backup Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", onSetupImport = {}, onPurge = {}, onAbout = {},
         )
     }
@@ -812,7 +719,7 @@ class ScreenshotTest {
         )
     }
     private fun tabs(selected: String?) = ActivityTabs(
-        accounts = activityTabAccounts(tabsBudget), selected = selected, lastSync = { if (it == "chk") "Last sync Mar 15, 9:30 AM" else null },
+        accounts = activityTabAccounts(tabsBudget), selected = selected,
     )
     @Test @Config(qualifiers = TALL) fun activityTabsAll() = shot("160-activity-tabs-all") {
         val unsorted = TransactionEntity(id = "u1", accountId = "chk", date = today, payee = "SAMPLE BAKERY", amount = -12_40, createdAt = 1, updatedAt = 1)
@@ -822,7 +729,8 @@ class ScreenshotTest {
         )
         Column { Box(Modifier.weight(1f)) { ActivityScreen(b, {}, {}, { _, _, _ -> }, {}, tabs = tabs(null)) }; BottomTabs(Nav.Activity) {} }
     }
-    @Test @Config(qualifiers = TALL) fun activityTabsSyncedAccount() = shot("161-activity-tab-synced-account") {
+    // 1.3.0: Sample Checking stands for an account that was linked to bank sync; now a manual account like any other
+    @Test @Config(qualifiers = TALL) fun activityTabsFormerlyLinkedAccount() = shot("1302-activity-tab-formerly-linked-account") {
         Column { Box(Modifier.weight(1f)) { ActivityScreen(tabsBudget, {}, {}, { _, _, _ -> }, {}, tabs = tabs("chk")) }; BottomTabs(Nav.Activity) {} }
     }
     @Test @Config(qualifiers = TALL) fun activityTabsManualAccount() = shot("162-activity-tab-manual-account") {
@@ -862,19 +770,6 @@ class ScreenshotTest {
         Page { longRows.transactions.filter { it.id in setOf("L1", "L2", "L3", "L4") }.forEach { TransactionRow(it, longRows) {} } }
     }
     // ---- 1.2.2: Adjust on the wrong-sign warning --------------------------------------------------------------------
-    private val signCheck = net.darkrelay.deaddropfinance.domain.BalanceCheck.Result.FlippedSign(bank = -23_14, app = 23_14, asOf = today.minusDays(1))
-    @Test fun wrongSignWithAdjust() = shot("180-wrong-sign-adjust") {
-        Page { SectionTitle("Bank sync"); BalanceCheckView(signCheck, "Sample Checking", onAdjust = { _, _ -> }, startingBalance = 50_00, onFixStart = {}) }
-    }
-    @Test fun wrongSignConfirm() = shot("181-wrong-sign-confirm") {
-        Page { SectionTitle("Bank sync"); BalanceCheckView(signCheck, "Sample Checking", onAdjust = { _, _ -> }, confirming = true, startingBalance = 50_00, onFixStart = {}) }
-    }
-    @Test fun wrongSignMatched() = shot("182-wrong-sign-matched") {
-        Page {
-            SectionTitle("Bank sync")
-            BalanceCheckView(net.darkrelay.deaddropfinance.domain.BalanceCheck.Result.Match(bank = -23_14, app = -23_14, asOf = today.minusDays(1)), "Sample Checking", onAdjust = { _, _ -> }, startingBalance = 3_72, onFixStart = {})
-        }
-    }
     @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)

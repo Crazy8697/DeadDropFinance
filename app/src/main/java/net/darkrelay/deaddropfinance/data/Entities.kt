@@ -111,14 +111,17 @@ data class EnvelopeEntity(
 
 /**
  * BONUS: money that didn't come through the bank (Bonus income). It belongs to no account: its [TransactionEntity.accountId]
- * is [BONUS_ACCOUNT_ID], and its one line goes to Ready to Assign. Bank sync, imports, matching and rules only ever look at NORMAL.
+ * is [BONUS_ACCOUNT_ID], and its one line goes to Ready to Assign. Imports, matching and rules only ever look at NORMAL.
  */
 enum class TransactionKind { NORMAL, TRANSFER, BONUS }
 
 /** The account id a BONUS transaction carries: no account. */
 const val BONUS_ACCOUNT_ID = ""
 
-/** NOTIFICATION: logged from a bank or wallet app's notification (pending until bank sync brings the real record). */
+/**
+ * NOTIFICATION: logged from a bank or wallet app's notification (pending until the bank's record is imported). SYNC: came
+ * in through bank sync, removed in 1.3.0; such rows stay as ordinary transactions and nothing new gets it.
+ */
 enum class TransactionSource { MANUAL, CSV, SYNC, NOTIFICATION }
 
 /**
@@ -154,7 +157,7 @@ data class TransactionEntity(
     val source: TransactionSource = TransactionSource.MANUAL,
     /** The bank's own description from the import that brought or posted this, for duplicate checks. */
     @ColumnInfo(name = "import_description") val importDescription: String? = null,
-    /** The provider's id for this transaction (bank sync), "provider:account:id". Null for hand entry and CSV. */
+    /** Unused since 1.3.0: it held the bank's id for a synced transaction, cleared by the 11 to 12 migration. */
     @ColumnInfo(name = "external_id") val externalId: String? = null,
     /** How its envelopes were set; null while it waits in To sort (and for rows sorted before 0.8.0). */
     @ColumnInfo(name = "sorted_by") val sortedBy: SortedBy? = null,

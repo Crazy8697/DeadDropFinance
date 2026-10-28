@@ -51,9 +51,9 @@ fun NotifReadingScreen(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Read bank notifications", onBack)
         Text(
-            "Spending shows up the moment your bank or wallet app notifies you, not hours later with bank sync. Only the apps you pick are read. " +
-                "The notification is read on this phone and only the amount and payee are kept; its text is never stored or sent. Bank sync later " +
-                "matches the real record to it, so nothing is counted twice.",
+            "Spending shows up the moment your bank or wallet app notifies you. Only the apps you pick are read. " +
+                "The notification is read on this phone and only the amount and payee are kept; its text is never stored or sent. A CSV import " +
+                "later matches the real record to it, so nothing is counted twice.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         SettingRow("Read notifications from picked apps", if (s.on) "On" else "Off: nothing is read", s.on, true, onToggle)
@@ -98,7 +98,7 @@ fun NotifReadingScreen(
                     )
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            a.lastAt?.let { "Last read: ${if (a.lastDeposit) "+" else "-"}${Money.format(a.lastAmount ?: 0)}, ${a.lastPayee ?: ""}, ${syncTime(it)}" } ?: "Nothing read from it yet.",
+                            a.lastAt?.let { "Last read: ${if (a.lastDeposit) "+" else "-"}${Money.format(a.lastAmount ?: 0)}, ${a.lastPayee ?: ""}, ${whenText(it)}" } ?: "Nothing read from it yet.",
                             Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                         )
                         TextButton(onClick = onRefresh) { Text("Test") }
@@ -149,11 +149,11 @@ fun TeachCard(label: String, text: String, onSave: (NotifParse.Template) -> Unit
     }
 }
 
-/** Activity: entries logged from a notification that bank sync hasn't brought in a week. */
+/** Activity: entries logged from a notification that no import has brought in a week. */
 @Composable
 fun StaleNotificationEntries(list: List<net.darkrelay.deaddropfinance.data.TransactionEntity>, onKeep: (String) -> Unit, onDelete: (String) -> Unit) {
     if (list.isEmpty()) return
-    SectionTitle("Not in bank sync after a week")
+    SectionTitle("Not imported after a week")
     Text("These were logged from a bank notification, but the bank's record never came in. Keep them if they're real, or delete them.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     list.forEach { t ->
         ActivityRowLines(name = t.payee.ifBlank { "Notification entry" }, info = t.date.toString(), chips = if (t.pending) listOf("pending") else emptyList(), amount = t.amount, onClick = null) {

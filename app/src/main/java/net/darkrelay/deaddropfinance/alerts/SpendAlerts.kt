@@ -24,8 +24,8 @@ import net.darkrelay.deaddropfinance.domain.Sorting
 import net.darkrelay.deaddropfinance.sync.SyncSettings
 
 /**
- * Posts the spend alerts Alerts.build works out, after a background sync. Two notifications at most: new spending
- * (one, however many charges) and envelope warnings. Until the user opens the app, a later sync adds to what's
+ * Posts the spend alerts Alerts.build works out, after a bank notification is read. Two notifications at most: new spending
+ * (one, however many charges) and envelope warnings. Until the user opens the app, a later one adds to what's
  * showing instead of replacing it. The lock screen gets the public version (a count only) unless the user allows
  * amounts there. Approve needs the phone unlocked.
  */
@@ -39,7 +39,7 @@ class SpendAlerts(private val context: Context) {
     fun ensureChannels() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_SPENDING, "New spending", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "New spending from background bank sync, with its suggested envelope"
+                description = "New spending from your bank app's notifications, with its suggested envelope"
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             },
         )
@@ -94,7 +94,7 @@ class SpendAlerts(private val context: Context) {
         )
     }
 
-    /** After a background sync that added [newIds]: works out and posts the alerts, if the user allows them. */
+    /** After new transactions [newIds] came in: works out and posts the alerts, if the user allows them. */
     suspend fun afterSync(store: BudgetStore, settings: SyncSettings, newIds: List<String>) {
         if (newIds.isEmpty() || !allowed()) return
         val b = BudgetActions(store).snapshot()

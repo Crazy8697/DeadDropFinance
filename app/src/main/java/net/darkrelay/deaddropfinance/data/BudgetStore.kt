@@ -14,7 +14,6 @@ class BudgetStore(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     val dao: BudgetDao = db.dao()
-    val sync: SyncDao = db.syncDao()
 
     /** One atomic write: everything [block] puts is saved together with its change rows, or none of it is. */
     suspend fun <R> write(block: suspend Writer.() -> R): R = db.withTransaction {

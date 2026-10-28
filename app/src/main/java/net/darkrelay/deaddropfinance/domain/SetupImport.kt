@@ -49,7 +49,7 @@ object SetupImport {
 
     /** Only what the file sets; null is "leave it". [parkingLotWait] is in days. */
     data class SettingsIn(
-        val autoApprove: Boolean? = null, val backgroundSync: Boolean? = null, val syncEveryHours: Int? = null,
+        val autoApprove: Boolean? = null,
         val alertSpending: Boolean? = null, val alertLowOrOverspent: Boolean? = null, val alertSafeToSpendNegative: Boolean? = null,
         val alertAmountsOnLockScreen: Boolean? = null, val alertBillReminders: Boolean? = null, val alertAutopayWarnings: Boolean? = null,
         val appLock: Boolean? = null, val lockAfterMinutes: Int? = null, val hideScreen: Boolean? = null,
@@ -57,7 +57,7 @@ object SetupImport {
     ) {
         /** The settings the file changes, by their file names. */
         fun named(): List<String> = listOfNotNull(
-            autoApprove?.let { "autoApprove" }, backgroundSync?.let { "backgroundSync" }, syncEveryHours?.let { "syncEveryHours" },
+            autoApprove?.let { "autoApprove" },
             alertSpending?.let { "alerts.spending" }, alertLowOrOverspent?.let { "alerts.lowOrOverspent" },
             alertSafeToSpendNegative?.let { "alerts.safeToSpendNegative" }, alertAmountsOnLockScreen?.let { "alerts.amountsOnLockScreen" },
             alertBillReminders?.let { "alerts.billReminders" }, alertAutopayWarnings?.let { "alerts.autopayWarnings" },
@@ -104,9 +104,8 @@ object SetupImport {
     private val SUB_KEYS = setOf("name", "payees", "status", "bill")
     private val ALERT_KEYS = setOf("spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings")
     private val SETTING_KEYS = setOf(
-        "autoApprove", "backgroundSync", "syncEveryHours", "alerts", "appLock", "lockAfterMinutes", "hideScreen", "checkForUpdatesAtStartup", "parkingLotWait",
+        "autoApprove", "alerts", "appLock", "lockAfterMinutes", "hideScreen", "checkForUpdatesAtStartup", "parkingLotWait",
     )
-    private val SYNC_HOURS = setOf(6, 12, 24)
     private val LOCK_MINUTES = setOf(0, 1, 5, 15, 30)
 
     /** Reads one object's fields, collecting every problem with where it is. */
@@ -187,7 +186,7 @@ object SetupImport {
             return Parsed.Bad(listOf("This isn't a JSON file the importer can read: ${e.message?.substringBefore(" at character") ?: "bad JSON"}."))
         }
         val errors = mutableListOf<String>()
-        if (root.has("transactions")) errors += "\"transactions\": the importer never imports transactions. Take them out of the file (CSV import or bank sync brings transactions in)."
+        if (root.has("transactions")) errors += "\"transactions\": the importer never imports transactions. Take them out of the file (CSV import brings transactions in)."
         for (k in root.keys().asSequence().toList() - TOP - "transactions") errors += "\"$k\" isn't a part of a setup file."
         if (root.optString("format") != FORMAT) errors += "\"format\" must be \"$FORMAT\"."
         if (root.opt("version") != 1) errors += "\"version\" must be 1."
@@ -288,7 +287,7 @@ object SetupImport {
                 if (r.has("alerts")) alerts = so.opt("alerts") as? JSONObject ?: run { errors += "settings: \"alerts\" must be an object."; JSONObject() }
                 val ar = Reader(alerts, "settings.alerts", errors, ALERT_KEYS)
                 settings = SettingsIn(
-                    r.bool("autoApprove"), r.bool("backgroundSync"), r.int("syncEveryHours", SYNC_HOURS, "6, 12 or 24"),
+                    r.bool("autoApprove"),
                     ar.bool("spending"), ar.bool("lowOrOverspent"), ar.bool("safeToSpendNegative"), ar.bool("amountsOnLockScreen"),
                     ar.bool("billReminders"), ar.bool("autopayWarnings"),
                     r.bool("appLock"), r.int("lockAfterMinutes", LOCK_MINUTES, "0, 1, 5, 15 or 30"), r.bool("hideScreen"),

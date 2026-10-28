@@ -48,7 +48,7 @@ class SortingTest {
         lateinit var food: String
         lateinit var fun_: String
 
-        /** A row as bank sync or CSV puts it in: unsorted, with the bank's own description. */
+        /** A row as a CSV import puts it in: unsorted, with the bank's own description. */
         suspend fun bank(desc: String, amount: Long, date: LocalDate, account: String = chk, source: TransactionSource = TransactionSource.SYNC, pending: Boolean = false): String {
             val off = store.dao.account(account)?.onBudget == false
             return store.write {
@@ -314,19 +314,5 @@ class SortingTest {
         s.notAReturn(credit)
         assertNull(tx(credit).returnOf)
         assertTrue(b().toSort.any { it.id == credit })
-    }
-
-    // ---- balance check adjustment ----------------------------------------------------------------------------------
-
-    @Test fun anAdjustmentIsOnlyWhatTheUserConfirmsAndMakesTheCheckMatch() = world {
-        bank("SAMPLE MARKET", -12_34, d.plusDays(1))
-        val before = BalanceCheck.check(b(), chk, 480_00, d.plusDays(2))
-        before as BalanceCheck.Result.Mismatch
-        assertEquals(500_00L - 12_34, before.app)
-        val rta = b().readyToAssign
-        a.addAdjustment(chk, before.difference, d.plusDays(2))
-        assertTrue(BalanceCheck.check(b(), chk, 480_00, d.plusDays(2)) is BalanceCheck.Result.Match)
-        assertEquals("the difference comes out of Ready to Assign", rta + before.difference, b().readyToAssign)
-        assertEquals(0L, b().sortedCheck)
     }
 }

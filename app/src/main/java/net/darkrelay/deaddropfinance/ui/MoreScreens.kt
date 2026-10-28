@@ -52,9 +52,7 @@ fun MoreScreen(
     onHide: (Boolean) -> Unit,
     onCheckAtStartup: (Boolean) -> Unit,
     onCheckNow: () -> Unit,
-    onBankSync: () -> Unit = {},
     onSetup: () -> Unit = {},
-    syncLine: String? = null,
     onErase: () -> Unit = {},
     onPurge: (() -> Unit)? = null,
     onAbout: (() -> Unit)? = null,
@@ -77,12 +75,6 @@ fun MoreScreen(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
         ListRow(onAccounts) { Text("Accounts") }
-        ListRow(onBankSync) {
-            Column {
-                Text("Bank sync")
-                Text(syncLine ?: "SimpleFIN, from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-            }
-        }
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onReceipts != null) {
             ListRow(onReceipts) { Column { Text("Receipts"); Text("Scanned receipts, and the ones waiting for their charge", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
@@ -126,7 +118,7 @@ fun MoreScreen(
         if (onPurge != null) ListRow(onPurge) {
             Column {
                 Text("Purge data", color = DdfColors.Error)
-                Text("Deletes all your data and settings, keeps the SimpleFIN connection", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Deletes all your data and settings", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         ListRow(onErase) {
@@ -185,7 +177,6 @@ data class AccountForm(
 @Composable
 fun AccountEditScreen(
     existing: AccountEntity?, error: String?, onBack: () -> Unit, onSave: (AccountForm) -> Unit, onArchive: (Boolean) -> Unit,
-    syncSection: (@Composable () -> Unit)? = null,
     budget: Budget? = null,
     /** Deleting this account takes [deleteCount] transactions with it. Null hides the button. */
     onDelete: (() -> Unit)? = null,
@@ -230,7 +221,7 @@ fun AccountEditScreen(
         )
         SettingRow(
             "Track only, not in the budget",
-            "The balance shows and syncs, but never counts in Ready to Assign, and its transactions don't go to To sort.",
+            "The balance shows, but never counts in Ready to Assign, and its transactions don't go to To sort.",
             trackOnly, true, { trackOnly = it },
         )
         if (!trackOnly) {
@@ -264,7 +255,6 @@ fun AccountEditScreen(
             Gap()
             OutlinedButton(onClick = { confirmArchive = true }) { Text(if (existing.archived) "Unarchive" else "Archive") }
         }
-        syncSection?.invoke()
         if (existing != null && onDelete != null) {
             Gap(16)
             OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete account", color = DdfColors.Error) }
@@ -279,7 +269,7 @@ fun AccountEditScreen(
                 Text(
                     "This deletes the account and its " + (if (deleteCount == 1) "1 transaction" else "$deleteCount transactions") +
                         " for good. Envelope balances and Ready to Assign change to match. A transfer with another account stays there as an " +
-                        "entry to sort. Any bank link for this account is removed. This can't be undone.",
+                        "entry to sort. This can't be undone.",
                 )
             },
             confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete for good", color = DdfColors.Error) } },

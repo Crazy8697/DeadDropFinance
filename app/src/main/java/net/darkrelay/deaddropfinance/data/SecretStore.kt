@@ -4,11 +4,9 @@ import java.io.File
 import org.json.JSONObject
 
 /**
- * Where bank credentials live: SimpleFIN access URLs (and any later provider's credentials). They are encrypted as one blob with a Keystore-wrapped key (its own Keystore key, separate from the
- * database key's), in their own file, never in the database, SharedPreferences or the change log. Nothing reads
- * a secret back out for display: screens only get [hint], the last four characters.
- *
- * Secrets are their own category on purpose: Stage 12 (backup) decides whether they travel; today nothing does.
+ * Where secrets live: today only the receipt photo key (bank sync's SimpleFIN logins lived here until 1.3.0). They are
+ * encrypted as one blob with a Keystore-wrapped key (its own Keystore key, separate from the database key's), in their
+ * own file, never in the database, SharedPreferences or the change log. Secrets never travel in a backup.
  */
 class SecretStore(private val file: File, private val wrapper: KeyWrapper) {
 
@@ -20,7 +18,7 @@ class SecretStore(private val file: File, private val wrapper: KeyWrapper) {
         return try {
             JSONObject(String(wrapper.unwrap(file.readBytes()), Charsets.UTF_8))
         } catch (t: Throwable) {
-            throw Unavailable("the saved bank credentials can't be unlocked on this phone")
+            throw Unavailable("the saved secrets can't be unlocked on this phone")
         }
     }
 
@@ -30,7 +28,7 @@ class SecretStore(private val file: File, private val wrapper: KeyWrapper) {
         tmp.writeBytes(wrapper.wrap(o.toString().toByteArray(Charsets.UTF_8)))
         if (!tmp.renameTo(file)) {
             file.delete()
-            check(tmp.renameTo(file)) { "the credentials couldn't be saved" }
+            check(tmp.renameTo(file)) { "the secrets couldn't be saved" }
         }
     }
 
@@ -53,12 +51,7 @@ class SecretStore(private val file: File, private val wrapper: KeyWrapper) {
     /** The names only, never values. */
     @Synchronized fun names(): Set<String> = load().keys().asSequence().toSet()
 
-    /** A masked hint for the screen. The value itself is never shown after entry. */
-    fun hint(name: String): String? = get(name)?.let { "..." + it.takeLast(4) }
-
     companion object {
-        fun simplefinUrl(connectionId: String) = "simplefin.url.$connectionId"
-        fun forConnection(connectionId: String): (String) -> Boolean = { it.endsWith(".$connectionId") }
         const val FILE_NAME = "secrets.bin"
     }
 }

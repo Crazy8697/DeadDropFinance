@@ -1,6 +1,6 @@
 # Dead Drop Finance end user agreement
 
-Effective with version 0.15.0.
+Effective with version 1.3.0.
 
 By installing or using Dead Drop Finance (the app), you agree to these terms.
 
@@ -15,10 +15,7 @@ By installing or using Dead Drop Finance (the app), you agree to these terms.
    your bank before relying on a number.
 4. Your data. Your budget stays on your phone (PRIVACY.md). Keeping backups, and keeping the backup password, is up
    to you: a lost password can't be recovered.
-5. SimpleFIN. Bank sync uses SimpleFIN Bridge, a separate paid service you sign up for with SimpleFIN. Your use of it
-   is under SimpleFIN's own terms (https://beta-bridge.simplefin.org/info/terms) and privacy policy. DarkRelay
-   doesn't run, control or hold your SimpleFIN connection, and isn't affiliated with SimpleFIN.
-6. Use it lawfully. Use the app and any service it connects to only as the law and those services' terms allow.
-7. Changes. A new version of these terms comes with a new version of the app, and the release notes say when they
+5. Use it lawfully. Use the app and any service it connects to only as the law and those services' terms allow.
+6. Changes. A new version of these terms comes with a new version of the app, and the release notes say when they
    changed. Using a version means agreeing to the terms that come with it.
-8. Contact. Questions about these terms: email support@darkrelay.net.
+7. Contact. Questions about these terms: email support@darkrelay.net.

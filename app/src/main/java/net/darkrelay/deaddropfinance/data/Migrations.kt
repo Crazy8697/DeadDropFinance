@@ -128,5 +128,23 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11)
+    /**
+     * 11 to 12 (1.3.0): bank sync removed. Its three tables go (`connection`, `linked_account` with the sign choice, and
+     * `sync_log`), and so do the SimpleFIN request counts in `meta`. Every budget row stays: accounts that were linked
+     * are ordinary manual accounts. Synced rows still pending become ordinary posted transactions, and the bank's ids
+     * on synced rows are cleared (the `external_id` column stays, unused). The saved SimpleFIN login is not in the
+     * database: BankSyncCleanup removes it on the first start.
+     */
+    val V11_V12 = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS `sync_log`")
+            db.execSQL("DROP TABLE IF EXISTS `linked_account`")
+            db.execSQL("DROP TABLE IF EXISTS `connection`")
+            db.execSQL("DELETE FROM `meta` WHERE `key` LIKE 'simplefin.%'")
+            db.execSQL("UPDATE `txn` SET `pending` = 0 WHERE `source` = 'SYNC' AND `pending` = 1")
+            db.execSQL("UPDATE `txn` SET `external_id` = NULL WHERE `external_id` IS NOT NULL")
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12)
 }

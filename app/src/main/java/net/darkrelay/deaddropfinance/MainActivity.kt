@@ -33,8 +33,7 @@ import net.darkrelay.deaddropfinance.ui.DdfTheme
 import net.darkrelay.deaddropfinance.ui.LockScreen
 import net.darkrelay.deaddropfinance.ui.MoreState
 import net.darkrelay.deaddropfinance.ui.Platform
-import net.darkrelay.deaddropfinance.sync.SyncScheduler
-import net.darkrelay.deaddropfinance.sync.SyncService
+import net.darkrelay.deaddropfinance.sync.SyncSettings
 
 /**
  * The one activity. Opens the encrypted database off the main thread, shows the lock screen while locked (nothing
@@ -46,7 +45,7 @@ class MainActivity : ComponentActivity() {
     private var locked by mutableStateOf(true)
     private var lockMessage by mutableStateOf<String?>(null)
     private var pickCallback: ((String, String?) -> Unit)? = null
-    private var sync by mutableStateOf<SyncService?>(null)
+    private var settings by mutableStateOf<SyncSettings?>(null)
     private var erased by mutableStateOf(false)
     /** What Erase everything couldn't remove (empty: everything went). */
     private var erasedLeft by mutableStateOf<List<String>>(emptyList())
@@ -136,7 +135,7 @@ class MainActivity : ComponentActivity() {
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
         lifecycleScope.launch {
             opened = withContext(Dispatchers.IO) { app.open() }
-            sync = withContext(Dispatchers.IO) { app.syncService() }
+            settings = withContext(Dispatchers.IO) { app.settings() }
         }
         setContent {
             DdfTheme {
@@ -146,10 +145,10 @@ class MainActivity : ComponentActivity() {
                         when {
                             locked -> LockScreen(onUnlock = ::promptUnlock, message = lockMessage)
                             o is DatabaseOpener.Opened.Unavailable -> DataUnavailableScreen(o.reason)
-                            erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(erasedLeft, onOpen = { Browsers.open(this@MainActivity, it) }, onStartOver = ::startOver)
-                            o is DatabaseOpener.Opened.Ok && sync != null -> androidx.compose.runtime.key(generation) {
+                            erased -> net.darkrelay.deaddropfinance.ui.ErasedScreen(erasedLeft, onStartOver = ::startOver)
+                            o is DatabaseOpener.Opened.Ok && settings != null -> androidx.compose.runtime.key(generation) {
                                 AppRoot(
-                                    o.store, sync!!, platform,
+                                    o.store, settings!!, platform,
                                     startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
                                     openTo = openTo,
                                     shared = shared,
@@ -195,7 +194,7 @@ class MainActivity : ComponentActivity() {
 
     /** The app is open and unlocked: the spend alerts showing have been seen. */
     private fun clearAlerts() {
-        sync?.let { alerts.clear(it.settings) }
+        settings?.let { alerts.clear(it) }
     }
 
     private fun openNotificationSettings() {
@@ -211,7 +210,7 @@ class MainActivity : ComponentActivity() {
         applyHide()
         lifecycleScope.launch {
             opened = withContext(Dispatchers.IO) { app.open() }
-            sync = withContext(Dispatchers.IO) { app.syncService() }
+            settings = withContext(Dispatchers.IO) { app.settings() }
         }
     }
 
@@ -270,7 +269,7 @@ class MainActivity : ComponentActivity() {
 
         override fun eraseEverything() {
             lifecycleScope.launch {
-                sync = null
+                settings = null
                 opened = null
                 erasedLeft = withContext(Dispatchers.IO) { app.eraseEverything() }
                 erased = true
@@ -279,19 +278,15 @@ class MainActivity : ComponentActivity() {
 
         override fun purgeData() {
             lifecycleScope.launch {
-                sync = null
+                settings = null
                 // a failed purge rolls its database part back; either way the screens start again from what's there
                 withContext(Dispatchers.IO) { runCatching { app.purgeData() } }
-                sync = withContext(Dispatchers.IO) { app.syncService() }
+                settings = withContext(Dispatchers.IO) { app.settings() }
                 applyHide()
                 shared = null
                 openTo = null
                 generation++
             }
-        }
-
-        override fun scheduleSync(hasConnections: Boolean) {
-            sync?.let { SyncScheduler.apply(this@MainActivity, it.settings, hasConnections) }
         }
 
         override val more: MoreState
@@ -349,7 +344,7 @@ class MainActivity : ComponentActivity() {
         override fun notifAccessGranted() = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.accessGranted(this@MainActivity)
 
         override fun setNotifReading(on: Boolean) {
-            val st = net.darkrelay.deaddropfinance.sync.SyncSettings(this@MainActivity)
+            val st = SyncSettings(this@MainActivity)
             st.notifReading = on
             net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this@MainActivity, on)
         }

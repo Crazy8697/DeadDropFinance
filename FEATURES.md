@@ -3,13 +3,12 @@
 How the app behaves. Each section names the stage that builds it. Everything runs on the phone. Nothing user-specific ever goes in code, tests or fixtures; tests use synthetic data only.
 
 ## Accounts (Stage 6)
-- An account's starting balance is its balance as of its start date, so it already includes everything before that date. A transaction dated before the start date (bank history from a sync or a CSV, for example) is kept and shown as history but doesn't change the balance or the budget.
-- Delete account (on the account screen): removes the account and all its transactions for good, after a confirmation that names the account, says how many transactions go with it, and says it can't be undone. Envelope balances and Ready to Assign change to match. A transfer with another account keeps that account's side, as an entry in To sort. Any bank link for the account is removed.
-- Purge data (in More, next to Erase everything, with the same kind of confirmation: what goes, and PURGE typed): resets the app to a fresh install's state, with one exception. Every account, transaction, envelope, bill, payday, rule, subscription, receipt and receipt photo, parked buy and the change log are deleted, and every setting goes back to its default. The SimpleFIN connection (and its saved access) is kept, so no new setup token has to be claimed; its bank accounts are kept unlinked. The app then opens at the setup wizard with bank sync shown as connected, ready to link its accounts again.
-- Erase everything and start over (in More): wipes every account, transaction, envelope, bank connection and setting from the phone, after a confirmation that lists what's lost, says there's no backup, and needs the word ERASE typed. The app then starts like a fresh install, at the setup wizard. The last screen explains that a SimpleFIN connection for the app still exists on the Bridge and how to delete it there.
+- An account's starting balance is its balance as of its start date, so it already includes everything before that date. A transaction dated before the start date (bank history from a CSV, for example) is kept and shown as history but doesn't change the balance or the budget.
+- Delete account (on the account screen): removes the account and all its transactions for good, after a confirmation that names the account, says how many transactions go with it, and says it can't be undone. Envelope balances and Ready to Assign change to match. A transfer with another account keeps that account's side, as an entry in To sort.
+- Purge data (in More, next to Erase everything, with the same kind of confirmation: what goes, and PURGE typed): resets the app to a fresh install's state. Every account, transaction, envelope, bill, payday, rule, subscription, receipt and receipt photo, parked buy and the change log are deleted, every saved secret goes, and every setting goes back to its default. Unlike Erase everything, the database stays open and keeps its key. The app then opens at the setup wizard.
+- Erase everything and start over (in More): wipes every account, transaction, envelope and setting from the phone, after a confirmation that lists what's lost, says there's no backup, and needs the word ERASE typed. The app then starts like a fresh install, at the setup wizard.
 - Archiving an account takes its balance out of Ready to Assign, after a confirmation that says so, as if the account was never in the budget. Its transactions stay as history. Unarchiving puts it back.
-- Track only, not in the budget: an account can hold money that must never be budgeted (for example a membership share that has to stay in a savings account). Its balance shows on the account list and syncs normally, but it never counts in Ready to Assign, and its transactions never land in To sort: they're recorded as already handled. Bank sync's link screen offers it as a choice. Moving money between a budget account and a track-only one comes out of, or goes into, Ready to Assign.
-- Some banks report an overdrawn balance as positive through SimpleFIN. "It's actually negative (overdrawn)" says this bank account's balance comes with the wrong sign (1.2.1; 0.15.2 had it only for a new account, at link time). The choice belongs to the bank's account: the link screen offers it wherever an account is linked (a new account, Track only, or into an existing account), the account's screen has it under Bank sync to change later, and it stays through Purge data (which keeps the SimpleFIN connection), relinks and every sync. With it on, the app flips the bank's balance every time it reads it: on the link screen, for a new account's starting balance after the first sync, and in the balance check. The bank's figure itself is stored as sent. Turning it on or off later doesn't recompute a starting balance already set.
+- Track only, not in the budget: an account can hold money that must never be budgeted (for example a membership share that has to stay in a savings account). Its balance shows on the account list, but it never counts in Ready to Assign, and its transactions never land in To sort: they're recorded as already handled. Moving money between a budget account and a track-only one comes out of, or goes into, Ready to Assign.
 - Held amount: any budget account can have a minimum that stays put. Ready to Assign counts the balance minus the held amount, shown on the account as "Held". If the balance drops below the held amount, the account shows a warning and only the actual balance is held, so Ready to Assign never goes lower than the real balance would make it.
 - Account types: bank account, payment app balance, and cash.
 - Moving money between the user's own accounts is a transfer, never spending or income.
@@ -25,8 +24,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - If the money runs out before the list does, the app shows which envelopes did not fill and by how much. No advice, no suggestions.
 - Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself still starts only when the deposit lands.
 - A late payday (the date passed, no deposit yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it lands.
-- Stage 11: when the payday deposit lands, payday runs by itself (Rollover sweep, auto-fill, the Pay these now checklist), whether it came in through bank sync, a CSV import or a bank notification. No tap. A deposit counts as the payday deposit by the Stage 10 rules: money in from the same payer (or no payer read), within 20% of the last payday, and not more than a few days before the expected date.
-- Payday runs once per deposit. A deposit a notification already started payday for comes in again through sync or CSV as the same row, and anything within 5 days of a payday already run is the same payday, so nothing is swept or filled twice.
+- Stage 11: when the payday deposit lands, payday runs by itself (Rollover sweep, auto-fill, the Pay these now checklist), whether it came in through a CSV import or a bank notification. No tap. A deposit counts as the payday deposit by the Stage 10 rules: money in from the same payer (or no payer read), within 20% of the last payday, and not more than a few days before the expected date.
+- Payday runs once per deposit. A deposit a notification already started payday for comes in again through a CSV as the same row, and anything within 5 days of a payday already run is the same payday, so nothing is swept or filled twice.
 - There is no "It's payday" card (Stage 10 had one; Stage 11 removed it). Marking a deposit as payday by hand, on its own screen, still works.
 
 ## Envelopes (Stage 6)
@@ -71,13 +70,15 @@ How the app behaves. Each section names the stage that builds it. Everything run
   - Identical rows inside one file are never skipped automatically, since two real purchases or transfers can look the same. The preview lists them under "Possible duplicates in this file", grouped, with the row numbers. Each row has an import or skip choice, import by default. The counts at the top (to import, already here, possible duplicates, skipped by you, bad) update as the choices change.
   - A row that is the posted version of a pending transaction (same amount, within 5 days) posts that transaction instead of adding a second one.
 
-## Bank sync and setup (Stage 7)
-- A setup wizard on first start: app lock, how transactions get in, optional starter envelopes, finish. Installs that already have accounts get a Finish setup card on Home instead. Setup can be rerun from More.
-- Two doors: Easy (SimpleFIN Bridge, a paid service the user signs up for and pays directly) and Old School (CSV import, or entering things by hand). Free sync is CSV.
-- Every connection runs from the user's phone with the user's own SimpleFIN login. DarkRelay never holds a bank connection.
-- The bank's balance is shown with the date it was true (SimpleFIN's balance date). When that date is more than a few days old, the app says so: the provider may have stopped updating the account.
-- When a synced account stops syncing (set to Don't sync, or its connection is disconnected), the app asks once: Remove from budget (the default: the account is archived, its balance leaves Ready to Assign, its transactions stay as history) or Keep tracking it by hand (the account stays and keeps counting).
+## Setup (Stage 7)
+- A setup wizard on first start: app lock, how transactions get in (Old School: CSV import, or entering things by hand), optional starter envelopes, finish. Installs that already have accounts get a Finish setup card on Home instead. Setup can be rerun from More.
 - Removed in 0.7.1: Teller. It has no public signup for independent developers, so users couldn't get the developer accounts the Nerdy door needed. Its connections were removed on update and their transactions kept.
+
+## Bank sync removed (1.3.0)
+- Bank sync through SimpleFIN is gone: the Easy door, connecting and linking, the Sync button and background sync, the Bank sync screen in More, the Bank sync section on the account screen with its balance check, Add an adjustment, the wrong-sign warning and Adjust, "It's actually negative (overdrawn)", and "Last sync". SimpleFIN only refreshed about once a day and couldn't be made to refresh sooner.
+- Every account and transaction stays. Accounts that were linked are ordinary manual accounts ("Manual account" on their Activity tab, with their starting balance entry). Synced transactions stay as ordinary ones; any still pending become posted. Nothing else in the budget changes: balances, envelopes and Ready to Assign are as before.
+- On the first start of 1.3.0 the saved SimpleFIN login is deleted from the phone, with bank sync's settings and its background job. The SimpleFIN Bridge still has the app's connection until the user deletes it there.
+- CSV import, entering things by hand, Scan and reading bank notifications are how transactions get in.
 
 ## Bills (Stage 6 data model, Stage 10 in full)
 - A bill has a name, an amount, a due date, how often it repeats (monthly, every 3 months, every 6 months, yearly, or irregular/one-off), the envelope it feeds, and an autopay flag. Each due date is one cycle; payments count toward a cycle.
@@ -85,7 +86,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - One bill can be paid by several payments, by different methods (bank, ticked by hand, cash). The cycle counts as paid only when the payments reach the amount due.
 - Partial payments: the cycle stays open with the rest owed ("$X left"). One tap (Rest to debt) moves the rest into the bill's catch-up Debt envelope (made the first time) and settles the cycle.
 - Once-a-year and irregular bills fill a little each payday: a Fill to target envelope with no target that bills feed gets, each payday, the least that has every bill's money in by its due date.
-- Bank sync and CSV import mark bills paid when the payment matches: the bill's "payment's description has" words and an amount that fits (a part payment is fine), "any amount counts" for a bill paid in parts by transfers, or a rule set to count toward the bill (any amount unless the rule has a range). A payment toward a bill in To sort is suggested into the bill's envelope.
+- CSV import (and a bank notification) marks bills paid when the payment matches: the bill's "payment's description has" words and an amount that fits (a part payment is fine), "any amount counts" for a bill paid in parts by transfers, or a rule set to count toward the bill (any amount unless the rule has a range). A payment toward a bill in To sort is suggested into the bill's envelope.
 - Bills can be ticked paid by hand, or "Paid in cash" (logs the cash spend from the bill's envelope). When the bank's record of a hand-ticked bill comes in, it takes the place of the tick, never a second payment.
 - The amount changes (utilities): the latest charge is the expected amount next time.
 - Detection: repeating charges are found in the history (see Subscriptions); one becomes a bill only when the user taps Make it a bill. Nothing is created silently.
@@ -96,7 +97,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 
 ### Payday checklist (Stage 10)
 - When the payday deposit lands, auto-fill runs, and then a "Pay these now" card appears on Home (under Ready to Assign) with the bills due before the next payday, and anything still overdue.
-- A bill is ticked off by hand (untick undoes a hand tick), or automatically when bank sync matches the payment.
+- A bill is ticked off by hand (untick undoes a hand tick), or automatically when an imported payment matches.
 - The card collapses to "All N payday bills paid" once everything on it is paid.
 
 ## App lock (Stage 6)
@@ -109,7 +110,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - It is off by default because it also blacks out screen mirroring tools the user may rely on.
 
 ## Matching and approval (Stage 8)
-- Every new transaction from bank sync or a CSV gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
+- Every new transaction from a CSV or a bank notification gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
 - Payees are compared after cleaning: card numbers, store numbers, dates, times, reference codes and words like "POS PURCHASE" are stripped, so every charge from the same merchant looks the same.
 - A suggestion comes from, in order: a likely return (see Returns), the first rule that matches, or the user's own last choices for that payee when they agree.
 - Rules match the cleaned payee, and optionally the account, money in or out, and an amount range. A rule puts the money in one envelope, splits it across several (in the same proportions for any amount), or marks it a transfer between the user's own accounts (not spending or income). A rule can also count toward a bill (Stage 10, set in the rule editor).
@@ -123,15 +124,15 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Transfers to payment apps that do not match a rule go to the approve list.
 
 ## Live spend alerts (Stage 8)
-- When background sync brings new spending, a notification shows the payee, the amount, the suggested envelope and what would be left in it, with Approve and Change. Several new charges make one notification, not one each.
+- When a bank notification brings new spending (Read bank notifications, below), a notification shows the payee, the amount, the suggested envelope and what would be left in it, with Approve and Change. Several new charges make one notification, not one each.
 - Warnings, in a second notification: an envelope going low (under 15% of its target or payday amount) or overspent, and Safe to Spend going negative.
-- The notification permission (Android 13 and up) is asked for from a Home card once bank sync is set up, or when an alert is turned on. Never at first launch.
+- The notification permission (Android 13 and up) is asked for when an alert is turned on. Never at first launch.
 - More, Alerts: a switch for each kind, and Show amounts on the lock screen (off by default: the lock screen shows only how many came in, no payees, envelopes or amounts). Approve from a notification needs the phone unlocked.
-- Alerts are only as live as sync: background sync every 6, 12 or 24 hours, and SimpleFIN's own data updates about once a day. The settings say so.
+- Spending alerts come as soon as a bank app's notification is read. The settings say so.
 - Everything stays on the phone.
 - Reading bank notifications (Stage 10, More, Alerts, Read bank notifications; off by default): with Android's notification access, the app reads only the apps the user picks (a bank or wallet app), each logging to an account the user picks. Every other app's notification is dropped unread.
-- A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When bank sync brings the real record, the two are matched (the same money within 5 days and 20%, same payee): the entry takes the bank's amount and date, never a second row. An entry sync never brings is flagged in Activity after a week ("Not in bank sync after a week": Keep or Delete).
-- A deposit notification that looks like the payday deposit starts payday as soon as it lands (sweep, auto-fill, checklist). Bank sync confirms it later; if its amount differs a little, the same row takes the bank's amount and nothing is doubled. A repeat of the same notification within 10 minutes is ignored.
+- A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When a CSV import brings the real record (the same amount, within 5 days), it posts the entry instead of adding a second row. An entry no import brings is flagged in Activity after a week ("Not imported after a week": Keep or Delete).
+- A deposit notification that looks like the payday deposit starts payday as soon as it lands (sweep, auto-fill, checklist). A CSV import of the same deposit later posts that row, and nothing is doubled. A repeat of the same notification within 10 minutes is ignored.
 - Reading is learned per app: the first money notification from an app is shown in the app once ("Check how <app> is read": pick the amount, fix the payee, money in or out); after that the app's notifications like it are read by themselves, spending and deposits each learned once. Nothing bank-specific is built in.
 - Privacy: the notification text is read in memory on the phone. What's kept, in the encrypted database: the parsed amount and payee (as the transaction, and as the app's last read for the test line), and, per app, how its notifications are laid out (the few words around the amount and payee in the one the user confirmed). The rest of the text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
 - Installed from a download, the app is under Android's restricted settings (Android 13 and up): the reading screen walks through it with buttons to Open notification access and Open app info (three dots, Allow restricted settings).
@@ -192,13 +193,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Stage 8: money in from a merchant with an earlier purchase (within 90 days, at or under what's left to return on it) is suggested as "Return of <purchase>". One tap confirms it and the money goes back to the purchase's envelopes, in proportion for a split purchase. Partial returns add up, never past the purchase.
 - Any money in can be marked "This is a return" on its own screen, with a list of likely purchases (the same merchant first). "Not a return" puts it back in To sort.
 
-## Balance check (Stage 8)
-- For each linked account, the bank's balance at its as-of date is compared with the app's posted balance at the end of that date (pending transactions and anything dated later aren't counted). A transaction dated on the as-of day itself may not be in the bank's figure yet, so the day before also counts as a match.
-- A match is shown quietly. A difference is shown plainly, with Add an adjustment: it shows the amount and date first and adds a Balance adjustment transaction only when the user confirms. Its money comes out of or goes into Ready to Assign. Nothing is ever changed by itself.
-- When the bank's balance is the app's with the sign flipped, the app says the bank's balance looks to have the wrong sign and trusts its own math (some banks send an overdrawn balance as positive through SimpleFIN).
-- Adjust (1.2.2): on the account's screen, under Bank sync, that wrong-sign warning has Adjust (on the link screen it reads as before, with no Adjust). Adjust first shows the account, its starting balance now, the new starting balance and the app's balance it gives as of the check's date (the bank's figure); Cancel changes nothing. Adjust moves the starting balance by exactly the difference, worked out again with the check's own math, so the check then says it matches the bank. It is one account change (one change log row): no transaction is added, changed or deleted. Under the existing rules a starting balance counts in Ready to Assign (directly, or through the balance on the budget start date), so Ready to Assign moves by the same difference; envelopes, Safe to Spend and the budget start date don't change. Only the same-amount, other-sign case has Adjust; every other difference keeps Add an adjustment.
-- Flipping "It's actually negative (overdrawn)" changes no number by itself. The account's Bank sync section works the check out again from the flipped figure straight away, so the warning and its Adjust show right there.
-- The account screen and the link screen (linking into an account that's already here) show the same check.
+## Balance check (Stage 8, removed in 1.3.0)
+- It compared a linked account with the bank's balance through bank sync, and went with bank sync in 1.3.0, with Add an adjustment and the wrong-sign Adjust.
 
 ## Balance forecast (Stage 10)
 - A projected bank balance for each day from today to the day before the next payday.
@@ -214,7 +210,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Park a non-essential purchase with a name and a price. It waits a set time before the app gives a verdict. Wait options are 1 day, 2 days and 1 week; the default is set in Settings (More, Parking lot wait; 1 day out of the box), and the park form can pick another.
 - After the wait, it shows whether Rollover covers it: "There's room" with what would be left, or "Not right now". Actions: buy from Rollover (or from another envelope the user picks), keep waiting, or drop it. Until the wait is over it can only be dropped.
 - Keep waiting waits one more day.
-- Buying marks it bought; no money moves then. The real charge is sorted against the chosen envelope when it comes in (bank sync, CSV import or a bank notification): money out, unsorted (or sorted by a rule as it came in), from the day before buying to 14 days after, and from 10% under to 25% over the parked price (tax, shipping). The closest amount wins. Until its charge comes in, a buy from Rollover is held back from Rollover in the next verdicts.
+- Buying marks it bought; no money moves then. The real charge is sorted against the chosen envelope when it comes in (a CSV import or a bank notification): money out, unsorted (or sorted by a rule as it came in), from the day before buying to 14 days after, and from 10% under to 25% over the parked price (tax, shipping). The closest amount wins. Until its charge comes in, a buy from Rollover is held back from Rollover in the next verdicts.
 - A running total of dropped amounts ("Dropped so far").
 - A home screen card ("N waiting, M ready to decide"), plus an entry in More.
 - Parked buys are budget rows (change-logged, schema version 8).
@@ -222,7 +218,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Backup and restore (Stage 12)
 - More, Backup and restore. Back up now saves one file wherever the user picks with the phone's file picker (a name like deaddrop-2030-05-14.ddfbak). Restore from file picks one the same way.
 - The file is encrypted with a backup password the user types each time (at least 8 characters, typed twice), never stored: a key is made from it (PBKDF2 with HMAC-SHA256, 600,000 rounds, a random salt), and the contents are sealed with AES-256-GCM in chunks that can't be reordered, swapped or cut short unnoticed. Without the password nobody can open it.
-- It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sync, sorting, alerts, app lock, Hide screen, update checks). Decided: bank connections and their saved access never travel in the backup. They stay on the phone, and on a new phone bank sync is connected again after restoring.
+- It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sorting, alerts, app lock, Hide screen, update checks). Saved secrets never travel in the backup. A backup made before 1.3.0 still restores: bank sync's ids on its transactions are dropped, a synced row still pending becomes posted, and bank sync's settings in it are ignored.
 - Restore replaces everything in the app with the backup's, after a warning on the screen. The whole file is read and checked first (password, every table, every photo); only then is the budget replaced, in one step, and the photos swapped in. A wrong password, a file that isn't a backup, a damaged or cut-short file, or a backup from a newer version is refused with a plain reason, and nothing changes. The phone's own bank connections stay as they are.
 - The screen shows when the last backup was made and its file name. Dropbox shows as "later" (Stage 69D).
 
@@ -241,7 +237,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
   It is not a payday: no Rollover sweep, no auto-fill, no payday checklist.
 - It shows in Activity with the other transactions, labeled Bonus income with its received-as label and note. Tapping
   it opens the same form to edit it, and Delete there takes the amount back off.
-- Bank sync, CSV import, matching, rules and the balance check never see it: it is its own kind of transaction
+- CSV import, matching and rules never see it: it is its own kind of transaction
   (BONUS), and everything they touch is bank or hand-entered spending and income on an account.
 - It travels in backup and restore, and Purge data and Erase everything remove it like other data. The JSON setup
   importer never includes it.
@@ -316,16 +312,23 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - All is the combined list as before (To sort, what rules sorted lately, Recent), view only: no Add and no Scan. A
   transaction can still be opened, viewed and given a category from it. To sort lives only here; the All tab shows
   its count.
-- An account's tab: "Current balance" at the top, with "Last sync ..." for an account linked to bank sync and
-  "Manual account" for the rest. Add, Scan and Import CSV, acting on that account (Add and Import CSV start with that
-  account picked; a synced account allows Add too). Then only that account's transactions, newest first, with the
+- An account's tab: "Current balance" at the top, with "Manual account" (1.3.0: every account; "Last sync" went with
+  bank sync). Add, Scan and Import CSV, acting on that account (Add and Import CSV start with that account picked). Then only that account's transactions, newest first, with the
   same rows, categories and "before budget start" marking; a transfer in shows as "Transfer from ...".
-- A manual account (not linked to bank sync, such as a payment app or cash) ends its list with its starting balance
-  and that balance's date: its first entry, so it's clear how the balance is built.
+- Every account's list ends with its starting balance and that balance's date: its first entry, so it's clear how the balance is built.
 - Unticking Show in Activity only removes the account's tab. Its transactions, balance, envelopes and Categories
   totals don't change, and they still show under All.
 - Show in Activity travels in backup and restore, goes with the account in Purge data and Erase everything, and the
   JSON setup importer can set it on an account already in the app (docs/IMPORT.md, `accounts`).
+
+## Add activity on envelopes (1.3.0)
+- Every envelope's screen (Rollover and Unplanned too) has Add activity, with Move money and Archive. It opens the same
+  Add transaction screen as Add in Activity (the same fields, account picker, checks and save) with that envelope
+  already chosen; everything on it can still be changed.
+- Saving makes one ordinary transaction, the same as Add in Activity: it shows in Activity and in the envelope's
+  Activity list, the envelope's and the account's balances change by its amount, and the app goes back to the
+  envelope's screen. Back saves nothing. There is no bank matching: if the bank's record of the same money comes in
+  later (a CSV), one of the two is deleted by hand.
 
 ## Envelope Activity (1.2.3)
 
@@ -371,10 +374,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
   downloaded file is always cleaned up afterward, whichever way it goes.
 
 ## About and legal (Stages 14 and 15; Help folded into About in 1.1.0)
-- About (More): the app's icon, name, version, license line, credits (SimpleFIN, and every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Support DarkRelay: buy some cheese 🧀" (buymeacoffee.com/crazy8697). There is no Help screen: Check for updates lives only in More, with the update bar right there.
+- About (More): the app's icon, name, version, license line, credits (every shipped component whose license asks for one), Licenses, the privacy policy, the end user agreement, a darkrelay.net link and "Support DarkRelay: buy some cheese 🧀" (buymeacoffee.com/crazy8697). There is no Help screen: Check for updates lives only in More, with the update bar right there.
 - Licenses shows the app's license, NOTICE, the third-party notices and every license text, all carried in the app.
 - The privacy policy (PRIVACY.md) and end user agreement (TERMS.md) are in the repository and in the app.
-- SimpleFIN's terms (read on SimpleFIN's own site for 0.15.0) ask for no attribution. They require staying within the published usage limits (24 requests a day or fewer, 90-day date ranges), showing SimpleFIN's errors to the user, handling access tokens securely, and not using SimpleFIN's branding or logos. The app sends at most 20 requests a day per connection, asks for 45 days at a time (the Bridge's own recommended range; a first 90-day sync is two requests) with a 5-day overlap, shows SimpleFIN's messages on the Bank sync screen, keeps the access in its own encrypted file, and uses SimpleFIN's name only in text.
 - The launcher icon is built from the locked master (design/deaddropfinance-icon.svg): an adaptive icon with background and foreground, and a one-colour version for themed icons. The launch screen and window behind the app are the DarkRelay near-black.
 
 ## Price history (Stage 20)
