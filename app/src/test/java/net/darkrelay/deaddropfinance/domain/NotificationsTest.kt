@@ -124,7 +124,7 @@ class NotificationsTest {
         assertTrue(log.log("com.example.other", p).noAccount)
     }
 
-    @Test fun aPaydayDepositNotificationStartsPaydayOnce() = world {
+    @Test fun aDepositNotificationStartsNoPayday() = world {
         // last month's payday, marked by hand
         val last = store.write {
             val t = put(null, TransactionEntity(accountId = chk, date = day.minusMonths(1), payee = "SAMPLE EMPLOYER", importDescription = "SAMPLE EMPLOYER", amount = 1500_00, source = TransactionSource.CSV, createdAt = now, updatedAt = now))
@@ -132,14 +132,12 @@ class NotificationsTest {
             t.id
         }
         a.markPayday(last, day.minusMonths(1))
+        val moves = store.dao.movesNow().size
         val r = log.log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
-        assertTrue(r.payday)
         val dep = store.dao.transaction(r.txId!!)!!
-        assertTrue(dep.isPayday)
-        assertEquals(2, b().paydayDates.size)
-        // a second notification of the same deposit doesn't start payday again
-        val again = log.log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
-        assertFalse(again.payday)
+        assertFalse("payday is marked by hand only", dep.isPayday)
+        assertEquals(1, b().paydayDates.size)
+        assertEquals(moves, store.dao.movesNow().size)
         assertEquals(0L, b().sortedCheck)
     }
 

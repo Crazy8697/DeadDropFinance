@@ -988,8 +988,8 @@ fun AppRoot(
                             platform.clearNotifPending(pkg)
                             val p = text?.let { net.darkrelay.deaddropfinance.domain.NotifParse.parse(it, listOf(t)) }
                             if (p != null) {
-                                val r = net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).log(pkg, p)
-                                message = if (r.payday) "Read. It was payday: envelopes filled." else "Read and logged."
+                                net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).log(pkg, p)
+                                message = "Read and logged."
                             }
                             planTick++
                         }
@@ -1068,7 +1068,6 @@ fun AppRoot(
                     val acct = importState.accountId ?: return@ImportScreen
                     run(scope) {
                         val res = actions.importCsv(acct, plan)
-                        // payday runs by itself when its deposit is in the file
                         net.darkrelay.deaddropfinance.domain.Arrivals(store, actions, files = platform.receiptFiles).landed(res.newIds, appSettings.autoApprove)
                         importState = ImportState(result = res)
                     }

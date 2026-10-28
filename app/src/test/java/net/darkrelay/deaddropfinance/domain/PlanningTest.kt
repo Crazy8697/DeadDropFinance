@@ -47,17 +47,6 @@ class PlanningTest {
         assertNull(Paydays.predict(emptyList(), d(2, 15)).next)
     }
 
-    @Test fun aDepositLooksLikePaydayByPayerAndAmount() {
-        val pay = F.tx("p", "chk", 1500_00, d(3, 15), payee = "SAMPLE EMPLOYER PAYROLL", payday = true).copy(importDescription = "SAMPLE EMPLOYER PAYROLL")
-        val b = Budget(listOf(F.account("chk")), listOf(F.rollover()), listOf(pay), listOf(F.line("p", 1500_00, rta = true)), emptyList())
-        fun dep(amount: Long, payee: String, day: LocalDate) = F.tx("x", "chk", amount, day, payee = payee).copy(importDescription = payee)
-        assertTrue(Paydays.looksLikePayday(dep(1480_00, "SAMPLE EMPLOYER PAYROLL", d(4, 15)), b, d(4, 15)))
-        assertTrue("no payer read", Paydays.looksLikePayday(dep(1500_00, "", d(4, 14)), b, d(4, 15)))
-        assertFalse("another payer", Paydays.looksLikePayday(dep(1500_00, "SAMPLE FRIEND", d(4, 15)), b, d(4, 15)))
-        assertFalse("too different", Paydays.looksLikePayday(dep(900_00, "SAMPLE EMPLOYER PAYROLL", d(4, 15)), b, d(4, 15)))
-        assertFalse("too early", Paydays.looksLikePayday(dep(1500_00, "SAMPLE EMPLOYER PAYROLL", d(4, 2)), b, d(4, 15)))
-    }
-
     // ---- subscriptions ----------------------------------------------------------------------------------------------
 
     private var n = 0

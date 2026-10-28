@@ -66,12 +66,7 @@ class BankNotificationListener : NotificationListenerService() {
         }
         val logged = NotifLog(o.store).log(pkg, parsed)
         val id = logged.txId ?: return
-        if (logged.payday) {
-            SpendAlerts(app).post(
-                SpendAlerts.CHANNEL_SPENDING, ID_PAYDAY, "Payday landed",
-                "Envelopes were filled. Open the app for what to pay now.", "Payday landed", settings.alertAmountsOnLockScreen, MainActivity.OPEN_HOME,
-            )
-        } else if (!parsed.deposit) {
+        if (!parsed.deposit) {
             if (settings.autoApprove) net.darkrelay.deaddropfinance.domain.Sorting(o.store).autoApprove(listOf(id))
             SpendAlerts(app).afterSync(o.store, settings, listOf(id))
         }
@@ -91,7 +86,6 @@ class BankNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val ID_TEACH = 30_000
-        private const val ID_PAYDAY = 8003
 
         /** Title, text and the long text of a notification, joined. */
         fun textOf(n: Notification): String? {

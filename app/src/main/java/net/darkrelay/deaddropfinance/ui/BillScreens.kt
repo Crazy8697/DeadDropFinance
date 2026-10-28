@@ -159,7 +159,7 @@ fun PaydayLine(p: Paydays.Prediction, today: LocalDate, onChange: (LocalDate?) -
     }
     if (edit) {
         DateField("Next payday", text, { text = it })
-        Text("When you expect the deposit. Payday still starts only when it lands.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        Text("When you expect the deposit. Payday starts when you mark the deposit as payday.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Row {
             TextButton(onClick = { parseDateOrNull(text)?.let { onChange(it); edit = false } }) { Text("Set") }
             if (p.corrected) TextButton(onClick = { onChange(null); edit = false }) { Text("Use the prediction") }
@@ -172,7 +172,7 @@ fun PaydayLine(p: Paydays.Prediction, today: LocalDate, onChange: (LocalDate?) -
 @Composable
 fun LatePaydayNote(expected: LocalDate, today: LocalDate) {
     Text(
-        "Payday was expected ${dayText(expected)} and hasn't landed yet. Nothing to do: it starts when the deposit comes in, and the forecast counts it as tomorrow until then.",
+        "Payday was expected ${dayText(expected)} and hasn't landed yet. When the deposit is in, mark it as payday; the forecast counts it as tomorrow until then.",
         color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
     )
 }

@@ -256,9 +256,9 @@ class BillActions(
 
 /**
  * A parsed bank notification becomes a pending transaction right away (FEATURES.md, Live spend alerts): money out in
- * To sort with its suggestion (or a bought parked buy's charge), or a deposit, which starts payday when it looks like
- * the payday deposit (Arrivals). A CSV import later matches the real record to it (never a second one, never a second
- * payday). Only the parsed result is kept.
+ * To sort with its suggestion (or a bought parked buy's charge), or a deposit, an ordinary transaction (payday is
+ * marked by hand only, 1.3.1). A CSV import later matches the real record to it (never a second one). Only the parsed
+ * result is kept.
  */
 class NotifLog(
     private val store: BudgetStore,
@@ -266,12 +266,12 @@ class NotifLog(
     private val today: () -> LocalDate = { LocalDate.now() },
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    data class Logged(val txId: String?, val payday: Boolean, val duplicate: Boolean, val noAccount: Boolean = false)
+    data class Logged(val txId: String?, val duplicate: Boolean, val noAccount: Boolean = false)
 
     suspend fun log(pkg: String, p: NotifParse.Parsed): Logged {
         val dao = store.dao
-        val app = dao.notifApp(pkg) ?: return Logged(null, payday = false, duplicate = false, noAccount = true)
-        val account = app.accountId?.let { dao.account(it) }?.takeIf { !it.deleted } ?: return Logged(null, payday = false, duplicate = false, noAccount = true)
+        val app = dao.notifApp(pkg) ?: return Logged(null, duplicate = false, noAccount = true)
+        val account = app.accountId?.let { dao.account(it) }?.takeIf { !it.deleted } ?: return Logged(null, duplicate = false, noAccount = true)
         val signed = if (p.deposit) p.amount else -p.amount
         val payee = p.payee.ifBlank { app.label }
         val now = clock()
@@ -281,7 +281,7 @@ class NotifLog(
                 Payees.clean(it.payee) == Payees.clean(payee) && now - it.createdAt < DUPLICATE_MS
         }
         dao.upsertNotifApp(app.copy(lastAmount = p.amount, lastPayee = payee, lastDeposit = p.deposit, lastAt = now))
-        if (dup) return Logged(null, payday = false, duplicate = true)
+        if (dup) return Logged(null, duplicate = true)
         val id = store.write {
             val t = put(
                 null,
@@ -293,14 +293,12 @@ class NotifLog(
             put(null, TransactionLineEntity(transactionId = t.id, bucket = if (account.onBudget) LineBucket.UNSORTED else LineBucket.OFF_BUDGET, amount = signed, createdAt = now, updatedAt = now))
             t.id
         }
-        var payday = false
-        if (p.deposit && account.onBudget) {
-            payday = Arrivals(store, actions, today, clock).paydays(listOf(id)).isNotEmpty()
-        } else {
+        // a deposit into the budget is an ordinary transaction; anything else may be a parked buy's charge or a bill payment
+        if (!(p.deposit && account.onBudget)) {
             ParkedBuys(store, actions, today, clock).matchCharges(listOf(id))
             BillActions(store, actions, today).matchPayments(listOf(id))
         }
-        return Logged(id, payday, duplicate = false)
+        return Logged(id, duplicate = false)
     }
 
     /** A notification entry the bank never brought in, kept as real: it stops being pending (and flagged). */

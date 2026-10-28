@@ -2,9 +2,6 @@ package net.darkrelay.deaddropfinance.domain
 
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import kotlin.math.abs
-import net.darkrelay.deaddropfinance.data.TransactionEntity
-import net.darkrelay.deaddropfinance.data.TransactionKind
 
 /**
  * The next payday, predicted from the deposits marked as payday (FEATURES.md, Payday). Payday itself is always the
@@ -54,29 +51,5 @@ object Paydays {
         val corrected = correction != null && correction.isAfter(last)
         val next = if (corrected) correction!! else predicted
         return Prediction(last, next, interval, day, guessed = median == null && !corrected, corrected = corrected, late = today.isAfter(next))
-    }
-
-    /** Two cleaned payee names for the same payer: one starts with the other, or their first two words agree. */
-    fun samePayer(a: String, b: String): Boolean {
-        if (a.isEmpty() || b.isEmpty()) return false
-        val aw = a.split(' '); val bw = b.split(' ')
-        return Payees.sameMerchant(a, b) || (aw.size >= 2 && bw.size >= 2 && aw.take(2) == bw.take(2))
-    }
-
-    /** The latest payday deposit, the pattern a new deposit is checked against. */
-    fun lastPaydayDeposit(b: Budget): TransactionEntity? = b.transactions.filter { it.isPayday }.maxByOrNull { it.date }
-
-    /**
-     * A deposit that looks like the payday deposit: money in, from the same payer (or no payer read), within 20% of
-     * the last payday's amount, and not before a few days ahead of the expected date.
-     */
-    fun looksLikePayday(t: TransactionEntity, b: Budget, expected: LocalDate?): Boolean {
-        if (t.amount <= 0 || t.kind != TransactionKind.NORMAL || t.isPayday || t.isWash || t.returnOf != null) return false
-        val last = lastPaydayDeposit(b) ?: return false
-        if (!t.date.isAfter(last.date)) return false
-        if (abs(t.amount - last.amount) * 5 > last.amount) return false
-        if (expected != null && t.date.isBefore(expected.minusDays(5))) return false
-        val a = Payees.key(t); val p = Payees.key(last)
-        return a.isEmpty() || t.payee.isBlank() || samePayer(a, p)
     }
 }

@@ -61,6 +61,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   stays: accounts that were linked are ordinary manual accounts. `external_id` stays in `txn`, unused (dropping a
   column means rebuilding `txn`); `source` keeps `SYNC` on the rows that came that way, and nothing new gets it.
 - Add activity on envelopes (1.3.0) needed no schema change: it saves an ordinary transaction.
+- Payday by hand only (1.3.1) needed no schema change and no migration: paydays already run, their moves and the change
+  log stay as they are; new deposits from a CSV or a notification simply no longer mark payday.
 - The envelope Activity list (1.2.3) needed no schema change: it is read from the `transaction_line` and
   `envelope_move` rows already loaded for the budget (`Budget.envelopeActivity`), and writes nothing.
 - The wrong-sign Adjust (1.2.2) needed no schema change: it writes the account's `starting_balance` once, through the store (one change log row like any account edit), and touches no transaction.

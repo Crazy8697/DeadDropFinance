@@ -29,13 +29,13 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Payday from the deposit landing, with no tap: through a CSV import, and once only when a bank notification saw the
- * same deposit first (then CSV). Also a bought parked buy's charge sorted against its envelope when it's imported.
- * Synthetic data only.
+ * Payday is marked by hand only (1.3.1): a deposit from a CSV import or a bank notification is an ordinary transaction
+ * and starts no payday; marking it by hand sweeps and fills as before. Also a bought parked buy's charge sorted
+ * against its envelope when it's imported. Synthetic data only.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
-class AutoPaydayTest {
+class PaydayByHandTest {
 
     private lateinit var db: AppDatabase
     private lateinit var store: BudgetStore
@@ -76,37 +76,55 @@ class AutoPaydayTest {
 
     private suspend fun paydayMoves() = store.dao.movesNow().filter { it.kind == MoveKind.SWEEP || it.kind == MoveKind.AUTOFILL }
 
-    @Test fun paydayFromCsvRunsByItself() = runBlocking<Unit> {
+    @Test fun aCsvDepositIsAnOrdinaryTransactionAndNoPayday() = runBlocking<Unit> {
+        val before = a.snapshot()
+        val moves = paydayMoves().size
         val csv = "Date,Description,Amount\n${day.minusDays(1)},SAMPLE EMPLOYER PAYROLL,1480.00\n${day.minusDays(1)},SAMPLE CAFE,-4.50\n"
         val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
         // what the import screen runs after an import
-        val ran = Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
-        assertEquals(1, ran.size)
+        Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
         val b = a.snapshot()
-        assertTrue(b.transactions.first { it.id == ran.single() }.isPayday)
-        assertEquals(2, b.paydayDates.size)
-        assertEquals(250_00L, b.envelopeBalance(b.rollover!!.id))
-        assertEquals(300_00L, b.envelopeBalance(food))
-        assertEquals("the cafe charge isn't a payday", 1, b.toSort.size)
+        assertEquals(2, res.newIds.size)
+        val dep = b.transactions.single { it.payee.contains("PAYROLL") }
+        assertFalse("payday is marked by hand only", dep.isPayday)
+        assertEquals(1, b.paydayDates.size)
+        assertEquals("nothing swept or filled", moves, paydayMoves().size)
+        assertEquals(before.envelopeBalance(b.rollover!!.id), b.envelopeBalance(b.rollover!!.id))
+        assertEquals(before.envelopeBalance(food), b.envelopeBalance(food))
+        assertEquals("both rows wait in To sort like any import", 2, b.toSort.size)
+        assertEquals(before.readyToAssign, b.readyToAssign)
         assertEquals(0L, b.sortedCheck)
     }
 
-    @Test fun aNotificationThenCsvOrAnUnmatchedSecondRowRunsPaydayOnce() = runBlocking<Unit> {
+    @Test fun aNotificationDepositIsAnOrdinaryTransactionAndNoPayday() = runBlocking<Unit> {
         BillActions(store, a) { day }.pickApp("com.example.samplebank", "Sample Bank", acct)
-        val r = NotifLog(store, a, { day }, { now }).log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
-        assertTrue(r.payday)
         val moves = paydayMoves().size
-        // CSV: the file's row posts the pending entry instead of adding one
+        val r = NotifLog(store, a, { day }, { now }).log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
+        val dep = store.dao.transaction(r.txId!!)!!
+        assertFalse(dep.isPayday)
+        assertEquals(1480_00L, dep.amount)
+        assertEquals(moves, paydayMoves().size)
+        // the bank's CSV row of the same deposit adds no second row, and still no payday
         val csv = "Date,Description,Amount\n$day,SAMPLE EMPLOYER,1480.00\n"
         val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
         assertTrue(res.newIds.isEmpty())
-        assertTrue(Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false).isEmpty())
-        // even a second row of the same deposit (a bank that names it differently) doesn't start payday again
-        val second = deposit(day, 1480_00)
-        assertTrue(Arrivals(store, a, { day }).paydays(listOf(second)).isEmpty())
-        assertFalse(store.dao.transaction(second)!!.isPayday)
+        Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
         assertEquals(moves, paydayMoves().size)
-        assertEquals(2, a.snapshot().paydayDates.size)
+        assertEquals(1, a.snapshot().paydayDates.size)
+    }
+
+    @Test fun markingPaydayByHandStillSweepsAndFills() = runBlocking<Unit> {
+        val csv = "Date,Description,Amount\n${day.minusDays(1)},SAMPLE EMPLOYER PAYROLL,1480.00\n"
+        val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
+        Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
+        a.markPayday(res.newIds.single(), day)
+        val b = a.snapshot()
+        assertTrue(b.transactions.first { it.id == res.newIds.single() }.isPayday)
+        assertEquals(2, b.paydayDates.size)
+        // Rollover sweep, then auto-fill, as before
+        assertEquals(250_00L, b.envelopeBalance(b.rollover!!.id))
+        assertEquals(300_00L, b.envelopeBalance(food))
+        assertEquals(0L, b.sortedCheck)
     }
 
     @Test fun aBoughtParkedBuysChargeIsSortedToItsEnvelopeWhenItsImported() = runBlocking<Unit> {

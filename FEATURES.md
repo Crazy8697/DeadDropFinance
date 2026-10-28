@@ -22,10 +22,9 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Any deposit that is not the payday deposit (a transfer from family, a refund, side money) also goes to Ready to Assign. If the transfer carries a note (for example "Water bill"), the Assign screen shows the note as a hint. The hint never assigns anything by itself.
 - Payday auto-fill runs through the envelope list in list order and fills each envelope by its mode. Whatever is left stays in Ready to Assign.
 - If the money runs out before the list does, the app shows which envelopes did not fill and by how much. No advice, no suggestions.
-- Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself still starts only when the deposit lands.
-- A late payday (the date passed, no deposit yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it lands.
-- Stage 11: when the payday deposit lands, payday runs by itself (Rollover sweep, auto-fill, the Pay these now checklist), whether it came in through a CSV import or a bank notification. No tap. A deposit counts as the payday deposit by the Stage 10 rules: money in from the same payer (or no payer read), within 20% of the last payday, and not more than a few days before the expected date.
-- Payday runs once per deposit. A deposit a notification already started payday for comes in again through a CSV as the same row, and anything within 5 days of a payday already run is the same payday, so nothing is swept or filled twice.
+- Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself starts only when the deposit is marked as payday.
+- A late payday (the date passed, no deposit marked yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it's marked.
+- Payday is marked by hand only (1.3.1): on the deposit's transaction screen, Mark as payday runs it (Rollover sweep, auto-fill, the Pay these now checklist). A deposit that comes in through a CSV import or a bank notification is an ordinary transaction: it never starts payday by itself. From Stage 11 until 1.3.0 a deposit that looked like the payday deposit started payday with no tap; that is gone.
 - There is no "It's payday" card (Stage 10 had one; Stage 11 removed it). Marking a deposit as payday by hand, on its own screen, still works.
 
 ## Envelopes (Stage 6)
@@ -42,7 +41,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - An envelope can start with no target. After a month or two of history the app offers the real average spent as the target. The user accepts or ignores it.
 
 ## Rollover envelope (Stage 6)
-- When the payday deposit lands, which closes the budget month, leftovers from Fill to target envelopes are swept into one Rollover envelope. Add every payday, Goal, Seasonal and Debt envelopes are never swept.
+- When payday is marked, which closes the budget month, leftovers from Fill to target envelopes are swept into one Rollover envelope. Add every payday, Goal, Seasonal and Debt envelopes are never swept.
 - Rollover is a general stash the user can spend on anything. Nothing touches it automatically.
 - Rollover is a plain envelope in the envelope list. It is not shown on the home screen, next to Safe to Spend or anywhere else, and it has no callouts, banners or "extra money" prompts.
 - When an envelope goes negative and Ready to Assign cannot cover it, the envelope's screen offers a one-tap "Cover from Rollover". The user decides.
@@ -96,7 +95,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Notification channels of their own: Bill reminders and Autopay warnings, each with a switch in More, Alerts. The lock screen shows no amounts unless that's turned on.
 
 ### Payday checklist (Stage 10)
-- When the payday deposit lands, auto-fill runs, and then a "Pay these now" card appears on Home (under Ready to Assign) with the bills due before the next payday, and anything still overdue.
+- When payday is marked, auto-fill runs, and then a "Pay these now" card appears on Home (under Ready to Assign) with the bills due before the next payday, and anything still overdue.
 - A bill is ticked off by hand (untick undoes a hand tick), or automatically when an imported payment matches.
 - The card collapses to "All N payday bills paid" once everything on it is paid.
 
@@ -132,7 +131,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Everything stays on the phone.
 - Reading bank notifications (Stage 10, More, Alerts, Read bank notifications; off by default): with Android's notification access, the app reads only the apps the user picks (a bank or wallet app), each logging to an account the user picks. Every other app's notification is dropped unread.
 - A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When a CSV import brings the real record (the same amount, within 5 days), it posts the entry instead of adding a second row. An entry no import brings is flagged in Activity after a week ("Not imported after a week": Keep or Delete).
-- A deposit notification that looks like the payday deposit starts payday as soon as it lands (sweep, auto-fill, checklist). A CSV import of the same deposit later posts that row, and nothing is doubled. A repeat of the same notification within 10 minutes is ignored.
+- A deposit notification is logged as an ordinary transaction; it never starts payday (1.3.1: payday is marked by hand only). A repeat of the same notification within 10 minutes is ignored.
 - Reading is learned per app: the first money notification from an app is shown in the app once ("Check how <app> is read": pick the amount, fix the payee, money in or out); after that the app's notifications like it are read by themselves, spending and deposits each learned once. Nothing bank-specific is built in.
 - Privacy: the notification text is read in memory on the phone. What's kept, in the encrypted database: the parsed amount and payee (as the transaction, and as the app's last read for the test line), and, per app, how its notifications are laid out (the few words around the amount and payee in the one the user confirmed). The rest of the text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
 - Installed from a download, the app is under Android's restricted settings (Android 13 and up): the reading screen walks through it with buttons to Open notification access and Open app info (three dots, Allow restricted settings).

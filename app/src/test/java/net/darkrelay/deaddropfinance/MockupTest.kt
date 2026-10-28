@@ -7,7 +7,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * The private clickable mockup (docs/mockups/app-prototype.html, 1.3.0) stays whole and self-contained: every bottom
+ * The private clickable mockup (docs/mockups/app-prototype.html, 1.3.1) stays whole and self-contained: every bottom
  * tab, the Activity tabs and Show in Activity are in it, it loads nothing from the network, and it has no long dash.
  * Opening it with no console errors is checked in a browser each round that changes a screen.
  */
