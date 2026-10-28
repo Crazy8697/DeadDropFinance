@@ -55,6 +55,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   too (the backup leaves the bank tables out, and restore leaves the phone's own links in place); a new phone sets it
   again when it links. The 0.15.2 one-time setting (`flip_start_ids` in the sync settings) is gone. Migration 10 to 11
   only adds; `MigrationTest` checks it.
+- The envelope Activity list (1.2.3) needed no schema change: it is read from the `transaction_line` and
+  `envelope_move` rows already loaded for the budget (`Budget.envelopeActivity`), and writes nothing.
 - The wrong-sign Adjust (1.2.2) needed no schema change: it writes the account's `starting_balance` once, through the store (one change log row like any account edit), and touches no transaction.
 - The budget start date (1.1.1) needed no schema change: it is the `meta` row `budget_start` (an ISO date), so the
   backup carries it, and Purge data (which empties `meta` but the device id) and Erase everything reset it. Changing

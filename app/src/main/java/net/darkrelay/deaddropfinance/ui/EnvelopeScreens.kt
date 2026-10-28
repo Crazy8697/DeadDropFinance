@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,20 +171,24 @@ fun EnvelopeDetailScreen(
             HGap()
             if (envelope.mode != EnvelopeMode.ROLLOVER) OutlinedButton(onClick = { onArchive(!envelope.archived) }) { Text(if (envelope.archived) "Unarchive" else "Archive") }
         }
-        SectionTitle("Recent activity")
-        val txById = budget.transactions.associateBy { it.id }
-        val lines = budget.lines.filter { it.bucket == LineBucket.ENVELOPE && it.envelopeId == envelope.id && txById[it.transactionId] != null }
-            .sortedByDescending { txById[it.transactionId]!!.date }.take(30)
-        if (lines.isEmpty()) EmptyState("No transactions in this envelope yet.")
-        lines.forEach { l ->
-            val t = txById.getValue(l.transactionId)
-            ListRow(onClick = { onTransaction(t.id) }) {
-                Row { Column(Modifier.weight(1f)) { Text(t.payee.ifBlank { "No description" }); Text(t.date.toString(), color = DdfColors.Muted) }; MoneyText(l.amount) }
+        SectionTitle("Activity")
+        // every row, newest first, a page at a time so a long history doesn't slow the screen
+        val rows = remember(budget, envelope.id) { budget.envelopeActivity(envelope.id) }
+        var shown by rememberSaveable(envelope.id) { mutableIntStateOf(ACTIVITY_PAGE) }
+        if (rows.isEmpty()) EmptyState("No transactions in this envelope yet.")
+        rows.take(shown).forEach { r ->
+            val sub = r.date.toString() + if (r.beforeBudgetStart) ", before budget start" else ""
+            ListRow(onClick = r.transactionId?.let { id -> { onTransaction(id) } }) {
+                Row { Column(Modifier.weight(1f)) { Text(r.label); Text(sub, color = DdfColors.Muted) }; MoneyText(r.amount) }
             }
         }
+        if (rows.size > shown) TextButton(onClick = { shown += ACTIVITY_PAGE }) { Text("Show more (${rows.size - shown} left)") }
         Gap(24)
     }
 }
+
+/** Rows an envelope's Activity list shows at a time. */
+const val ACTIVITY_PAGE = 50
 
 @Composable
 private fun Detail(label: String, value: String) {
@@ -299,10 +304,13 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
     }
 }
 
-/** Move money between envelopes, or between an envelope and Ready to Assign (null). Rollover included. */
+/**
+ * Move money between envelopes, or between an envelope and Ready to Assign (null). Rollover included. Opened from an
+ * envelope's screen ([intoId]), it starts as Ready to Assign into that envelope (1.2.3); either side can be changed.
+ */
 @Composable
 fun MoveMoneyScreen(
-    budget: Budget, fromId: String?, error: String?, onBack: () -> Unit,
+    budget: Budget, intoId: String?, error: String?, onBack: () -> Unit,
     /** Over-assigned: start as a move from the fullest envelope back into Ready to Assign, for what's over. */
     backToReady: Boolean = false,
     onMove: (String?, String?, Long) -> Unit,
@@ -310,8 +318,8 @@ fun MoveMoneyScreen(
     val options: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "Ready to assign (${Money.format(budget.readyToAssign)})") +
         budget.fillOrder.map { it.id to "${it.name} (${Money.format(budget.envelopeBalance(it.id))})" }
     val fullest = budget.fillOrder.maxByOrNull { budget.envelopeBalance(it.id) }?.id
-    var from by remember { mutableStateOf(if (backToReady) fullest else fromId) }
-    var to by remember { mutableStateOf<String?>(if (backToReady) null else budget.fillOrder.firstOrNull { it.id != fromId }?.id) }
+    var from by remember { mutableStateOf(if (backToReady) fullest else null) }
+    var to by remember { mutableStateOf<String?>(if (backToReady) null else intoId ?: budget.fillOrder.firstOrNull()?.id) }
     var amount by remember { mutableStateOf(if (backToReady && budget.readyToAssign < 0) Money.plain(-budget.readyToAssign) else "") }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Move money", onBack)

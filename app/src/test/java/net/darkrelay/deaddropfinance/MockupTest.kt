@@ -7,7 +7,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * The private clickable mockup (docs/mockups/app-prototype.html, 1.2.2) stays whole and self-contained: every bottom
+ * The private clickable mockup (docs/mockups/app-prototype.html, 1.2.3) stays whole and self-contained: every bottom
  * tab, the Activity tabs and Show in Activity are in it, it loads nothing from the network, and it has no long dash.
  * Opening it with no console errors is checked in a browser each round that changes a screen.
  */
@@ -22,7 +22,7 @@ class MockupTest {
 
     @Test fun everyTabAndTheActivityTabsAreThere() {
         for (t in listOf("Home", "Envelopes", "Activity", "Bills", "Categories", "More")) assertTrue(t, html.contains(t))
-        for (t in listOf("actTab-", "Current balance", "Manual account", "Starting balance", "Show in Activity", "Budget start date", "Bonus income", "About", "It's actually negative (overdrawn)", "function row3", "Adjust the starting balance?")) {
+        for (t in listOf("actTab-", "Current balance", "Manual account", "Starting balance", "Show in Activity", "Budget start date", "Bonus income", "About", "It's actually negative (overdrawn)", "function row3", "Adjust the starting balance?", "Payday auto-fill", "function mvRow")) {
             assertTrue(t, html.contains(t))
         }
         assertFalse("no Help screen", html.contains(">Help<"))

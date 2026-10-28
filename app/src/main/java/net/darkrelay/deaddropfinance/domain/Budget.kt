@@ -10,6 +10,7 @@ import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.MoveEntity
+import net.darkrelay.deaddropfinance.data.MoveKind
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionKind
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
@@ -183,6 +184,45 @@ class Budget(
             transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
+
+    /**
+     * One row of an envelope's Activity list (1.2.3): a spending line (with its [transactionId]) or a money move.
+     * [amount] is signed for this envelope: money in is positive, money out negative. [counts] is false for a line the
+     * budget leaves out (before the budget start, a wash, history); every move counts.
+     */
+    data class EnvelopeActivity(
+        val id: String, val date: LocalDate, val createdAt: Long, val label: String, val amount: Long,
+        val transactionId: String? = null, val beforeBudgetStart: Boolean = false, val counts: Boolean = true,
+    )
+
+    /** Everything in and out of an envelope, newest first; same date by time, then id. The counted rows sum to its balance. */
+    fun envelopeActivity(envelopeId: String): List<EnvelopeActivity> {
+        val counted = budgetLines.mapTo(HashSet()) { it.id }
+        val names = envelopes.associate { it.id to it.name }
+        fun name(id: String?) = names[id] ?: "a deleted envelope"
+        val rows = mutableListOf<EnvelopeActivity>()
+        for (l in lines) {
+            if (l.bucket != LineBucket.ENVELOPE || l.envelopeId != envelopeId) continue
+            val t = txById[l.transactionId] ?: continue
+            rows += EnvelopeActivity(l.id, t.date, l.createdAt, t.payee.ifBlank { "No description" }, l.amount, t.id, beforeBudgetStart(t), l.id in counted)
+        }
+        for (m in moves) {
+            val into = m.toEnvelopeId == envelopeId
+            val out = m.fromEnvelopeId == envelopeId
+            if (into == out) continue
+            val label = when {
+                m.kind == MoveKind.AUTOFILL && into -> "Payday auto-fill"
+                m.kind == MoveKind.SWEEP && out -> "Rollover sweep"
+                m.kind == MoveKind.SWEEP && into -> "From rollover sweep"
+                into && m.fromEnvelopeId == null -> if (m.kind == MoveKind.ASSIGN) "Assigned" else "Moved from Ready to Assign"
+                out && m.toEnvelopeId == null -> "Moved to Ready to Assign"
+                into -> "Moved in from ${name(m.fromEnvelopeId)}"
+                else -> "Moved out to ${name(m.toEnvelopeId)}"
+            }
+            rows += EnvelopeActivity(m.id, m.date, m.createdAt, label, if (into) m.amount else -m.amount)
+        }
+        return rows.sortedWith(compareByDescending<EnvelopeActivity> { it.date }.thenByDescending { it.createdAt }.thenByDescending { it.id })
+    }
 
     /** The envelopes Safe to Spend counts: marked everyday, not archived, and never Rollover. In fill order. */
     val everydayEnvelopes: List<EnvelopeEntity> get() = fillOrder.filter { it.everyday && it.mode != EnvelopeMode.ROLLOVER }

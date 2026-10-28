@@ -327,6 +327,23 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Show in Activity travels in backup and restore, goes with the account in Purge data and Erase everything, and the
   JSON setup importer can set it on an account already in the app (docs/IMPORT.md, `accounts`).
 
+## Envelope Activity (1.2.3)
+
+- Every envelope's screen (Rollover and Unplanned too) has an Activity list: the envelope's spending lines and every
+  money move into or out of it, newest first. Same date: by time, then by id, so the order never changes.
+- Spending rows look as before (name, date, amount) and open the transaction. Money moves read "Assigned" (Ready to
+  Assign into it, from Assign or Add), "Moved from Ready to Assign" and "Moved to Ready to Assign" (Move money),
+  "Moved in from <envelope>" and "Moved out to <envelope>" (between envelopes, Cover from Rollover and an ATM
+  withdrawal included), "Payday auto-fill" (one line per fill, no deposit name), "Rollover sweep" (and "From rollover
+  sweep" on Rollover's own screen). Money in is positive, money out negative.
+- Every row is listed, with no cap, 50 at a time: "Show more" below adds the next 50. Rows from before the budget
+  start are listed and marked "before budget start", as Activity shows them; they don't count in the balance, and the
+  rows that count add up to it.
+- Read-only: nothing is created, edited or deleted from the list. With no spending and no moves it says "No
+  transactions in this envelope yet."
+- Move money opened from inside an envelope's screen starts as Ready to Assign into that envelope; either side can be
+  changed. Opened from the Envelopes screen's top bar it keeps its old start (Ready to Assign into the first envelope).
+
 ## Activity rows (1.2.1)
 
 - Every row in Activity (All's To sort and Recent, every account tab, the notification entries, a manual account's

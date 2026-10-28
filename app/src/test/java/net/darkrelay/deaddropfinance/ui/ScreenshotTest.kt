@@ -159,7 +159,22 @@ class ScreenshotTest {
     @Test fun envelopeDetailFill() = shot("06-envelope-detail") { EnvelopeDetailScreen(budget.envelopes[2], budget, today, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun envelopeDetailDebt() = shot("07-envelope-detail-debt") { EnvelopeDetailScreen(budget.envelopes[6], budget, today, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun envelopeEdit() = shot("08-envelope-edit") { EnvelopeEditScreen(budget.envelopes[4], null, {}, {}) }
+    // opened from Rollover's screen: Ready to Assign into Rollover (1.2.3)
     @Test fun moveMoney() = shot("09-move-money") { MoveMoneyScreen(budget, "roll", null, {}) { _, _, _ -> } }
+
+    // 1.2.3: an envelope's Activity list (busy, only an assign, empty) and Move money from inside an envelope
+    @Test fun envelopeActivityBusy() = shot("1230-envelope-activity-busy") {
+        EnvelopeDetailScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.gaming, net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.today, {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun envelopeActivityOnlyAssign() = shot("1231-envelope-activity-only-assign") {
+        EnvelopeDetailScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.onlyAssign, net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.today, {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun envelopeActivityEmpty() = shot("1232-envelope-activity-empty") {
+        EnvelopeDetailScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.onlyTarget, net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.today, {}, {}, {}, {}, {}, {}, {})
+    }
+    @Test fun moveMoneyFromEnvelope() = shot("1233-move-money-from-envelope") {
+        MoveMoneyScreen(net.darkrelay.deaddropfinance.domain.EnvelopeActivityFixture.budget(), "g", null, {}) { _, _, _ -> }
+    }
     @Test @Config(qualifiers = TALL) fun assign() = shot("10-assign") {
         AssignScreen(budget, today, null, {}, {}, { _, _ -> }, listOf(Payday.Shortfall("heat", 40_00, 15_00)))
     }

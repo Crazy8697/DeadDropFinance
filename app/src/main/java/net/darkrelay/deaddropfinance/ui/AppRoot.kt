@@ -63,7 +63,8 @@ sealed interface Nav {
     data class Envelope(val id: String) : Nav
     data class EnvelopeEdit(val id: String?) : Nav
     /** Move money; [backToReady] starts it as a move back into Ready to Assign (fixing an over-assigned budget). */
-    data class MoveMoney(val fromId: String?, val backToReady: Boolean = false) : Nav
+    /** [intoId]: opened from that envelope's screen, so it starts as Ready to Assign into it. */
+    data class MoveMoney(val intoId: String?, val backToReady: Boolean = false) : Nav
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
     data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null) : Nav
     data class TxDetail(val id: String) : Nav
@@ -697,7 +698,7 @@ fun AppRoot(
                     claims = claims,
                 )
             }
-            is Nav.MoveMoney -> MoveMoneyScreen(b, top.fromId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
+            is Nav.MoveMoney -> MoveMoneyScreen(b, top.intoId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
             is Nav.Assign -> AssignScreen(
                 b, today, error, ::back,
                 onAdd = { id -> run(scope) { if (actions.addToEnvelope(id) == 0L) throw BudgetRuleException("Nothing is ready to assign.") } },
