@@ -83,6 +83,7 @@ Source: "..\NOTICE"; DestDir: "{app}"; DestName: "NOTICE.txt"; Flags: ignorevers
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\licenses\Apache-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\..\licenses\libpng-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "..\..\licenses\SQLite-Public-Domain.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\licenses\*.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]

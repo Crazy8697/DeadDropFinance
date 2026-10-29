@@ -37,9 +37,11 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.io.File
@@ -62,6 +64,7 @@ private val ErrorText = Color(0xFFFF8A80)
  *   DeadDropFinance.exe --smoke-test <file>     tests: open the window off screen without taking focus, write what
  *                                               it shows to <file>, and exit
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)      // CompletableDeferred.getCompleted, after isCompleted
 fun main(args: Array<String>) {
     val probe = args.indexOf("--update-probe").takeIf { it >= 0 }?.let { args.getOrNull(it + 1) }
     if (probe != null) {
@@ -71,6 +74,9 @@ fun main(args: Array<String>) {
     val smoke = args.indexOf("--smoke-test").takeIf { it >= 0 }?.let { args.getOrNull(it + 1) }
     val settings = Settings(Settings.defaultDir())
     val model = UpdateModel()
+    // the engine (the phone app's logic on the program's own budget) opens in the background; no screen uses it yet
+    val engine = CompletableDeferred<Engine>()
+    Thread({ engine.complete(runBlocking { Engine.start(settings.dir) }) }, "engine-start").apply { isDaemon = true }.start()
     application {
         val windowState = rememberWindowState(
             size = DpSize(900.dp, 600.dp),
@@ -85,8 +91,13 @@ fun main(args: Array<String>) {
             scope.launch { withContext(Dispatchers.IO) { model.runCheck(manual) } }
         }
 
+        fun quit() {
+            if (engine.isCompleted) engine.getCompleted().close()
+            exitApplication()
+        }
+
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = ::quit,
             state = windowState,
             title = PROGRAM_NAME,
             icon = painterResource("deaddropfinance-256.png"),
@@ -113,7 +124,7 @@ fun main(args: Array<String>) {
                     scope.launch {
                         val started = withContext(Dispatchers.IO) { model.install() }
                         // Setup closes and replaces this copy, then starts the new one
-                        if (started) exitApplication()
+                        if (started) quit()
                     }
                 },
                 onOpenPage = { page -> openInBrowser(page) },
@@ -122,12 +133,14 @@ fun main(args: Array<String>) {
             if (smoke != null) {
                 LaunchedEffect(Unit) {
                     delay(1500)
+                    val data = withContext(Dispatchers.IO) { engine.await().describe() }
                     File(smoke).writeText(
                         "name=$PROGRAM_NAME\nversion=${BuildInfo.VERSION}\ntitle=${window.title}\n" +
                             "settingsDir=${settings.dir.absolutePath}\nshowing=${window.isShowing}\n" +
-                            "focused=${window.isFocused}\ncheckUpdatesAtStartup=$checkAtStartup\n"
+                            "focused=${window.isFocused}\ncheckUpdatesAtStartup=$checkAtStartup\n" +
+                            data.entries.joinToString("") { "${it.key}=${it.value}\n" }
                     )
-                    exitApplication()
+                    quit()
                 }
             } else if (checkAtStartup) {
                 LaunchedEffect(Unit) {

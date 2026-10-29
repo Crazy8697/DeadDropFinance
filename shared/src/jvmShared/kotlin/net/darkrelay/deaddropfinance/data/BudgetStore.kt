@@ -1,6 +1,5 @@
 package net.darkrelay.deaddropfinance.data
 
-import androidx.room.withTransaction
 import java.time.LocalDate
 import org.json.JSONObject
 
@@ -16,7 +15,7 @@ class BudgetStore(
     val dao: BudgetDao = db.dao()
 
     /** One atomic write: everything [block] puts is saved together with its change rows, or none of it is. */
-    suspend fun <R> write(block: suspend Writer.() -> R): R = db.withTransaction {
+    suspend fun <R> write(block: suspend Writer.() -> R): R = db.atomically {
         val w = Writer(deviceId(), clock())
         w.block()
     }

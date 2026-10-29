@@ -130,7 +130,8 @@ class HomeTest {
 
     @Test fun thereIsNoItsPaydayCardAnywhere() {
         val main = listOf(File("src/main"), File("app/src/main")).first { it.isDirectory }
-        val hits = main.walk().filter { it.isFile && (it.extension == "kt" || it.extension == "xml") }.filter { f ->
+        val shared = listOf(File("../shared/src"), File("shared/src")).first { it.isDirectory }
+        val hits = (main.walk() + shared.walk()).filter { it.isFile && (it.extension == "kt" || it.extension == "xml") }.filter { f ->
             val s = f.readText()
             "It's payday" in s || "PaydayLandedCard" in s || "notPayday" in s || "Looks like payday landed" in s
         }.map { it.name }.toList()

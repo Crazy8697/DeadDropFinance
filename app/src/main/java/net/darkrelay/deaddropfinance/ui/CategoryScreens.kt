@@ -32,8 +32,8 @@ private val monthFormat = DateTimeFormatter.ofPattern("MMM d")
 fun monthLabel(m: Budget.Month, today: LocalDate): String = when {
     m.start == null && m.end == null -> "All activity (no payday marked yet)"
     m.start == null -> "Before ${m.end!!.format(monthFormat)}"
-    m.end == null -> "This budget month, since ${m.start.format(monthFormat)}"
-    else -> "${m.start.format(monthFormat)} to ${m.end.minusDays(1).format(monthFormat)}"
+    m.end == null -> "This budget month, since ${m.start!!.format(monthFormat)}"
+    else -> "${m.start!!.format(monthFormat)} to ${m.end!!.minusDays(1).format(monthFormat)}"
 }
 
 /**

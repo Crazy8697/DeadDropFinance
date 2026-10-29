@@ -127,7 +127,7 @@ fun BillsScreen(
                 Text("${Money.format(Recurring.monthlyTotal(live))}/mo", color = DdfColors.Muted)
             }
         }
-        val suggest = live.count { it.subscription?.billId == null && budget.bills.none { b -> b.matchText != null && it.keys.any { k -> net.darkrelay.deaddropfinance.domain.Payees.contains(k, b.matchText) } } }
+        val suggest = live.count { it.subscription?.billId == null && budget.bills.none { b -> b.matchText != null && it.keys.any { k -> net.darkrelay.deaddropfinance.domain.Payees.contains(k, b.matchText!!) } } }
         if (suggest > 0) {
             Text("$suggest of them could be bills: open one and tap Make it a bill.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
@@ -149,7 +149,7 @@ fun PaydayLine(p: Paydays.Prediction, today: LocalDate, onChange: (LocalDate?) -
                     next == null -> "Payday is the deposit landing, never a date on the calendar."
                     p.corrected -> "Set by you"
                     p.guessed -> "Guessed from one payday (two weeks). Correct it if it's different."
-                    p.monthlyDay != null -> "Predicted: monthly, around the ${ordinal(p.monthlyDay)}"
+                    p.monthlyDay != null -> "Predicted: monthly, around the ${ordinal(p.monthlyDay!!)}"
                     else -> "Predicted: every ${p.intervalDays} days"
                 },
                 color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
@@ -222,7 +222,7 @@ fun BillDetailScreen(
                                 Modifier.weight(1f), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
                             )
                             Text(Money.format(p.amount), style = MaterialTheme.typography.bodySmall)
-                            if (p.transactionId != null) TextButton(onClick = { onTransaction(p.transactionId) }) { Text("Open") }
+                            if (p.transactionId != null) TextButton(onClick = { onTransaction(p.transactionId!!) }) { Text("Open") }
                         }
                     }
                     if (!c.isPaid) {
@@ -476,7 +476,7 @@ fun ForecastCard(f: Forecast.Result, onOpen: () -> Unit) {
 @Composable
 fun ForecastScreen(f: Forecast.Result, onBack: () -> Unit) {
     var usual by remember { mutableStateOf(f.usual != null) }
-    val line = if (usual && f.usual != null) f.usual else f.plan
+    val line = if (usual && f.usual != null) f.usual!! else f.plan
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Balance forecast", onBack)
         Text("Today to the day before payday (${dayText(f.payday)}), budget accounts only.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)

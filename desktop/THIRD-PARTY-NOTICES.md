@@ -8,7 +8,7 @@ The desktop program ships the components below: the runtime classpath of the des
 license gate, which refuses to package a component missing from this file), the Java runtime bundled with it, and the
 native code inside Skiko. Each Java library's license was read from its POM. The installed program carries this file,
 desktop/NOTICE, LICENSE and the license texts under licenses\ in its folder. The license texts are in licenses/ (shared
-with the phone app: Apache-2.0.txt, libpng-2.0.txt) and desktop/licenses/ (the desktop-only ones).
+with the phone app: Apache-2.0.txt, libpng-2.0.txt, SQLite-Public-Domain.txt) and desktop/licenses/ (the desktop-only ones).
 
 ## The Java runtime (OpenJDK 21, Microsoft Build of OpenJDK)
 
@@ -61,6 +61,37 @@ Upstream: https://github.com/androidx/androidx
 | `androidx.savedstate:savedstate-compose` | 1.4.0 | Apache License, Version 2.0 |
 | `androidx.savedstate:savedstate-desktop` | 1.4.0 | Apache License, Version 2.0 |
 | `androidx.savedstate:savedstate` | 1.4.0 | Apache License, Version 2.0 |
+
+## Room and SQLite for the desktop (Google, The Android Open Source Project)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt)  
+Upstream: https://github.com/androidx/androidx
+
+The budget database (from 0.6.0): the phone app's Room database code, built for the desktop by the shared module, on
+bundled SQLite. sqlite-bundled-jvm carries the native library sqliteJni (SQLite 3.50.1, public domain,
+licenses/SQLite-Public-Domain.txt) for Windows, Linux and macOS inside the jar; the program uses the Windows one.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `androidx.room:room-common` | 2.8.5 | Apache License, Version 2.0 |
+| `androidx.room:room-common-jvm` | 2.8.5 | Apache License, Version 2.0 |
+| `androidx.room:room-runtime` | 2.8.5 | Apache License, Version 2.0 |
+| `androidx.room:room-runtime-jvm` | 2.8.5 | Apache License, Version 2.0 |
+| `androidx.sqlite:sqlite` | 2.6.2 | Apache License, Version 2.0 |
+| `androidx.sqlite:sqlite-jvm` | 2.6.2 | Apache License, Version 2.0 |
+| `androidx.sqlite:sqlite-bundled` | 2.6.2 | Apache License, Version 2.0 |
+| `androidx.sqlite:sqlite-bundled-jvm` | 2.6.2 | Apache License, Version 2.0 |
+
+## JSON in Java (org.json)
+
+License: Public Domain (from its POM; the upstream LICENSE file reads "Public Domain.")  
+Upstream: https://github.com/stleary/JSON-java
+
+The phone app uses Android's own copy; the desktop program ships this one for the same code.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `org.json:json` | 20260814 | Public Domain |
 
 ## Compose Multiplatform for desktop (JetBrains)
 

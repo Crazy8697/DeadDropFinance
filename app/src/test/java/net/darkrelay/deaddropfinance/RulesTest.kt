@@ -11,7 +11,9 @@ class RulesTest {
 
     // Gradle runs unit tests from the app module folder
     private val main = listOf(File("src/main"), File("app/src/main")).first { it.isDirectory }
-    private val kotlinSources = main.resolve("java").walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+    // the app's own code plus the logic it shares with the desktop program (shared/, from 1.3.2)
+    private val shared = listOf(File("../shared/src"), File("shared/src")).first { it.isDirectory }
+    private val kotlinSources = (main.resolve("java").walkTopDown() + shared.walkTopDown()).filter { it.isFile && it.extension == "kt" }.toList()
 
     @Test fun noDestructiveMigrationAnywhere() {
         val offenders = kotlinSources.filter { it.readText().contains("fallbackToDestructiveMigration") }

@@ -292,6 +292,8 @@ ksp {
 }
 
 dependencies {
+    // the app's logic (data model, database, budget rules): shared with the desktop program, see shared/README.md
+    implementation(project(":shared"))
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     implementation("androidx.activity:activity-compose:1.13.0")

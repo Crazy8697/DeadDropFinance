@@ -53,6 +53,8 @@ function RunProgram([string[]]$argv, [string]$out) {
     return $r
 }
 
+# the version being tested: ddf.desktop.versionName in gradle.properties
+$Version = ((Get-Content (Join-Path $PSScriptRoot "..\..\gradle.properties") | Where-Object { $_ -match '^ddf\.desktop\.versionName=' }) -replace '^ddf\.desktop\.versionName=', '').Trim()
 $ok = $false
 try {
     # ---- 1 ----
@@ -60,12 +62,12 @@ try {
     foreach ($f in @("DeadDropFinance.exe", "app\DeadDropFinance.cfg", "runtime\bin\java.dll", "runtime\legal\java.base\LICENSE",
                      "LICENSE.txt", "NOTICE.txt", "THIRD-PARTY-NOTICES.md", "licenses\Apache-2.0.txt", "licenses\libpng-2.0.txt",
                      "licenses\GPL-2.0-with-Classpath-Exception-OpenJDK.txt", "licenses\BSD-3-Clause-Skia.txt",
-                     "licenses\Unicode-3.0-ICU.txt", "unins000.exe")) {
+                     "licenses\Unicode-3.0-ICU.txt", "licenses\SQLite-Public-Domain.txt", "unins000.exe")) {
         if (-not (Test-Path (Join-Path $dir $f))) { Fail "missing after install: $f" }
     }
     $lic = @(Get-ChildItem (Join-Path $dir "licenses") -Filter *.txt).Count
     $entry = Get-ItemProperty $UninstKey
-    if ($entry.DisplayName -ne "Dead Drop Finance Test" -or $entry.DisplayVersion -ne "0.5.0") { Fail "the Apps entry is '$($entry.DisplayName)' $($entry.DisplayVersion)" }
+    if ($entry.DisplayName -ne "Dead Drop Finance Test" -or $entry.DisplayVersion -ne $Version) { Fail "the Apps entry is '$($entry.DisplayName)' $($entry.DisplayVersion)" }
     if (-not (Test-Path $Shortcut)) { Fail "no Start menu shortcut" }
     if (Test-Path $DesktopLnk) { Fail "a desktop shortcut was made although the task was off" }
     Ok "installed to a temp folder: program, runtime, notices, $lic license texts, Apps entry $($entry.DisplayName) $($entry.DisplayVersion), Start menu shortcut, no desktop shortcut"
@@ -73,11 +75,12 @@ try {
     # ---- 2 ----
     $out = Join-Path $tmp "smoke.txt"
     $r = RunProgram @("--smoke-test", "`"$out`"") $out
-    if ($r["version"] -ne "0.5.0" -or $r["showing"] -ne "true" -or $r["focused"] -ne "false" -or
-        $r["settingsDir"] -ne (Join-Path $appData "DeadDropFinance")) { Fail "smoke test: $((Get-Content $out) -join '; ')" }
+    if ($r["version"] -ne $Version -or $r["showing"] -ne "true" -or $r["focused"] -ne "false" -or
+        $r["settingsDir"] -ne (Join-Path $appData "DeadDropFinance") -or $r["db"] -ne "ok" -or $r["dbSchema"] -ne "12" -or
+        $r["dbFile"] -ne (Join-Path $appData "DeadDropFinance\budget.db")) { Fail "smoke test: $((Get-Content $out) -join '; ')" }
     $written = @(Get-ChildItem -Recurse -File $dir | Where-Object { $_.LastWriteTime -gt (Get-Item (Join-Path $dir "unins000.exe")).LastWriteTime.AddSeconds(5) })
     if ($written.Count) { Fail "the program wrote into its folder: $($written.Name -join ', ')" }
-    Ok "installed program: name, version 0.5.0, shown off screen, not focused, settings in the throwaway APPDATA, nothing written in its folder"
+    Ok "installed program: name, version $Version, shown off screen, not focused, settings and budget (schema 12, $($r["envelopes"]) envelopes, $($r["categories"]) categories) in the throwaway APPDATA, nothing written in its folder"
 
     # ---- 3 ----
     if ($FakeApi) { $env:DDF_DESKTOP_UPDATE_API = $FakeApi }

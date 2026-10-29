@@ -4,8 +4,9 @@ The desktop program, in development. It shares this repository with the Android 
 (`:desktop`): Kotlin with Compose for Desktop (JetBrains), on a bundled Java runtime, so users install nothing else.
 Sharing code with the phone app comes in a later phase.
 
-Version 0.5.0 is the base: the program opens, shows its name and version, and updates itself. Features come in later
-stages (see `ROADMAP.md`).
+Version 0.5.0 is the base: the program opens, shows its name and version, and updates itself. Version 0.6.0 adds the
+engine: the phone app's own logic, from the shared module (`shared/README.md`), on the program's own budget database.
+No screen uses it yet. Features come in later stages (see `ROADMAP.md`).
 
 ## Install
 
@@ -15,8 +16,9 @@ Download `DeadDropFinance-Setup.exe` from the newest `desktop-v` release on the
 
 ## What it stores and sends
 
-- Settings: `%APPDATA%\DeadDropFinance\settings.properties`. Nothing is written next to the exe, and uninstalling
-  leaves this folder alone.
+- Settings: `%APPDATA%\DeadDropFinance\settings.properties`. The budget (from 0.6.0):
+  `%APPDATA%\DeadDropFinance\budget.db`, the phone's database format (schema 12) but its own file, separate from the
+  phone until sync exists. Nothing is written next to the exe, and uninstalling leaves this folder alone.
 - Network: only GitHub, for the update check and an update's download. The check is an anonymous GET of the repo's
   release list a few seconds after startup (Help > Check for updates at startup turns it off) or from
   Help > Check for updates. Nothing about you is sent. The newest `desktop-v` release that carries both

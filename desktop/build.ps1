@@ -133,7 +133,8 @@ function Invoke-Smoke {
         foreach ($l in Get-Content $out) { $k, $v = $l -split '=', 2; $r[$k] = $v }
         $ver = Get-DesktopVersion
         $ok = $r["name"] -eq "Dead Drop Finance" -and $r["version"] -eq $ver -and $r["title"] -eq "Dead Drop Finance" -and
-              $r["showing"] -eq "true" -and $r["focused"] -eq "false" -and $r["settingsDir"] -eq (Join-Path $appData "DeadDropFinance")
+              $r["showing"] -eq "true" -and $r["focused"] -eq "false" -and $r["settingsDir"] -eq (Join-Path $appData "DeadDropFinance") -and
+              $r["db"] -eq "ok" -and $r["dbSchema"] -eq "12" -and $r["dbFile"] -eq (Join-Path $appData "DeadDropFinance\budget.db")
         Get-Content $out | ForEach-Object { Write-Host "  $_" }
         $leftovers = @(Get-ChildItem -Recurse -File $AppImage | Where-Object { $_.LastWriteTime -gt $p.StartTime })
         if ($leftovers.Count) { Fail "the program wrote next to the exe: $($leftovers.FullName -join ', ')" }

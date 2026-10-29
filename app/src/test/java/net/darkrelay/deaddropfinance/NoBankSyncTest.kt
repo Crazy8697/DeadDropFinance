@@ -12,7 +12,9 @@ import org.junit.Test
 class NoBankSyncTest {
 
     private val main = listOf(File("src/main"), File("app/src/main")).first { it.isDirectory }
-    private val code = main.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+    // the app's own code plus the logic it shares with the desktop program (shared/, from 1.3.2)
+    private val shared = listOf(File("../shared/src"), File("shared/src")).first { it.isDirectory }
+    private val code = (main.walkTopDown() + shared.walkTopDown()).filter { it.isFile && it.extension == "kt" }.toList()
 
     @Test fun noBankSyncCodeIsLeft() {
         val gone = listOf(

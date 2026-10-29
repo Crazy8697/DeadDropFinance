@@ -10,12 +10,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Wraps and unwraps the database key. The real one uses Android Keystore; tests use a fake. */
-interface KeyWrapper {
-    fun wrap(plain: ByteArray): ByteArray
-    fun unwrap(blob: ByteArray): ByteArray
-}
-
 /**
  * AES-256-GCM with a key that lives in Android Keystore (it never leaves the secure hardware and can't be
  * exported). Blob: version byte 1, then the 12-byte IV, then the ciphertext with its tag.

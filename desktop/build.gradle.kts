@@ -50,13 +50,15 @@ kotlin {
 }
 
 dependencies {
+    // the phone app's logic (data model, database, budget rules), built for the JVM: see shared/README.md
+    implementation(project(":shared"))
     implementation(compose.desktop.windows_x64)
     implementation(compose.material3)
     testImplementation(kotlin("test"))
     testImplementation(compose.desktop.uiTestJUnit4)
     testImplementation("junit:junit:4.13.2")
     // the phone's UpdateCheck reads JSON with org.json (built into Android); tests only
-    testImplementation("org.json:json:20250517")
+    testImplementation("org.json:json:20260814")
 }
 
 tasks.test {
