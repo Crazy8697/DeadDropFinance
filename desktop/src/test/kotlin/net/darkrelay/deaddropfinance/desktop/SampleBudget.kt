@@ -51,7 +51,7 @@ object SampleBudget {
         env("Gifts", EnvelopeMode.ADD_EVERY_PAYDAY, 40_00)
         val payday = today.minusDays(3)
         val pay = a.saveTransaction(null, TransactionDraft(ids["Checking"]!!, payday, "Sample Payroll Co", "Income", 1850_00, listOf(LineDraft(null, 1850_00, toReadyToAssign = true))))
-        a.markPayday(pay, payday)
+        a.markPayday(pay, payday, fill = true)
         a.move(null, ids["Emergency fund"]!!, 350_00, date = today.minusDays(2))
         a.move(null, ids["Gifts"]!!, 60_00, date = today.minusDays(2))
         // purchases by hand need a category, as on the phone

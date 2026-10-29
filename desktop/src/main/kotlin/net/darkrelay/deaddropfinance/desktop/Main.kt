@@ -83,6 +83,8 @@ fun main(args: Array<String>) {
             // the smoke test never takes focus from whatever the user is doing
             focusable = smoke == null,
         ) {
+            // Windows' own title bar, dark like the program (0.9.0)
+            LaunchedEffect(Unit) { TitleBar.dark(window) }
             val installed = UpdateModel.isInstalled()
             val shell = Shell(
                 update = update,

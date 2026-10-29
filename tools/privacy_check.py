@@ -326,8 +326,10 @@ def is_tld_list(s):
 
 
 # third-party build paths inside the APK's native libraries, allowed one by one: SQLCipher's libsqlcipher.so keeps
-# the source paths of its vendor's own build machine (libtomcrypt files under a "sqlcipher-packages" source tree)
-APK_VENDOR_BUILD_PATHS = [re.compile(r"/Users/[^/\s]+/src/sqlcipher-packages/[^\s\x00]*")]
+# the source paths of its vendor's own build machine (libtomcrypt files under a "sqlcipher-packages" source tree), and
+# JNA's libjnidispatch.so (1.4.0) keeps the output path of its maintainer's Android build ("jnalib/build/native-android-")
+APK_VENDOR_BUILD_PATHS = [re.compile(r"/Users/[^/\s]+/src/sqlcipher-packages/[^\s\x00]*"),
+                          re.compile(r"/home/[^/\s]+/src/jnalib/build/native-android-[^\s\x00]*")]
 
 
 def scan_apk_strings(sc, where, strings, patterns, local):

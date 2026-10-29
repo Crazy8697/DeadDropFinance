@@ -167,7 +167,9 @@ class BudgetStartTest {
         assertEquals(b.accountBalance(acct), b.readyToAssign)
         assertEquals(0L, b.sortedCheck)
         assertEquals("no transaction or line changed", before, rows())
-        assertEquals("nothing was written to the budget", changes, store.dao.changes().size)
+        // 1.4.0: each change of the date is logged (so server sync carries it) as the meta entity budget_start, and nothing else
+        val added = store.dao.changes().drop(changes)
+        assertEquals("only the date was written", List(3) { net.darkrelay.deaddropfinance.data.BudgetStore.META_ENTITY to "budget_start" }, added.map { it.entityType to it.entityId })
     }
 
     @Test fun theLaterOfTheBudgetStartAndTheAccountsStartingBalanceDateWins() = runBlocking<Unit> {
@@ -208,7 +210,7 @@ class BudgetStartTest {
     @Test fun aDepositBeforeTheStartCantBeMarkedPayday() = runBlocking<Unit> {
         val pay = income(day.minusDays(20), 500_00)
         store.setBudgetStart(day.minusDays(10))
-        assertTrue(runCatching { actions.markPayday(pay, day) }.exceptionOrNull() is BudgetRuleException)
+        assertTrue(runCatching { actions.markPayday(pay, day, fill = true) }.exceptionOrNull() is BudgetRuleException)
         assertTrue(actions.snapshot().moves.isEmpty())
     }
 }

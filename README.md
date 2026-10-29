@@ -30,8 +30,9 @@ A desktop program for Windows is in development in `desktop/` (see `desktop/READ
 ## Privacy
 
 Your budget stays in the app's private storage on your phone, encrypted. The app never connects to your bank, and no
-third party receives your finances. Backups go only where you choose. The app's only network use is GitHub, for an
-optional update check and downloading an update, with nothing about you sent.
+third party receives your finances. Backups go only where you choose. The app's network use is GitHub, for an
+optional update check and downloading an update, with nothing about you sent, and, only if you connect it (1.4.0),
+your own Dead Drop server on your own network, with everything between them encrypted end to end.
 
 ## How it works
 

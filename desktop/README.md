@@ -10,7 +10,9 @@ Version 0.7.0 adds the screens from the approved mockup (`desktop/docs/desktop-m
 source): Budget, Activity, Accounts, Reports and Sync placeholders, Settings, the envelope drawer and the Add
 transaction and Move money dialogs, and encrypts the budget. Version 0.8.0 adds the phone's Payday and Fill envelopes
 boxes, the category picker and split lines to Add transaction, and an encrypted backup and restore in the phone's
-backup format (Settings and the File menu). Features come in later stages (see `ROADMAP.md`).
+backup format (Settings and the File menu). Version 0.9.0 gives the window a dark title bar, splits money in across
+envelopes, and sweeps leftovers into Rollover on a payday without Fill envelopes, as the phone does. Features come in
+later stages (see `ROADMAP.md`).
 
 ## Install
 

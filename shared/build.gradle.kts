@@ -33,6 +33,10 @@ kotlin {
             kotlin.srcDir(shared)
             dependencies {
                 implementation("androidx.room:room-runtime:2.8.5")
+                // libsodium for server sync's encrypted envelopes (1.4.0): the Android build of lazysodium, whose aar
+                // carries libsodium for each ABI, and JNA's Android aar, which it calls through
+                implementation("com.goterl:lazysodium-android:5.2.0@aar")
+                implementation("net.java.dev.jna:jna:5.19.1@aar")
             }
         }
         jvmMain {
@@ -45,12 +49,16 @@ kotlin {
                 implementation("net.java.dev.jna:jna-platform:5.19.1")
                 // the phone gets org.json from Android itself
                 implementation("org.json:json:20260814")
+                // server sync compiles against lazysodium; the desktop program doesn't sync yet, so it doesn't ship it
+                compileOnly("com.goterl:lazysodium-java:5.2.0")
             }
         }
         jvmTest {
             dependencies {
                 implementation(kotlin("test"))
                 implementation("junit:junit:4.13.2")
+                implementation("com.goterl:lazysodium-java:5.2.0")
+                implementation("net.java.dev.jna:jna:5.19.1")
             }
         }
     }

@@ -204,6 +204,28 @@ Its POM names no license; the license was read in the repository's LICENSE and R
 |---|---|---|
 | `cz.adaptech.tesseract4android:tesseract4android` | 4.9.0 | (none in its POM; see above) |
 
+## Lazysodium for Android and libsodium (server sync's encryption, from 1.4.0)
+
+License: MPL-2.0 (Lazysodium, licenses/MPL-2.0.txt); its bundled libsodium is under the ISC license (licenses/ISC-libsodium.txt)  
+Upstream: https://github.com/terl/lazysodium-android and https://github.com/jedisct1/libsodium
+
+Lazysodium is used as published, unmodified; its source is at the upstream address above. It ships libsodium.so for each CPU type the app includes (arm64-v8a, armeabi-v7a and x86_64), which contains libsodium (Copyright (c) 2013-2026 Frank Denis). The app calls only libsodium's standard constructions: crypto_box, crypto_box_seal and its random number generator. Neither has network code of its own.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `com.goterl:lazysodium-android` | 5.2.0 | Mozilla Public License, Version 2.0 |
+
+## JNA, Java Native Access (how Lazysodium calls libsodium, from 1.4.0)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt). JNA is offered under LGPL-2.1-or-later or Apache-2.0, at the user's choice; the app uses it under Apache-2.0.  
+Upstream: https://github.com/java-native-access/jna
+
+The Android build of JNA ships its native dispatch library libjnidispatch.so; the app includes it for arm64-v8a, armeabi-v7a and x86_64.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `net.java.dev.jna:jna` | 5.19.1 | LGPL-2.1-or-later, Apache-2.0 |
+
 ## Version alignment only (no code shipped)
 
 These are bills of materials: they only pin the versions of the components above.

@@ -54,6 +54,8 @@ dependencies {
     implementation(project(":shared"))
     implementation(compose.desktop.windows_x64)
     implementation(compose.material3)
+    // the dark native title bar (0.9.0): one dwmapi call through JNA, which the program already ships (shared's DPAPI)
+    implementation("net.java.dev.jna:jna:5.19.1")
     testImplementation(kotlin("test"))
     testImplementation(compose.desktop.uiTestJUnit4)
     testImplementation("junit:junit:4.13.2")

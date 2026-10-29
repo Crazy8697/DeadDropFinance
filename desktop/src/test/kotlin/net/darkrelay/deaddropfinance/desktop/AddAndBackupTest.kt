@@ -107,9 +107,10 @@ class AddAndBackupTest {
         assertEquals(600_00L, b().envelopeBalance(id("Groceries")), "filled to its target")
     }
 
-    @Test fun aPaydayWithoutFillOnlyStartsTheMonth() {
+    @Test fun aPaydayWithoutFillSweepsLeftoversButFillsNothing() {
         show()
         val before = b()
+        val rollover = before.rollover!!.id
         tag("top.add").performClick()
         tag("f.amount").performTextInput("300.00")
         pick("f.envelope", "Ready to assign")
@@ -117,8 +118,12 @@ class AddAndBackupTest {
         save()
         assertNull(m.dialog, m.message?.first)
         assertEquals(Budget.Month(SampleBudget.today, null), b().months(SampleBudget.today).first())
-        assertEquals(before.moves.size, b().moves.size, "nothing swept or filled")
+        // 0.9.0: the month closes, so Fill to target leftovers go to Rollover; nothing is filled
+        val added = b().moves.filter { mv -> before.moves.none { it.id == mv.id } }
+        assertTrue(added.isNotEmpty() && added.all { it.kind == MoveKind.SWEEP && it.toEnvelopeId == rollover }, "$added")
+        assertTrue(b().moves.none { it.kind == MoveKind.AUTOFILL && it.date == SampleBudget.today })
         assertEquals(before.readyToAssign + 300_00, b().readyToAssign)
+        assertTrue(m.message!!.first.contains("swept into Rollover"), m.message?.first)
     }
 
     @Test fun moneyInThatIsntAPaydayIsPlainMoneyIn() {
@@ -199,6 +204,34 @@ class AddAndBackupTest {
         assertEquals(listOf(-50_00L, -25_00L, -15_00L), lines.map { it.amount })
         assertEquals(listOf("Groceries", "Household", "Snacks"), lines.map { l -> b().categories.single { it.id == l.categoryId }.name })
         assertEquals(acct - 90_00, b().accountBalance(id("Checking")))
+    }
+
+    @Test fun moneyInSplitsAcrossEnvelopes() {
+        show()
+        val rta = b().readyToAssign
+        val gifts = b().envelopeBalance(id("Gifts"))
+        tag("top.add").performClick()
+        tag("f.payee").performTextInput("Sample Side Job")
+        tag("f.amount").performTextInput("100.00")
+        pick("f.envelope", "Ready to assign")
+        tag("split.startIncome").performClick()
+        compose.waitForIdle()
+        pick("split.0.envelope", "Ready to assign")
+        tag("split.0.amount").performTextInput("60.00")
+        pick("split.1.envelope", "Gifts")
+        tag("split.1.amount").performTextInput("40.00")
+        tag("split.left").assertTextEquals("Left to split: $0.00")
+        tag("f.payday").assertIsNotEnabled()
+        save()
+        assertNull(m.dialog, m.message?.first)
+        val t = b().transactions.single { it.payee == "Sample Side Job" }
+        assertEquals(100_00L, t.amount)
+        val lines = b().lines.filter { it.transactionId == t.id }.sortedBy { it.amount }
+        assertEquals(listOf(40_00L, 60_00L), lines.map { it.amount })
+        assertEquals(listOf(LineBucket.ENVELOPE, LineBucket.READY_TO_ASSIGN), lines.map { it.bucket })
+        assertTrue(lines.all { it.categoryId == null }, "money in has no category")
+        assertEquals(rta + 60_00, b().readyToAssign)
+        assertEquals(gifts + 40_00, b().envelopeBalance(id("Gifts")))
     }
 
     @Test fun aSplitThatDoesntAddUpOrLacksACategoryIsRefused() {

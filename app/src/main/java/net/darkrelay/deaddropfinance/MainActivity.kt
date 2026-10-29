@@ -18,6 +18,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
@@ -149,6 +150,7 @@ class MainActivity : ComponentActivity() {
                             o is DatabaseOpener.Opened.Ok && settings != null -> androidx.compose.runtime.key(generation) {
                                 AppRoot(
                                     o.store, settings!!, platform,
+                                    sync = remember(o.store) { app.serverSync(o.store) },
                                     startupUpdateCheck = Updates.checkAtStartup(this@MainActivity) && !Updates.startupCheckDone.also { Updates.startupCheckDone = true },
                                     openTo = openTo,
                                     shared = shared,
@@ -412,6 +414,11 @@ class MainActivity : ComponentActivity() {
             val store = (opened as DatabaseOpener.Opened.Ok).store
             val out = contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("can't write there")
             try { app.backups(store).write(out, passphrase) } finally { passphrase.fill(' ') }
+        }
+
+        override suspend fun backupBeforeServer(passphrase: CharArray): String {
+            val store = (opened as DatabaseOpener.Opened.Ok).store
+            return app.backupBeforeServer(store, passphrase)
         }
 
         override suspend fun restoreBackup(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {

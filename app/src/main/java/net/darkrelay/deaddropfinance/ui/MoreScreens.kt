@@ -71,6 +71,9 @@ fun MoreScreen(
     /** The default wait for a new parked buy, in days (Settings). */
     parkWait: Int = 1,
     onParkWait: (Int) -> Unit = {},
+    /** Settings > Server (1.4.0): null hides the row. */
+    onServer: (() -> Unit)? = null,
+    serverLine: String = "Not connected",
 ) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
@@ -92,6 +95,9 @@ fun MoreScreen(
                 Text("How long a parked buy waits before you decide", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                 WaitChips(parkWait, onParkWait)
             }
+        }
+        if (onServer != null) {
+            ListRow(onServer) { Column { Text("Server"); Text(serverLine, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         }
         sortAlerts?.invoke()
         if (onBudgetStart != null) BudgetStartSetting(budgetStart, onBudgetStart)

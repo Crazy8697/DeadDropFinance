@@ -56,7 +56,7 @@ class PaydayByHandTest {
             food = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, target = 300_00, everyday = true))
             // last month's payday, marked by hand: Groceries filled to 300, then 50 spent from it
             val last = deposit(day.minusMonths(1).minusDays(1), 1500_00)
-            a.markPayday(last, day.minusMonths(1).minusDays(1))
+            a.markPayday(last, day.minusMonths(1).minusDays(1), fill = true)
             val spent = store.write {
                 val t = put(null, TransactionEntity(accountId = acct, date = day.minusDays(20), payee = "SAMPLE MARKET", amount = -50_00, source = TransactionSource.MANUAL, createdAt = now, updatedAt = now))
                 put(null, TransactionLineEntity(transactionId = t.id, bucket = LineBucket.UNSORTED, amount = -50_00, createdAt = now, updatedAt = now))
@@ -117,7 +117,7 @@ class PaydayByHandTest {
         val csv = "Date,Description,Amount\n${day.minusDays(1)},SAMPLE EMPLOYER PAYROLL,1480.00\n"
         val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
         Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
-        a.markPayday(res.newIds.single(), day)
+        a.markPayday(res.newIds.single(), day, fill = true)
         val b = a.snapshot()
         assertTrue(b.transactions.first { it.id == res.newIds.single() }.isPayday)
         assertEquals(2, b.paydayDates.size)

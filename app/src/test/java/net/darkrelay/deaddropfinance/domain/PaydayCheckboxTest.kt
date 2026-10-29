@@ -17,6 +17,7 @@ import net.darkrelay.deaddropfinance.domain.BudgetActions.TransactionDraft
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -103,17 +104,64 @@ class PaydayCheckboxTest {
         assertEquals(listOf(Payday.Shortfall(food, 300_00, 100_00)), plan.shortfalls)
     }
 
-    @Test fun aPaydayWithoutFillLeavesTheEnvelopesAlone() = runBlocking<Unit> {
+    @Test fun aPaydayWithoutFillSweepsLeftoversToRolloverAndFillsNothing() = runBlocking<Unit> {
         val first = LocalDate.of(2030, 3, 1)
         a.savePayday(pay(first, 1500_00), fill = true, today = first)
         val before = a.snapshot()
+        val rollover = before.rollover!!.id
         val second = LocalDate.of(2030, 3, 15)
-        a.savePayday(pay(second, 200_00), fill = false, today = second)
+        val plan = a.savePayday(pay(second, 200_00), fill = false, today = second).second
         val after = a.snapshot()
-        assertEquals("no sweep, no fill", before.moves.size, after.moves.size)
-        assertEquals(before.envelopeBalance(rent), after.envelopeBalance(rent))
+        // 1.4.0: the month closes, so Fill to target leftovers sweep into Rollover; nothing is filled
+        assertEquals(2, plan.sweeps.size)
+        assertTrue(plan.fills.isEmpty())
+        assertEquals(0L, after.envelopeBalance(rent))
+        assertEquals(0L, after.envelopeBalance(food))
+        assertEquals(before.envelopeBalance(rollover) + 800_00 + 300_00, after.envelopeBalance(rollover))
+        assertTrue(after.moves.filter { it.date == second }.all { it.kind == MoveKind.SWEEP })
         assertEquals(before.readyToAssign + 200_00, after.readyToAssign)
         assertEquals(Budget.Month(second, null), after.months(second).first())
+    }
+
+    @Test fun aPaydayWithFillSweepsThenFills() = runBlocking<Unit> {
+        val first = LocalDate.of(2030, 3, 1)
+        a.savePayday(pay(first, 1500_00), fill = true, today = first)
+        val rollover = a.snapshot().rollover!!.id
+        val second = LocalDate.of(2030, 3, 15)
+        val plan = a.savePayday(pay(second, 1100_00), fill = true, today = second).second
+        val after = a.snapshot()
+        assertEquals(2, plan.sweeps.size)
+        assertEquals(2, plan.fills.size)
+        assertEquals(800_00L, after.envelopeBalance(rent))
+        assertEquals(300_00L, after.envelopeBalance(food))
+        assertEquals(1100_00L, after.envelopeBalance(rollover))
+    }
+
+    @Test fun editingAnExistingDepositMakesItAPaydayOrUnmarksIt() = runBlocking<Unit> {
+        val day = LocalDate.of(2030, 3, 13)
+        val id = a.saveTransaction(null, pay(day, 1500_00))
+        val plan = a.saveDeposit(id, pay(day, 1500_00), payday = true, fill = true, today = day)!!
+        assertTrue(a.snapshot().transactions.single { it.id == id }.isPayday)
+        assertEquals(2, plan.fills.size)
+        assertEquals(800_00L, a.snapshot().envelopeBalance(rent))
+        // unticked: no longer a payday, its fill undone, the deposit back in Ready to Assign
+        assertNull(a.saveDeposit(id, pay(day, 1500_00), payday = false, fill = false, today = day))
+        val b = a.snapshot()
+        assertFalse(b.transactions.single { it.id == id }.isPayday)
+        assertEquals(0L, b.envelopeBalance(rent))
+        assertEquals(1500_00L, b.readyToAssign)
+        // ticked without Fill: a payday, nothing filled
+        val p2 = a.saveDeposit(id, pay(day, 1500_00), payday = true, fill = false, today = day)!!
+        assertTrue(p2.fills.isEmpty())
+        assertEquals(1500_00L, a.snapshot().readyToAssign)
+    }
+
+    @Test fun editingASpendingTransactionCantMakeItAPayday() = runBlocking<Unit> {
+        val day = LocalDate.of(2030, 3, 13)
+        val spend = TransactionDraft(acct, day, "Sample Shop", "", -10_00, listOf(LineDraft(food, -10_00)))
+        val id = a.saveTransaction(null, spend)
+        assertThrows(BudgetRuleException::class.java) { runBlocking { a.saveDeposit(id, spend, payday = true, fill = false, today = day) } }
+        assertFalse(a.snapshot().transactions.single { it.id == id }.isPayday)
     }
 
     @Test fun aRefundIsPlainMoneyIn() = runBlocking<Unit> {
@@ -137,13 +185,15 @@ class PaydayCheckboxTest {
         assertTrue("nothing was saved", a.snapshot().transactions.isEmpty())
     }
 
-    @Test fun markAsPaydayOnATransactionStillFills() = runBlocking<Unit> {
-        // the existing way (the transaction's own screen): unchanged, it always fills
+    @Test fun markAsPaydayFillsOnlyWhenAskedTo() = runBlocking<Unit> {
+        // the transaction's own screen (1.4.0): Fill envelopes is a choice, never automatic
         val day = LocalDate.of(2030, 3, 13)
         val id = a.saveTransaction(null, pay(day, 1500_00))
-        a.markPayday(id, day)
-        val b = a.snapshot()
-        assertEquals(800_00L, b.envelopeBalance(rent))
-        assertFalse(b.paydayDates.isEmpty())
+        a.markPayday(id, day, fill = false)
+        assertEquals(0L, a.snapshot().envelopeBalance(rent))
+        assertFalse(a.snapshot().paydayDates.isEmpty())
+        val id2 = a.saveTransaction(null, pay(day.plusDays(14), 1500_00))
+        a.markPayday(id2, day.plusDays(14), fill = true)
+        assertEquals(800_00L, a.snapshot().envelopeBalance(rent))
     }
 }

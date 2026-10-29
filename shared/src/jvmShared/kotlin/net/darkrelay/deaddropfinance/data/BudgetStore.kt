@@ -1,7 +1,24 @@
 package net.darkrelay.deaddropfinance.data
 
 import java.time.LocalDate
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.currentCoroutineContext
 import org.json.JSONObject
+
+/** Another device holds the server's edit lock (1.4.0), so this one is read only until it lets go. */
+class ReadOnlyException(val holder: String) : net.darkrelay.deaddropfinance.domain.BudgetRuleException(
+    "Read only: $holder is editing the budget. Changes can be made here once it closes.",
+)
+
+/**
+ * Marks writes the app makes on its own (a bank notification read in the background, the start-up checks), which go
+ * ahead while another device holds the edit lock and reach the server as offline changes. Run them in
+ * withContext(BackgroundWrite).
+ */
+object BackgroundWrite : AbstractCoroutineContextElement(BackgroundWriteKey)
+
+object BackgroundWriteKey : CoroutineContext.Key<BackgroundWrite>
 
 /**
  * The only way the app writes to the budget. Every write of a synced row also writes its change log row, in the
@@ -14,16 +31,38 @@ class BudgetStore(
 ) {
     val dao: BudgetDao = db.dao()
 
+    /**
+     * Server sync (1.4.0): throws ReadOnlyException while another device holds the edit lock. Checked before each row
+     * a user's action saves; BackgroundWrite skips it.
+     */
+    @Volatile var guard: (() -> Unit)? = null
+
+    /** Server sync: told after each write that logged a change, so it can send it. */
+    @Volatile var onWrite: (() -> Unit)? = null
+
     /** One atomic write: everything [block] puts is saved together with its change rows, or none of it is. */
-    suspend fun <R> write(block: suspend Writer.() -> R): R = db.atomically {
-        val w = Writer(deviceId(), clock())
-        w.block()
+    suspend fun <R> write(block: suspend Writer.() -> R): R {
+        var logged = false
+        val r = db.atomically {
+            val w = Writer(deviceId(), clock())
+            val out = w.block()
+            logged = w.logged
+            out
+        }
+        if (logged) onWrite?.invoke()
+        return r
+    }
+
+    private suspend fun checkGuard() {
+        if (currentCoroutineContext()[BackgroundWriteKey] == null) guard?.invoke()
     }
 
     inner class Writer(private val deviceId: String, val now: Long) {
+        internal var logged = false
 
         /** Saves [new] (an insert if [old] is null) and logs it: INSERT, UPDATE, or DELETE when it becomes a tombstone. */
         suspend fun <T : Synced> put(old: T?, new: T): T {
+            checkGuard()
             when (new) {
                 is AccountEntity -> dao.upsertAccount(new)
                 is EnvelopeEntity -> dao.upsertEnvelope(new)
@@ -50,6 +89,7 @@ class BudgetStore(
             val changed = JSONObject()
             for ((k, v) in new.fields()) if (old == null || before[k] != v) changed.put(k, v ?: JSONObject.NULL)
             if (old != null && changed.length() == 0) return new      // nothing changed: nothing to log
+            logged = true
             dao.insertChange(
                 ChangeLogEntity(
                     entityType = entityType(new),
@@ -126,12 +166,31 @@ class BudgetStore(
         return true
     }
 
-    /** Sets the budget start date. Never touches a transaction: only what counts in the budget changes. */
-    suspend fun setBudgetStart(d: LocalDate) = dao.putMeta(MetaEntity(META_BUDGET_START, d.toString()))
+    /**
+     * Sets the budget start date. Never touches a transaction: only what counts in the budget changes. Logged as a
+     * change of the "meta" entity budget_start (1.4.0), so server sync carries it like a row.
+     */
+    suspend fun setBudgetStart(d: LocalDate) {
+        if (budgetStart() == d) return
+        checkGuard()
+        db.atomically {
+            dao.putMeta(MetaEntity(META_BUDGET_START, d.toString()))
+            dao.insertChange(
+                ChangeLogEntity(
+                    entityType = META_ENTITY, entityId = META_BUDGET_START, operation = ChangeOperation.UPDATE,
+                    changedFields = JSONObject().put("value", d.toString()).toString(), timestamp = clock(), deviceId = deviceId(),
+                    seq = dao.lastSeq() + 1,
+                ),
+            )
+        }
+        onWrite?.invoke()
+    }
 
     companion object {
         const val META_DEVICE_ID = "device_id"
         const val META_BUDGET_START = "budget_start"
+        /** The change log's entity type for a synced meta value (budget_start). */
+        const val META_ENTITY = "meta"
 
         fun entityType(e: Synced): String = when (e) {
             is AccountEntity -> "account"

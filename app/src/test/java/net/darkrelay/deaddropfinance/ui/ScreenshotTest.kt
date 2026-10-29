@@ -183,7 +183,7 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun transactionSplit() = shot("13-transaction-split") { TransactionEditScreen(budget, budget.transactions[1], true, null, {}, {}, { _, _, _, _, _, _ -> }) }
     @Test fun transactionNew() = shot("14-transaction-new") { TransactionEditScreen(budget, null, false, null, {}, {}, { _, _, _, _, _, _ -> }) }
     @Test fun transactionDetail() = shot("15-transaction-detail") {
-        TransactionDetailScreen(budget.transactions[4], budget, emptyList(), null, {}, {}, {}, {}, {}, {})
+        TransactionDetailScreen(budget.transactions[4], budget, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {})
     }
     @Test fun more() = shot("16-more") { MoreScreen(more, {}, {}, {}, {}, {}, {}, {}) }
     @Test fun moreNoScreenLock() = shot("17-more-no-screen-lock") { MoreScreen(more.copy(lockAvailable = false), {}, {}, {}, {}, {}, {}, {}) }
@@ -258,7 +258,7 @@ class ScreenshotTest {
     @Test fun transactionBeforeStart() = shot("66-transaction-before-start") {
         val old = tx("old", "chk", "Sample Old Charge", -9_99, 60)
         val b = Budget(budget.accounts, budget.envelopes, budget.transactions + old, budget.lines + line("old", -9_99), budget.moves)
-        TransactionDetailScreen(old, b, emptyList(), null, {}, {}, {}, {}, {}, {})
+        TransactionDetailScreen(old, b, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {})
     }
 
     // ---- 0.8.0: auto-categorize, approve flow, alerts, returns, balance check -------------------------------------
@@ -320,13 +320,13 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun returnPicker() = shot("74-this-is-a-return") {
         val credit = budget8.transactions.first { it.id == "s3" }
-        TransactionDetailScreen(credit, budget8, emptyList(), null, {}, {}, {}, {}, {}, {}, returnCandidates = Suggest.returnCandidates(budget8, credit), onMakeRule = {}, pickingReturn = true)
+        TransactionDetailScreen(credit, budget8, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {}, returnCandidates = Suggest.returnCandidates(budget8, credit), onMakeRule = {}, pickingReturn = true)
     }
     @Test fun returnConfirmed() = shot("75-return-confirmed") {
         val credit = budget8.transactions.first { it.id == "s3" }.copy(returnOf = "shop", sortedBy = SortedBy.RETURN)
         val lines = budget8.lines.filter { it.transactionId != "s3" } + listOf(line("s3", 8_77, "food"), line("s3", 3_23, "save"))
         val b = Budget(budget8.accounts, budget8.envelopes, budget8.transactions.map { if (it.id == "s3") credit else it }, lines, budget8.moves)
-        TransactionDetailScreen(credit, b, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {})
+        TransactionDetailScreen(credit, b, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {}, onMakeRule = {})
     }
     @Test @Config(qualifiers = TALL) fun envelopeEditEveryday() = shot("82-envelope-edit-everyday") { EnvelopeEditScreen(budget.envelopes[1].copy(everyday = true), null, {}, {}) }
 
@@ -387,10 +387,10 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun transactionWithReceipt() = shot("93-transaction-receipt") {
         val t = budget9.transactions.first { it.id == "shop9" }
-        TransactionDetailScreen(t, budget9, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {}, receipt = rcpt, onAddReceipt = {})
+        TransactionDetailScreen(t, budget9, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {}, onMakeRule = {}, receipt = rcpt, onAddReceipt = {})
     }
     @Test fun transactionAddReceipt() = shot("94-transaction-add-receipt") {
-        TransactionDetailScreen(budget8.transactions.first { it.id == "gas" }, budget8, emptyList(), null, {}, {}, {}, {}, {}, {}, onMakeRule = {}, onAddReceipt = {})
+        TransactionDetailScreen(budget8.transactions.first { it.id == "gas" }, budget8, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {}, onMakeRule = {}, onAddReceipt = {})
     }
     @Test @Config(qualifiers = TALL) fun moreReceiptsRow() = shot("95-more-receipts-row") {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {})
@@ -680,7 +680,7 @@ class ScreenshotTest {
         )
     }
     @Test @Config(qualifiers = TALL) fun purchaseWithCategory() = shot("143-purchase-with-category") {
-        TransactionDetailScreen(catBudget.transactions.first { it.id == "g2" }, catBudget, emptyList(), null, {}, {}, {}, {}, {}, {}, onSetCategory = { _, _ -> })
+        TransactionDetailScreen(catBudget.transactions.first { it.id == "g2" }, catBudget, emptyList(), null, {}, {}, {}, { _, _ -> }, {}, {}, onSetCategory = { _, _ -> })
     }
     @Test @Config(qualifiers = TALL) fun activityWithCategories() = shot("143b-activity-with-categories") {
         val unsorted = TransactionEntity(id = "u1", accountId = "chk", date = today, payee = "SAMPLE BAKERY", amount = -12_40, createdAt = 1, updatedAt = 1)

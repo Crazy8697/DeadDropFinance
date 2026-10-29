@@ -131,7 +131,7 @@ class NotificationsTest {
             put(null, TransactionLineEntity(transactionId = t.id, bucket = LineBucket.UNSORTED, amount = 1500_00, createdAt = now, updatedAt = now))
             t.id
         }
-        a.markPayday(last, day.minusMonths(1))
+        a.markPayday(last, day.minusMonths(1), fill = true)
         val moves = store.dao.movesNow().size
         val r = log.log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
         val dep = store.dao.transaction(r.txId!!)!!

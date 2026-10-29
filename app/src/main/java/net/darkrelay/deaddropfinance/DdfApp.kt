@@ -30,6 +30,51 @@ class DdfApp : Application() {
         secretStore ?: SecretStore(File(File(filesDir, "keys"), SecretStore.FILE_NAME), KeystoreWrapper(SECRETS_KEY_ALIAS)).also { secretStore = it }
     }
 
+    /** Server sync (1.4.0): one for the process, made once the budget is open; its lock follows the app in front. */
+    @Volatile private var serverSync: net.darkrelay.deaddropfinance.serversync.ServerSync? = null
+    private var syncLifecycle: net.darkrelay.deaddropfinance.serversync.SyncLifecycle? = null
+    private val syncScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    /** Call on the main thread (it watches the app come and go). */
+    fun serverSync(store: net.darkrelay.deaddropfinance.data.BudgetStore): net.darkrelay.deaddropfinance.serversync.ServerSync =
+        serverSync ?: synchronized(this) {
+            serverSync ?: net.darkrelay.deaddropfinance.serversync.ServerSync(
+                store, net.darkrelay.deaddropfinance.serversync.ServerPrefs(this),
+                net.darkrelay.deaddropfinance.serversync.ServerKeyVault { secrets() }, syncScope,
+            ).also { s ->
+                serverSync = s
+                syncLifecycle = net.darkrelay.deaddropfinance.serversync.SyncLifecycle(s, syncScope).also { it.attach() }
+            }
+        }
+
+    /**
+     * Before a login replaces this phone's budget with the server's: an encrypted backup of it (the phone's backup
+     * format, opened with the account password) in Downloads/DeadDropFinance. Returns where it went.
+     */
+    suspend fun backupBeforeServer(store: net.darkrelay.deaddropfinance.data.BudgetStore, passphrase: CharArray): String =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val name = "deaddrop-before-server-${java.time.LocalDate.now()}-${System.currentTimeMillis() % 100000}.ddfbak"
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name)
+                put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/DeadDropFinance")
+                put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw java.io.IOException("The backup couldn't be saved to Downloads, so nothing was replaced.")
+            try {
+                (contentResolver.openOutputStream(uri) ?: throw java.io.IOException("The backup couldn't be saved to Downloads, so nothing was replaced."))
+                    .use { backups(store).write(it, passphrase) }
+                contentResolver.update(uri, android.content.ContentValues().apply { put(android.provider.MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            } catch (e: Exception) {
+                runCatching { contentResolver.delete(uri, null, null) }
+                throw e
+            } finally {
+                passphrase.fill(' ')
+            }
+            "Downloads/DeadDropFinance/$name"
+        }
+
     /** Receipt photos, encrypted in the app's private files. */
     val receiptImages: net.darkrelay.deaddropfinance.data.ReceiptImages by lazy {
         net.darkrelay.deaddropfinance.data.ReceiptImages(receiptDir()) { net.darkrelay.deaddropfinance.data.ReceiptImages.keyFrom(secrets()) }
@@ -79,6 +124,11 @@ class DdfApp : Application() {
      * couldn't be removed (empty when all went).
      */
     suspend fun eraseEverything(): List<String> = openLock.withLock {
+        // off the server first, while the key is still here: the lock goes and this phone leaves the device list
+        serverSync?.let { s -> runCatching { s.logout() } }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { syncLifecycle?.detach() }
+        syncLifecycle = null
+        serverSync = null
         // stop reading bank notifications (the listener is switched off, not just its setting)
         runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         (opened as? DatabaseOpener.Opened.Ok)?.store?.db?.close()
@@ -88,7 +138,7 @@ class DdfApp : Application() {
             keysDir = File(filesDir, "keys"),
             keystoreAliases = listOf(KeystoreWrapper.ALIAS, SECRETS_KEY_ALIAS),
             deleteKeystoreKey = { alias -> java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias) },
-            settings = listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
+            settings = listOf("lock", "sync", "updates", net.darkrelay.deaddropfinance.serversync.ServerPrefs.FILE).map { getSharedPreferences(it, MODE_PRIVATE) },
             cancelScheduledWork = { androidx.work.WorkManager.getInstance(this).cancelAllWork() },
             extraDirs = listOf(receiptDir(), net.darkrelay.deaddropfinance.scan.TesseractReader.ocrDir(this), captureDir(), File(cacheDir, "restore")),
         ).erase()

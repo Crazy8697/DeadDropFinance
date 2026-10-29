@@ -189,7 +189,7 @@ class EngineTest {
         assertEquals(listOf(Payday.Shortfall(y, 50_00, 30_00), Payday.Shortfall(z, 10_00, 0)), plan.shortfalls)
         assertEquals(0L, plan.leftInReadyToAssign)
         // marking the deposit as payday carries the plan out
-        a.markPayday(pay, day)
+        a.markPayday(pay, day, fill = true)
         val b = a.snapshot()
         assertEquals(70_00L, b.envelopeBalance(x))
         assertEquals(30_00L, b.envelopeBalance(y))

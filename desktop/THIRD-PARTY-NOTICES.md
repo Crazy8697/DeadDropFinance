@@ -97,14 +97,14 @@ FreeBSD; the program loads the Windows x86-64 one.
 |---|---|---|
 | `io.github.willena:sqlite-jdbc` | 3.53.4.0 | The Apache Software License, Version 2.0 |
 
-## JNA, Java Native Access (the DPAPI key protection, from 0.7.0)
+## JNA, Java Native Access (the DPAPI key protection from 0.7.0, the dark title bar from 0.9.0)
 
 License: Apache-2.0 (licenses/Apache-2.0.txt). JNA is offered under LGPL-2.1-or-later or Apache-2.0, at the user's
 choice; Dead Drop Finance uses it under Apache-2.0.  
 Upstream: https://github.com/java-native-access/jna
 
 JNA calls Windows' CryptProtectData and CryptUnprotectData, which protect the budget's key for the current Windows
-user. The jna jar carries its native dispatch library for many systems; the program loads the Windows x86-64 one.
+user. From 0.9.0 it also calls DwmSetWindowAttribute, which turns the window's own title bar dark. The jna jar carries its native dispatch library for many systems; the program loads the Windows x86-64 one.
 
 | Component | Version | License (from its POM) |
 |---|---|---|

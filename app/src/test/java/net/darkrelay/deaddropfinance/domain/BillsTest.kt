@@ -109,7 +109,7 @@ class BillsTest {
         }
         // the payday deposit lands: sweep, fill, then the checklist
         val pay = bank("SAMPLE EMPLOYER PAYROLL", 1500_00, d)
-        a.markPayday(pay, d)
+        a.markPayday(pay, d, fill = true)
         val b0 = b()
         val pred = Paydays.predict(b0.paydayDates, d.plusDays(1))
         assertTrue(pred.guessed)

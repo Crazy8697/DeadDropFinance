@@ -7,7 +7,8 @@ import org.junit.Test
 
 /**
  * Bank sync is gone (1.3.0): no bank sync screen, client or job is left in the app's code, and the only code that
- * talks to the network is the in-app updater (UpdateClient and UpdateDownloader).
+ * talks to the network is the in-app updater (UpdateClient and UpdateDownloader) and, from 1.4.0, server sync's
+ * HttpTransport, which talks only to the user's own Dead Drop server.
  */
 class NoBankSyncTest {
 
@@ -26,9 +27,9 @@ class NoBankSyncTest {
         assertTrue(code.none { it.parentFile.name == "sync" && it.name != "SyncSettings.kt" })
     }
 
-    @Test fun onlyTheUpdaterTalksToTheNetwork() {
+    @Test fun onlyTheUpdaterAndServerSyncTalkToTheNetwork() {
         val net = listOf("HttpURLConnection", "HttpsURLConnection", "openConnection", "java.net.URL", "java.net.Socket", "okhttp")
         val users = code.filter { f -> net.any { f.readText().contains(it) } }.map { it.name }.toSet()
-        assertEquals(setOf("UpdateClient.kt", "UpdateDownloader.kt"), users)
+        assertEquals(setOf("UpdateClient.kt", "UpdateDownloader.kt", "HttpTransport.kt"), users)
     }
 }

@@ -17,7 +17,7 @@ import net.darkrelay.deaddropfinance.data.TransactionLineEntity
 import net.darkrelay.deaddropfinance.data.newId
 
 /** A rule the user broke; the message is shown as is. */
-class BudgetRuleException(message: String) : Exception(message)
+open class BudgetRuleException(message: String) : Exception(message)
 
 /**
  * Everything the screens can change, each as one atomic write through BudgetStore (so each also writes its change
@@ -452,7 +452,11 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
      * date; detection comes later). Its money goes to Ready to Assign, the budget month closes (Rollover sweep),
      * and auto-fill runs in fill order. Returns the plan, shortfalls included, for the screen.
      */
-    suspend fun markPayday(txId: String, today: LocalDate = LocalDate.now(), fill: Boolean = true): Payday.Plan {
+    /**
+     * Marks a deposit as payday: the budget month closes on its date, Fill to target leftovers sweep into Rollover, and
+     * with [fill] (Fill envelopes, always the user's choice, 1.4.0) the envelopes fill in fill order.
+     */
+    suspend fun markPayday(txId: String, today: LocalDate = LocalDate.now(), fill: Boolean): Payday.Plan {
         val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
         if (tx.kind != TransactionKind.NORMAL || tx.amount <= 0 || tx.isWash) throw BudgetRuleException("Only a deposit can be a payday.")
         if (tx.isPayday) throw BudgetRuleException("That's already marked as payday.")
@@ -463,10 +467,10 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             // the deposit itself lands in Ready to Assign
             replaceLines(this, tx.id, listOf(LineDraft(null, tx.amount, toReadyToAssign = true)))
             val b = snapshot()
-            // Payday without Fill envelopes (1.3.3): the new budget month starts on this date and nothing else moves
-            if (!fill) return@write Payday.Plan(emptyList(), emptyList(), emptyList(), b.readyToAssign)
             val closes = b.paydayDates.any { it.isBefore(tx.date) } || b.transactions.count { it.isPayday } > 1
-            val plan = Payday.plan(b, today, closes)
+            // without Fill envelopes (1.4.0): the month's leftovers still sweep into Rollover; nothing is filled
+            val full = Payday.plan(b, today, closes)
+            val plan = if (fill) full else Payday.Plan(full.sweeps, emptyList(), emptyList(), b.readyToAssign)
             for (m in plan.sweeps) {
                 put(null, MoveEntity(fromEnvelopeId = m.fromEnvelopeId, toEnvelopeId = m.toEnvelopeId, amount = m.amount, date = tx.date, kind = MoveKind.SWEEP, paydayTransactionId = tx.id, createdAt = now, updatedAt = now))
             }
@@ -492,6 +496,28 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         if (!snapshot().countsFor(d.accountId, d.date)) throw BudgetRuleException("That's before the budget start date, so it can't be a payday.")
         val id = saveTransaction(null, d)
         return id to markPayday(id, today, fill)
+    }
+
+    /**
+     * Edit transaction on an existing deposit (1.4.0), with the Payday and Fill envelopes boxes: saved, then marked as
+     * payday ([payday] newly ticked, with [fill] as asked) or unmarked ([payday] unticked). Checked before anything
+     * is saved. Returns the payday's plan when it was marked.
+     */
+    suspend fun saveDeposit(id: String, d: TransactionDraft, payday: Boolean, fill: Boolean, today: LocalDate = LocalDate.now()): Payday.Plan? {
+        val existing = dao.transaction(id) ?: throw BudgetRuleException("That transaction is gone.")
+        if (payday && !existing.isPayday) {
+            val line = d.lines.singleOrNull()
+            if (d.amount <= 0 || line == null || !line.toReadyToAssign || line.envelopeId != null || line.transfer) {
+                throw BudgetRuleException("Only money in to Ready to Assign can be a payday.")
+            }
+            if (existing.isWash || existing.returnOf != null) throw BudgetRuleException("Only a deposit can be a payday.")
+            if (!snapshot().countsFor(d.accountId, d.date)) throw BudgetRuleException("That's before the budget start date, so it can't be a payday.")
+            saveTransaction(id, d)
+            return markPayday(id, today, fill)
+        }
+        saveTransaction(id, d)
+        if (!payday && existing.isPayday) unmarkPayday(id)
+        return null
     }
 
     suspend fun unmarkPayday(txId: String) = store.write {

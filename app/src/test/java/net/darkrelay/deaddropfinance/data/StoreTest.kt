@@ -127,7 +127,7 @@ class StoreTest {
         val g = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, target = 90_00))
         val s = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Savings", EnvelopeMode.ADD_EVERY_PAYDAY, perPayday = 25_00))
         val p1 = a.saveTransaction(null, TransactionDraft(acct, d, "Sample Payroll Co", "", 500_00, listOf(LineDraft(null, 500_00, toReadyToAssign = true))))
-        val plan1 = a.markPayday(p1, d)
+        val plan1 = a.markPayday(p1, d, fill = true)
         assertTrue(plan1.sweeps.isEmpty())                                  // the first payday closes no month
         var b = a.snapshot()
         assertEquals(90_00L, b.envelopeBalance(g))
@@ -135,7 +135,7 @@ class StoreTest {
         // spend some, then the next payday sweeps the leftover into Rollover and fills again
         a.saveTransaction(null, TransactionDraft(acct, d.plusDays(3), "Corner Grocer", "", -60_00, listOf(LineDraft(g, -60_00))))
         val p2 = a.saveTransaction(null, TransactionDraft(acct, d.plusDays(14), "Sample Payroll Co", "", 500_00, listOf(LineDraft(null, 500_00, toReadyToAssign = true))))
-        val plan2 = a.markPayday(p2, d.plusDays(14))
+        val plan2 = a.markPayday(p2, d.plusDays(14), fill = true)
         assertEquals(30_00L, plan2.sweeps.single().amount)
         b = a.snapshot()
         assertEquals(30_00L, b.envelopeBalance(b.rollover!!.id))

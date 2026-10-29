@@ -36,7 +36,8 @@ class BankNotificationListener : NotificationListenerService() {
         if (pkg == packageName || pkg !in settings.notifPackages) return
         val text = textOf(sbn.notification) ?: return
         val app = applicationContext as? DdfApp ?: return
-        scope.launch { runCatching { handle(app, settings, pkg, text) } }
+        // the app's own write: it goes in even while another device holds the server's edit lock (an offline change)
+        scope.launch { runCatching { kotlinx.coroutines.withContext(net.darkrelay.deaddropfinance.data.BackgroundWrite) { handle(app, settings, pkg, text) } } }
     }
 
     override fun onDestroy() {

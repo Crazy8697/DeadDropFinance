@@ -146,7 +146,8 @@ private class LineState(category: String? = null, envelope: String? = null, amou
  * Add transaction (0.8.0): the amount as typed (positive), as in 0.7.0. Spending needs a category (the phone's rules):
  * picking one chooses the envelope that claims it (Unplanned when none does), which can still be changed. Ready to
  * assign is money in, with the Payday and Fill envelopes boxes; To sort is money in left to sort later. Split across
- * categories turns a purchase into lines, each with its category, envelope and amount, as the phone's split.
+ * categories turns a purchase into lines, each with its category, envelope and amount, as the phone's split; split
+ * across envelopes (0.9.0) does the same for money in, each line to an envelope, Ready to assign or To sort.
  */
 @Composable
 private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.AddTransaction) {
@@ -163,6 +164,8 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
     var payday by remember { mutableStateOf(d.payday) }
     var fill by remember { mutableStateOf(d.fill) }
     var split by remember { mutableStateOf(d.split) }
+    // a split of money in (0.9.0): lines go to envelopes, Ready to assign or To sort, with no category
+    var incomeSplit by remember { mutableStateOf(false) }
     val lines = remember { mutableStateListOf(LineState(), LineState()) }
     val categories = b.categories.sortedBy { it.sortOrder }.map { it.id to it.name }
     fun claim(c: String?): String? = c?.let { b.envelopeForCategory(it) }?.takeIf { it in envelopeIds }
@@ -182,9 +185,9 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 day == null -> model.message = "The date must look like 2030-01-31." to true
                 cents == null || cents <= 0 -> model.message = "Enter an amount above zero, like 12.34." to true
                 split -> {
-                    val parsed = lines.map { l -> AppModel.SplitLine(l.category, l.envelope, parseAmount(l.amount) ?: -1) }
+                    val parsed = lines.map { l -> AppModel.SplitLine(l.category.takeIf { !incomeSplit }, l.envelope, parseAmount(l.amount) ?: -1) }
                     if (parsed.any { it.amount <= 0 }) model.message = "Give every line an amount above zero." to true
-                    else shell.run { if (model.addSplit(account, day, payee, note, cents, parsed)) model.dialog = null }
+                    else shell.run { if (model.addSplit(account, day, payee, note, cents, parsed, income = incomeSplit)) model.dialog = null }
                 }
                 else -> shell.run { if (model.addTransaction(account, day, payee, cents, envelope, note, category.takeIf { spending }, paydayOn, fillOn)) model.dialog = null }
             }
@@ -206,10 +209,19 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                     Spacer(Modifier.width(13.dp))
                     Btn("Split across categories", {
                         split = true
+                        incomeSplit = false
                         lines[0].category = category
                         lines[0].envelope = envelope
                     }, ghost = true, tag = "split.start")
                 }
+            } else {
+                Btn("Split across envelopes", {
+                    split = true
+                    incomeSplit = true
+                    lines[0].category = null
+                    lines[0].envelope = envelope
+                    lines[1].envelope = envelopes.firstOrNull()?.id
+                }, ghost = true, tag = "split.startIncome")
             }
         } else {
             Select("Account", accounts.map { it.id to it.name }, account, { account = it }, tag = "f.account")
@@ -221,8 +233,15 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
             }
             lines.forEachIndexed { i, l ->
                 Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Select("Category", categories, l.category, { c -> l.category = c; claim(c)?.let { l.envelope = it } }, Modifier.weight(1.2f), tag = "split.$i.category", placeholder = "Choose a category")
-                    Select<String?>("Envelope", envelopes.map { it.id to it.name }, l.envelope, { l.envelope = it }, Modifier.weight(1f), tag = "split.$i.envelope", placeholder = "By category")
+                    if (incomeSplit) {
+                        Select<String?>(
+                            "Goes to", envelopes.map { it.id to it.name } + listOf(READY_TO_ASSIGN to "Ready to assign", TO_SORT to "Not sorted yet (To sort)"),
+                            l.envelope, { l.envelope = it }, Modifier.weight(2.2f), tag = "split.$i.envelope", placeholder = "Choose where it goes",
+                        )
+                    } else {
+                        Select("Category", categories, l.category, { c -> l.category = c; claim(c)?.let { l.envelope = it } }, Modifier.weight(1.2f), tag = "split.$i.category", placeholder = "Choose a category")
+                        Select<String?>("Envelope", envelopes.map { it.id to it.name }, l.envelope, { l.envelope = it }, Modifier.weight(1f), tag = "split.$i.envelope", placeholder = "By category")
+                    }
                     Field("Amount", l.amount, { l.amount = it }, Modifier.weight(0.7f), "0.00", tag = "split.$i.amount")
                     Box(Modifier.width(22.dp).padding(bottom = 9.dp)) {
                         if (lines.size > 2) Box(Modifier.clickable { lines.removeAt(i) }.testTag("split.$i.remove")) { T("✕", 13.sp, C.Dim) }
@@ -233,12 +252,12 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 Btn("Add a line", { lines.add(LineState()) }, ghost = true, small = true, tag = "split.add")
                 Btn("Don't split", {
                     split = false
-                    lines[0].category?.let { category = it }
+                    if (!incomeSplit) lines[0].category?.let { category = it }
                     lines[0].envelope?.let { envelope = it }
                 }, ghost = true, small = true, tag = "split.stop")
             }
         }
-        CheckRow("Payday", "The new budget month starts on this date. Only for money in to Ready to assign.", paydayOn, paydayAllowed, "f.payday") {
+        CheckRow("Payday", "The new budget month starts on this date, and leftovers sweep into Rollover. Only for money in to Ready to assign.", paydayOn, paydayAllowed, "f.payday") {
             payday = it
             if (!it) fill = false
         }

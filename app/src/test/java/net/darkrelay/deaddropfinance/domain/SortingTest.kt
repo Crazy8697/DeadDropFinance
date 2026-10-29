@@ -288,7 +288,7 @@ class SortingTest {
         val r3 = bank("SAMPLE STORE REFUND", 5_00, d.plusDays(7))
         assertNull("nothing left to return on that purchase", suggestions()[r3])
         try { s.confirmReturn(r3, buy); fail() } catch (e: BudgetRuleException) { /* more than is left */ }
-        try { a.markPayday(r1); fail() } catch (e: BudgetRuleException) { /* a return isn't income */ }
+        try { a.markPayday(r1, fill = true); fail() } catch (e: BudgetRuleException) { /* a return isn't income */ }
         assertEquals(0L, b().sortedCheck)
     }
 

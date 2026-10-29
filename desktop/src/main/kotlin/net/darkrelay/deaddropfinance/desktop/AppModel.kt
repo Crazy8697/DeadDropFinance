@@ -142,7 +142,7 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         if (ok && p != null) {
             val names = budget?.envelopes?.associate { it.id to it.name }.orEmpty()
             message = when {
-                !fill -> "Payday: the new budget month starts $date."
+                !fill -> "Payday: the new budget month starts $date." + if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover."
                 p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover."
                 else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover. Short: " +
                     p.shortfalls.joinToString(", ") { "${names[it.envelopeId] ?: "an envelope"} ${money(it.short)}" } + "."
@@ -154,10 +154,24 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     /** One line of a split purchase: its category (required), its envelope (the category's by default) and amount. */
     data class SplitLine(val category: String?, val envelope: String?, val amount: Long)
 
-    /** A purchase split into lines (one trip: groceries, electronics, fishing), as the phone's split. */
-    suspend fun addSplit(accountId: String, date: LocalDate, payee: String, note: String, total: Long, lines: List<SplitLine>): Boolean {
+    /**
+     * A purchase split into lines (one trip: groceries, electronics, fishing), as the phone's split. [income] (0.9.0):
+     * money in split across envelopes, Ready to assign (READY_TO_ASSIGN) and To sort (TO_SORT), as the phone's.
+     */
+    suspend fun addSplit(accountId: String, date: LocalDate, payee: String, note: String, total: Long, lines: List<SplitLine>, income: Boolean = false): Boolean {
         if (total <= 0) { message = "Enter an amount above zero." to true; return false }
         if (lines.size < 2) { message = "A split needs at least two lines." to true; return false }
+        if (income) {
+            if (lines.any { it.envelope == null }) { message = "Choose where every line goes." to true; return false }
+            val drafts = lines.map {
+                when (it.envelope) {
+                    READY_TO_ASSIGN -> BudgetActions.LineDraft(null, it.amount, toReadyToAssign = true)
+                    TO_SORT -> BudgetActions.LineDraft(null, it.amount)
+                    else -> BudgetActions.LineDraft(it.envelope, it.amount)
+                }
+            }
+            return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), total, drafts)) }
+        }
         val drafts = lines.map { BudgetActions.LineDraft(it.envelope, -it.amount, categoryId = it.category) }
         return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), -total, drafts)) }
     }

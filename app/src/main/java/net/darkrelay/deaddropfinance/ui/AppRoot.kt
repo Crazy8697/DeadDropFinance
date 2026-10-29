@@ -107,6 +107,8 @@ sealed interface Nav {
     data class Document(val name: String) : Nav
     /** Which envelopes Safe to Spend counts. */
     data object SafeToSpend : Nav
+    /** Settings > Server (1.4.0): connect, the status, devices, log out. */
+    data object Server : Nav
 }
 
 /** Where a notification opens the app ([where]: MainActivity.OPEN_*); [n] rises with each one. */
@@ -187,6 +189,8 @@ interface Platform {
     suspend fun writeBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
     /** Restores from [uri]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
     suspend fun restoreBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    /** Server login (1.4.0): this phone's budget, backed up to Downloads before the server's replaces it; returns where. */
+    suspend fun backupBeforeServer(passphrase: CharArray): String
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -209,7 +213,14 @@ fun AppRoot(
     onTaken: () -> Unit = {},
     /** Rises each time the app comes back to the front: what Android's settings may have changed is read again. */
     resumeTick: Int = 0,
+    /** Server sync (1.4.0); null in previews and tests. */
+    sync: net.darkrelay.deaddropfinance.serversync.ServerSync? = null,
 ) {
+    val noSync = remember { kotlinx.coroutines.flow.MutableStateFlow(net.darkrelay.deaddropfinance.serversync.SyncStatus(net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED)) }
+    val noNotices = remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<String>()) }
+    val syncStatus by (sync?.status ?: noSync).collectAsState()
+    val syncNotices by (sync?.notices ?: noNotices).collectAsState()
+    var serverUi by remember { mutableStateOf(ServerUi()) }
     val actions = remember(store) { BudgetActions(store, platform.receiptFiles).also { it.requireCategories = true } }
     val sorting = remember(store) { Sorting(store, actions) }
     val categoryActions = remember(store) { CategoryActions(store) }
@@ -332,10 +343,13 @@ fun AppRoot(
     fun openWizard() { starters = emptySet(); wizard = WizardPage.WELCOME }
 
     LaunchedEffect(Unit) {
-        store.ensureSystemEnvelopes()
-        store.ensureCategories()
-        // 1.1.1: an install that was already budgeting starts its budget today; a new one starts when setup finishes
-        if (store.ensureBudgetStart(java.time.LocalDate.now(), appSettings.setupDone)) runCatching { sorting.labelHistory() }
+        // the app's own checks: they go in even while another device holds the server's edit lock
+        withContext(net.darkrelay.deaddropfinance.data.BackgroundWrite) {
+            store.ensureSystemEnvelopes()
+            store.ensureCategories()
+            // 1.1.1: an install that was already budgeting starts its budget today; a new one starts when setup finishes
+            if (store.ensureBudgetStart(java.time.LocalDate.now(), appSettings.setupDone)) runCatching { sorting.labelHistory() }
+        }
         // setup is required on a fresh install; an install that already has accounts gets the Home card instead
         val afterPurge = appSettings.setupAfterPurge
         val mode = setupMode(appSettings.setupDone, appSettings.setupCardDismissed, store.dao.accountsNow().isNotEmpty(), afterPurge)
@@ -486,9 +500,11 @@ fun AppRoot(
             Nav.Home -> {
                 val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true) == SetupMode.CARD
                 val r = release
-                val head: (@Composable () -> Unit)? = if (!showCard && r == null) null else {
+                val syncOn = syncStatus.state != net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED
+                val head: (@Composable () -> Unit)? = if (!showCard && r == null && !syncOn) null else {
                     {
                         Column {
+                            if (syncOn) SyncStatusLine(syncStatus, onSyncNow = { scope.launch { sync?.syncNow() } })
                             if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { appSettings.setupCardDismissed = true; cardDismissed = true })
                             if (r != null) updateBar(r)
                         }
@@ -583,6 +599,9 @@ fun AppRoot(
                 updateBar = release?.takeIf { updateFromMore }?.let { r -> { updateBar(r) } },
                 budgetStart = b.budgetStart,
                 onBudgetStart = { d -> run(scope) { store.setBudgetStart(d); sorting.labelHistory() } },
+                onServer = sync?.let { { serverUi = ServerUi(); go(Nav.Server) } },
+                serverLine = if (syncStatus.state == net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED) "Not connected. Connect to server"
+                    else syncStatusText(syncStatus),
                 onSetup = { openWizard() },
                 onErase = { go(Nav.Erase) },
                 onPurge = { go(Nav.Purge) },
@@ -660,13 +679,12 @@ fun AppRoot(
                 b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId, presetEnvelope = top.envelopeId,
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
-                onSavePayday = { d, fill ->
+                onSavePayday = { d, payday, fill ->
                     run(scope) {
-                        val plan = actions.savePayday(d, fill).second
+                        val plan = if (top.id == null) actions.savePayday(d, fill).second else actions.saveDeposit(top.id, d, payday, fill)
                         back()
-                        if (fill && plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
-                        message = if (!fill) "Payday: the new budget month starts ${d.date}." else "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover." +
-                            if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."
+                        if (plan != null && fill && plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
+                        message = if (plan == null) "Saved. It isn't a payday now." else paydayMessage(plan, fill, d.date)
                     }
                 },
             )
@@ -686,13 +704,12 @@ fun AppRoot(
                     t, b, washCandidates, message ?: error, ::back, onEdit = { go(Nav.TxEdit(t.id)) },
                     onDelete = { run(scope, popAfter = true) { actions.deleteTransaction(t.id) } },
                     onDeleteWithReceipt = { also -> run(scope, popAfter = true) { actions.deleteTransaction(t.id, deleteReceipt = also) } },
-                    onPayday = { mark ->
+                    onPayday = { mark, fill ->
                         run(scope) {
                             if (mark) {
-                                val plan = actions.markPayday(t.id)
-                                if (plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
-                                message = "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover." +
-                                    if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."
+                                val plan = actions.markPayday(t.id, fill = fill)
+                                if (fill && plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
+                                message = paydayMessage(plan, fill, t.date)
                             } else actions.unmarkPayday(t.id)
                         }
                     },
@@ -889,7 +906,9 @@ fun AppRoot(
                 },
                 onRestore = { pw ->
                     val uri = restoreUri
-                    if (uri != null) scope.launch {
+                    if (uri != null && sync?.connected == true) {
+                        backupState = backupState.copy(error = "Log out of the server (More > Server) before restoring a backup: a restore would replace the budget the server keeps in step.")
+                    } else if (uri != null) scope.launch {
                         backupState = backupState.copy(working = "Restoring...", message = null, error = null)
                         backupState = try {
                             val s = platform.restoreBackup(uri, pw.toCharArray())
@@ -1061,7 +1080,72 @@ fun AppRoot(
                 )
             }
             Nav.Erase -> EraseScreen(::back, working = erasing) { erasing = true; platform.eraseEverything() }
-            Nav.Purge -> PurgeScreen(::back, working = erasing) { erasing = true; platform.purgeData() }
+            Nav.Purge -> PurgeScreen(::back, working = erasing) {
+                if (sync?.connected == true) { back(); error = "Log out of the server (More > Server) before purging data." }
+                else { erasing = true; platform.purgeData() }
+            }
+            Nav.Server -> {
+                val s = sync
+                if (s == null) { Gone(::back); return }
+                fun serverRun(working: String, block: suspend () -> String?) = scope.launch {
+                    if (serverUi.working != null) return@launch
+                    serverUi = serverUi.copy(working = working, message = null, error = null)
+                    serverUi = try {
+                        val m = block()
+                        serverUi.copy(working = null, message = m)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: net.darkrelay.deaddropfinance.serversync.ServerException) {
+                        serverUi.copy(working = null, error = e.message)
+                    } catch (e: IllegalArgumentException) {
+                        serverUi.copy(working = null, error = e.message)
+                    } catch (e: Exception) {
+                        serverUi.copy(working = null, error = e.message ?: "That didn't work. Try again.")
+                    }
+                }
+                suspend fun loadDevices() { serverUi = serverUi.copy(devices = runCatching { s.devices() }.getOrNull()) }
+                LaunchedEffect(Unit) {
+                    serverUi = serverUi.copy(hasLocalData = s.hasLocalData())
+                    if (s.connected) loadDevices()
+                }
+                ServerScreen(
+                    serverUi, syncStatus,
+                    ServerInfo(s.serverUrl, s.fingerprint, s.username, s.deviceName, s.deviceId),
+                    connected = s.connected,
+                    onBack = ::back,
+                    onContact = { address ->
+                        serverRun("Connecting...") {
+                            val (url, key) = s.contact(address)
+                            serverUi = serverUi.copy(contactedUrl = url, contactedFingerprint = key.fingerprint)
+                            null
+                        }
+                    },
+                    onMode = { serverUi = serverUi.copy(createMode = it, error = null) },
+                    onCreate = { code, user, pw, name ->
+                        serverRun("Creating the account and sending the budget...") {
+                            s.createAccount(serverUi.contactedUrl!!, code, user, pw, name)
+                            loadDevices()
+                            "Connected. This phone's budget is the server's copy now."
+                        }
+                    },
+                    onLogin = { user, pw, name ->
+                        serverRun("Logging in...") {
+                            val saved = s.login(serverUi.contactedUrl!!, user, pw, name) { pass -> platform.backupBeforeServer(pass) }
+                            loadDevices()
+                            if (saved != null) "Logged in. This phone's old budget was backed up to $saved, encrypted with the account password." else "Logged in."
+                        }
+                    },
+                    onSyncNow = { scope.launch { s.syncNow(); loadDevices() } },
+                    onRevoke = { d -> serverRun("Removing ${d.name}...") { s.revoke(d.id); loadDevices(); "${d.name} was removed." } },
+                    onLogout = {
+                        serverRun("Logging out...") {
+                            s.logout()
+                            serverUi = ServerUi(hasLocalData = s.hasLocalData())
+                            "Logged out. The budget stays on this phone."
+                        }
+                    },
+                )
+            }
             Nav.Import -> ImportScreen(
                 b, importState, ::back,
                 onPick = {
@@ -1107,7 +1191,13 @@ fun AppRoot(
             },
             onFinish = {
                 // the budget starts the day setup finishes (a new install, or after Purge or Erase); running setup again keeps it
-                scope.launch { if (store.budgetStart() == null) { store.setBudgetStart(java.time.LocalDate.now()); runCatching { sorting.labelHistory() } } }
+                scope.launch {
+                    runCatching {
+                        withContext(net.darkrelay.deaddropfinance.data.BackgroundWrite) {
+                            if (store.budgetStart() == null) { store.setBudgetStart(java.time.LocalDate.now()); runCatching { sorting.labelHistory() } }
+                        }
+                    }
+                }
                 appSettings.setupAfterPurge = false
                 appSettings.setupDone = true
                 setupDone = true
@@ -1123,6 +1213,8 @@ fun AppRoot(
         bottomBar = { BottomTabs(stack.first()) { tab(it) } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
+            syncStatus.readOnlyBy?.let { ReadOnlyBanner(it) }
+            for (n in syncNotices) SyncNotice(n) { sync?.dismissNotice(n) }
             // screens that don't show errors themselves get them here, so a failed action never goes unsaid
             val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Reading, Nav.Receipts)
             val e = error
@@ -1151,3 +1243,10 @@ val EVERYDAY_STARTERS = setOf("Groceries", "Gas")
 
 /** A plain money line for messages. */
 fun money(c: Long) = Money.format(c)
+
+/** What a payday did, in a line: the month, the sweep into Rollover, and the fill when it was asked for. */
+fun paydayMessage(plan: Payday.Plan, fill: Boolean, date: LocalDate): String {
+    val swept = if (plan.sweeps.isEmpty()) "" else " ${plan.sweeps.size} swept into Rollover."
+    return if (!fill) "Payday: the new budget month starts $date.$swept"
+    else "Payday: ${plan.fills.size} envelopes filled.$swept" + if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."
+}

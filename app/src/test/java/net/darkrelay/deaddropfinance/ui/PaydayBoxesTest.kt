@@ -25,7 +25,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The Payday and Fill envelopes boxes on New transaction (1.3.3). Invented data. Debug build only (the compose rule's
+ * The Payday and Fill envelopes boxes on New transaction (1.3.3) and on Edit transaction for a deposit (1.4.0). Invented data. Debug build only (the compose rule's
  * test activity), like the other screen tests; domain/PaydayCheckboxTest covers the saving in both builds.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -39,10 +39,20 @@ class PaydayBoxesTest {
         .around(compose)
 
     private var saved: BudgetActions.TransactionDraft? = null
-    private var payday: Pair<BudgetActions.TransactionDraft, Boolean>? = null
+    private var payday: Triple<BudgetActions.TransactionDraft, Boolean, Boolean>? = null
 
     private fun show() = compose.setContent {
-        TransactionEditScreen(budget(), null, false, null, {}, { saved = it }, { _, _, _, _, _, _ -> }, onSavePayday = { d, f -> payday = d to f })
+        TransactionEditScreen(budget(), null, false, null, {}, { saved = it }, { _, _, _, _, _, _ -> }, onSavePayday = { d, p, f -> payday = Triple(d, p, f) })
+    }
+
+    /** The fixture's deposit "p" (500.00 to Ready to Assign), as a payday or not, open in Edit transaction. */
+    private fun edit(isPayday: Boolean) = compose.setContent {
+        val b = budget()
+        val b2 = net.darkrelay.deaddropfinance.domain.Budget(
+            b.accounts, b.envelopes, b.transactions.map { if (it.id == "p") it.copy(isPayday = isPayday) else it }, b.lines, b.moves,
+            b.bills, b.billPayments, b.categories, b.budgetStart,
+        )
+        TransactionEditScreen(b2, b2.transactions.single { it.id == "p" }, false, null, {}, { saved = it }, { _, _, _, _, _, _ -> }, onSavePayday = { d, p, f -> payday = Triple(d, p, f) })
     }
 
     @Test fun bothAreGreyedForSpending() {
@@ -75,10 +85,43 @@ class PaydayBoxesTest {
         compose.onNodeWithTag("fillEnvelopes").performClick()
         compose.onNodeWithText("Save").performClick()
         assertNull(saved)
-        val (d, fill) = payday!!
+        val (d, isPayday, fill) = payday!!
+        assertEquals(true, isPayday)
         assertEquals(true, fill)
         assertEquals(1500_00L, d.amount)
         assertEquals(listOf(true), d.lines.map { it.toReadyToAssign })
+    }
+
+    @Test fun anExistingDepositCanBeMadeAPaydayWithFill() {
+        edit(isPayday = false)
+        compose.onNodeWithTag("payday").assertIsEnabled().assertIsOff()
+        compose.onNodeWithTag("fillEnvelopes").assertIsNotEnabled()
+        compose.onNodeWithTag("payday").performClick()
+        compose.onNodeWithTag("fillEnvelopes").assertIsEnabled().performClick()
+        compose.onNodeWithText("Save").performClick()
+        assertNull(saved)
+        val (d, isPayday, fill) = payday!!
+        assertEquals(true, isPayday)
+        assertEquals(true, fill)
+        assertEquals(500_00L, d.amount)
+    }
+
+    @Test fun anExistingPaydayShowsTickedAndCanBeUnticked() {
+        edit(isPayday = true)
+        compose.onNodeWithTag("payday").assertIsEnabled().assertIsOn()
+        compose.onNodeWithTag("fillEnvelopes").assertIsNotEnabled()
+        compose.onNodeWithTag("payday").performClick()
+        compose.onNodeWithText("Save").performClick()
+        val (_, isPayday, fill) = payday!!
+        assertEquals(false, isPayday)
+        assertEquals(false, fill)
+    }
+
+    @Test fun anExistingDepositLeftAsItIsSavesPlainly() {
+        edit(isPayday = false)
+        compose.onNodeWithText("Save").performClick()
+        assertNull(payday)
+        assertEquals(500_00L, saved!!.amount)
     }
 
     @Test fun moneyInWithoutPaydayIsPlainMoneyIn() {
