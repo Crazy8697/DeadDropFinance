@@ -411,7 +411,10 @@ DESKTOP_VENDOR_STRINGS = [re.compile(r"(?i)\bN[e]xus[ _](?:One|S|4|5X?|6P?|7(?:_
                           re.compile(r"/space/[h]ome/stax/"),
                           # JNA's native libraries keep their maintainers' build paths (AIX and LoongArch builds)
                           re.compile(r"/[h]ome/matthiasblaesing/build-package-[^\s\x00]*"),
-                          re.compile(r"/[h]ome/panxuefeng/vm-infra/src/jna/[^\s\x00]*")]
+                          re.compile(r"/[h]ome/panxuefeng/vm-infra/src/jna/[^\s\x00]*"),
+                          # lazysodium-java's libsodium builds (desktop 0.10.0) keep the source paths of the machine they
+                          # were built on (libsodium 1.0.20's own source files, under its builder's Downloads folder)
+                          re.compile(r"/[U]sers/gp/Downloads/libsodium-1\.0\.20/src/libsodium/[^\s\x00]*")]
 DESKTOP_SKIP = ("DeadDropFinance/runtime/legal/",)
 
 
