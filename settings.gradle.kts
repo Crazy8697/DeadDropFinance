@@ -20,3 +20,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "DeadDropFinance"
 include(":app")
+include(":desktop")

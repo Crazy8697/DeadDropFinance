@@ -22,6 +22,11 @@ allow your browser to install unknown apps.
 
 Android 13 or newer.
 
+## Windows
+
+A desktop program for Windows is in development in `desktop/` (see `desktop/README.md`). Its releases are tagged
+`desktop-vX.Y.Z`; the phone app's update check never sees them.
+
 ## Privacy
 
 Your budget stays in the app's private storage on your phone, encrypted. The app never connects to your bank, and no

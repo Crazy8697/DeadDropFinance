@@ -14,6 +14,9 @@ the checker in DarkRelay's Windows programs, adapted for an Android project.
                                                   resources; the temp folder is deleted afterwards
     python tools/privacy_check.py --all           --tree, --public and --apk on the release APK in
                                                   app/build/outputs/apk/release
+    python tools/privacy_check.py --desktop <dir> the desktop program's built app image (desktop/build.ps1): every
+                                                  file, every entry of every jar, the class files' strings, the
+                                                  native DLLs and the bundled Java runtime
     python tools/privacy_check.py --root <dir>    check another copy of the tree (tests)
 
 Exit 1 and a list of file:line (or file: for binaries) if anything is found.
@@ -112,7 +115,7 @@ APK_BINARY_PATTERNS = [p for p in APK_PATTERNS if p is not EMAIL]
 SECRET_KINDS = {TOKEN[0], KEY[0], SECRET[0], KEYSTORE[0], FINGERPRINT[0], ENV_LINE[0],
                 "a secret matching a fingerprint in privacy-local.txt", "a file matching a fingerprint in privacy-local.txt"}
 SKIP_SUFFIX = {".png", ".jpg", ".jpeg", ".webp", ".ico", ".ttf", ".pdf", ".jar", ".p12", ".jks", ".keystore"}
-SKIP_PREFIX = ("licenses/", "LICENSE", "app/src/main/assets/licenses/")   # verbatim license texts
+SKIP_PREFIX = ("licenses/", "LICENSE", "app/src/main/assets/licenses/", "desktop/licenses/")   # verbatim license texts
 WORD = re.compile(r"[^\s\"'`=:,;()<>\[\]{}|]{8,}")
 
 
@@ -384,6 +387,64 @@ def check_apk(apk, root, local):
     return sc, n
 
 
+# The desktop app image (desktop/build.ps1) is mostly third-party: Compose, Skia and the Java runtime, whose strings
+# carry their own authors' addresses, sample IPs and PEM header names. Our own code is the desktop module's jar
+# (desktop-<hash>.jar): its entries get every APK pattern. Everything else gets only what could only be ours: a
+# personal user path, a home-lab hostname or tailnet name, a token, a real private key, a login in a web address, and
+# the privacy-local.txt values and fingerprints.
+DESKTOP_OWN_JAR = re.compile(r"^desktop-[0-9a-f]{16,}\.jar$")
+DESKTOP_KEY = ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----\s+[A-Za-z0-9+/=]{40,}"))
+DESKTOP_THIRD_PARTY = [USER_PATH, HOMELAB, TAILNET, TOKEN, CRED_URL, DESKTOP_KEY]
+# third-party strings in the app image, allowed one by one: Compose's preview device list names Google's older phones
+# and tablets; the JDK's jaxp.properties shows an example catalog path, and its java.xml module keeps a Sun test
+# path; the runtime's legal folder holds the vendors' license notices verbatim (author lists), like licenses/.
+# (Written with [x] character classes, so these lines don't match the patterns they allow.)
+DESKTOP_VENDOR_STRINGS = [re.compile(r"(?i)\bN[e]xus[ _](?:One|S|4|5X?|6P?|7(?:_2013)?|9|10)\b|id:N[e]xus[ _]\w+"),
+                          re.compile(r"file:///[u]sers/auser/"),
+                          re.compile(r"/space/[h]ome/stax/")]
+DESKTOP_SKIP = ("DeadDropFinance/runtime/legal/",)
+
+
+def check_desktop(app, local):
+    sc = Scan(local, set(), set())
+    n = 0
+
+    def blob(where, data, patterns):
+        if local.secret_file(data):
+            sc.found.append(f"{where}: a file matching a fingerprint in privacy-local.txt")
+        # ASCII/UTF-8 strings, and UTF-16LE (Windows resources) folded to ASCII
+        for text in (data.decode("latin-1"), data.replace(b"\x00", b"").decode("latin-1")):
+            for v in DESKTOP_VENDOR_STRINGS:
+                text = v.sub("", text)
+            scan_apk_strings(sc, where, [text], patterns, local)
+
+    for p in sorted(app.rglob("*")):
+        if not p.is_file():
+            continue
+        n += 1
+        rel = p.relative_to(app.parent).as_posix()
+        data = p.read_bytes()
+        own = bool(DESKTOP_OWN_JAR.match(p.name))
+        if rel.startswith(DESKTOP_SKIP):
+            continue
+        if p.suffix.lower() == ".jar":
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    if name.endswith("/"):
+                        continue
+                    n += 1
+                    blob(f"{rel}!{name}", z.read(name), APK_BINARY_PATTERNS if own else DESKTOP_THIRD_PARTY)
+            continue
+        blob(rel, data, DESKTOP_THIRD_PARTY)
+    seen, out = set(), []
+    for f in sc.found:
+        if f not in seen:
+            seen.add(f)
+            out.append(f)
+    sc.found = out
+    return sc, n
+
+
 def report(sc, summary):
     for f in sc.found:
         print(f)
@@ -398,7 +459,7 @@ def main(argv):
     if "--root" in argv:
         root = Path(argv[argv.index("--root") + 1]).resolve()
     local = Local(root)
-    modes = {m for m in ("--tree", "--public", "--apk", "--all") if m in argv} or {"--tree"}
+    modes = {m for m in ("--tree", "--public", "--apk", "--all", "--desktop") if m in argv} or {"--tree"}
     extra = f" (+{len(local.patterns)} local values, {len(local.fingerprints)} fingerprints)" \
         if local.patterns or local.fingerprints else ""
     bad = False
@@ -418,6 +479,13 @@ def main(argv):
             return 1
         sc, n = check_apk(apk, root, local)
         bad |= report(sc, f"privacy check: {len(sc.found)} finding(s) in {apk.name} ({n} entries and dumps)")
+    if "--desktop" in modes:
+        app = Path(argv[argv.index("--desktop") + 1]).resolve()
+        if not (app / "DeadDropFinance.exe").is_file():
+            print(f"privacy check: no desktop app image at {app.name}")
+            return 1
+        sc, n = check_desktop(app, local)
+        bad |= report(sc, f"privacy check: {len(sc.found)} finding(s) in the desktop app image ({n} files and jar entries)")
     return 1 if bad else 0
 
 

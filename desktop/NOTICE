@@ -1,0 +1,26 @@
+Dead Drop Finance for Windows
+Copyright 2026 DarkRelay
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The desktop program includes third-party components, each under its own license. They are listed in
+THIRD-PARTY-NOTICES.md (desktop/THIRD-PARTY-NOTICES.md in the source), and their license texts are in the licenses
+folder of the installed program.
+
+It runs on a bundled copy of the Java runtime (OpenJDK 21, Microsoft Build of OpenJDK), licensed under the GNU General
+Public License, version 2, with the Classpath Exception. The runtime's own notices are in its runtime\legal folder.
+
+It includes Skiko and Skia (JetBrains, Google), with ICU, HarfBuzz, libpng, libjpeg-turbo, libwebp, Expat, zlib and
+Wuffs linked into Skiko's native library. Skiko carries this notice:
+
+   This project contains code adapted from "The Android Open Source Project" licensed under the Apache License,
+   Version 2.0: https://android.googlesource.com/platform/frameworks/base
+
+It includes the kotlinx.coroutines and kotlinx.serialization libraries, which carry these notices under section 4(d)
+of the Apache License, Version 2.0:
+
+   kotlinx.coroutines library.
+   Copyright 2016-2025 JetBrains s.r.o and contributors
+
+   kotlinx.serialization library.
+   Copyright 2017-2019 JetBrains s.r.o and respective authors and developers
