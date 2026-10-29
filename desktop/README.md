@@ -8,7 +8,9 @@ Version 0.5.0 is the base: the program opens, shows its name and version, and up
 engine: the phone app's own logic, from the shared module (`shared/README.md`), on the program's own budget database.
 Version 0.7.0 adds the screens from the approved mockup (`desktop/docs/desktop-mockup.html`, private, not in the public
 source): Budget, Activity, Accounts, Reports and Sync placeholders, Settings, the envelope drawer and the Add
-transaction and Move money dialogs, and encrypts the budget. Features come in later stages (see `ROADMAP.md`).
+transaction and Move money dialogs, and encrypts the budget. Version 0.8.0 adds the phone's Payday and Fill envelopes
+boxes, the category picker and split lines to Add transaction, and an encrypted backup and restore in the phone's
+backup format (Settings and the File menu). Features come in later stages (see `ROADMAP.md`).
 
 ## Install
 

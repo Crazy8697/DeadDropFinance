@@ -20,15 +20,33 @@ enum class Screen(val title: String) { BUDGET("Budget"), ACTIVITY("Activity"), A
 
 /** An open dialog: Add transaction, Move money, an envelope or account form, or a CSV import's confirmation. */
 sealed class Dialog {
-    data class AddTransaction(val accountId: String? = null, val envelopeId: String? = null) : Dialog()
+    /** [payday], [fill], [split]: how the dialog starts (Payday ticked, split lines), as when picked by hand. */
+    data class AddTransaction(val accountId: String? = null, val envelopeId: String? = null, val payday: Boolean = false, val fill: Boolean = false, val split: Boolean = false) : Dialog()
     data class MoveMoney(val fromId: String? = null, val toId: String? = null) : Dialog()
     data class EnvelopeForm(val envelopeId: String? = null) : Dialog()
     data class AccountForm(val accountId: String? = null) : Dialog()
     data class ImportCsv(val accountId: String, val fileName: String, val plan: CsvImport.Plan) : Dialog()
+    /** Backup: a password typed twice, then where to save. */
+    object Backup : Dialog()
+    /** Restore from [file]: its password, then a confirmation before the budget is replaced. */
+    data class Restore(val file: java.io.File, val confirm: Boolean = false) : Dialog()
+}
+
+/** A backup password has to be at least this long (as on the phone). */
+const val BACKUP_PASSWORD_MIN = 8
+
+/** Why a new backup password can't be used, or null when it can (the phone's rule). */
+fun backupPasswordProblem(passphrase: String, again: String): String? = when {
+    passphrase.length < BACKUP_PASSWORD_MIN -> "Use at least $BACKUP_PASSWORD_MIN characters."
+    passphrase != again -> "The two passwords don't match."
+    else -> null
 }
 
 /** Where a Move money end points: Ready to Assign (null) or an envelope. */
 const val READY_TO_ASSIGN = "__rta__"
+
+/** Add transaction's "Not sorted yet (To sort)": money in, left to sort later. */
+const val TO_SORT = "__tosort__"
 
 /**
  * The desktop program's screen state and the actions behind its buttons, on the program's own budget through the
@@ -49,7 +67,8 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     /** A plain line under the top bar: a refused action's reason, or what an action did. */
     var message by mutableStateOf<Pair<String, Boolean>?>(null)
 
-    val actions: BudgetActions? = engine?.actions?.also { it.requireCategories = false }
+    /** The phone's rules: a purchase entered by hand needs a category (0.8.0). */
+    val actions: BudgetActions? = engine?.actions?.also { it.requireCategories = true }
     val unavailable: String? = (engine?.opened as? DesktopDatabase.Opened.Unavailable)?.reason
         ?: if (engine == null) "the budget is still opening" else null
 
@@ -98,18 +117,49 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     }
 
     /**
-     * Add transaction: [amount] as typed (positive). Into Ready to Assign it's money in; into an envelope it's spending
-     * from that envelope; To sort leaves it for later.
+     * Add transaction: [amount] as typed (positive), as in 0.7.0. Into Ready to Assign it's money in; into an envelope
+     * it's spending from that envelope, with a [category] (required, as on the phone); To sort ([TO_SORT]) is money in
+     * left to sort later, as the phone's Income "Not sorted yet". [payday] (money in to Ready to Assign only) starts the
+     * new budget month on [date]; [fill] then runs the payday fill.
      */
-    suspend fun addTransaction(accountId: String, date: LocalDate, payee: String, amount: Long, envelope: String?, note: String): Boolean {
+    suspend fun addTransaction(
+        accountId: String, date: LocalDate, payee: String, amount: Long, envelope: String?, note: String,
+        category: String? = null, payday: Boolean = false, fill: Boolean = false,
+    ): Boolean {
         if (amount <= 0) { message = "Enter an amount above zero." to true; return false }
         val line = when (envelope) {
             READY_TO_ASSIGN -> BudgetActions.LineDraft(null, amount, toReadyToAssign = true)
-            null -> null
-            else -> BudgetActions.LineDraft(envelope, -amount)
+            TO_SORT -> BudgetActions.LineDraft(null, amount)
+            else -> BudgetActions.LineDraft(envelope, -amount, categoryId = category)
         }
-        val signed = if (envelope == READY_TO_ASSIGN) amount else -amount
-        return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), signed, listOfNotNull(line))) }
+        val signed = if (envelope == READY_TO_ASSIGN || envelope == TO_SORT) amount else -amount
+        val draft = BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), signed, listOf(line))
+        if (payday && envelope != READY_TO_ASSIGN) { message = "Only money in to Ready to assign can be a payday." to true; return false }
+        if (!payday) return act("Saved.") { saveTransaction(null, draft) }
+        var plan: net.darkrelay.deaddropfinance.domain.Payday.Plan? = null
+        val ok = act { plan = savePayday(draft, fill, today()).second }
+        val p = plan
+        if (ok && p != null) {
+            val names = budget?.envelopes?.associate { it.id to it.name }.orEmpty()
+            message = when {
+                !fill -> "Payday: the new budget month starts $date."
+                p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover."
+                else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover. Short: " +
+                    p.shortfalls.joinToString(", ") { "${names[it.envelopeId] ?: "an envelope"} ${money(it.short)}" } + "."
+            } to false
+        }
+        return ok
+    }
+
+    /** One line of a split purchase: its category (required), its envelope (the category's by default) and amount. */
+    data class SplitLine(val category: String?, val envelope: String?, val amount: Long)
+
+    /** A purchase split into lines (one trip: groceries, electronics, fishing), as the phone's split. */
+    suspend fun addSplit(accountId: String, date: LocalDate, payee: String, note: String, total: Long, lines: List<SplitLine>): Boolean {
+        if (total <= 0) { message = "Enter an amount above zero." to true; return false }
+        if (lines.size < 2) { message = "A split needs at least two lines." to true; return false }
+        val drafts = lines.map { BudgetActions.LineDraft(it.envelope, -it.amount, categoryId = it.category) }
+        return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), -total, drafts)) }
     }
 
     /** Fill targets: each envelope in fill order gets what its mode wants (the phone's Assign Add), while money lasts. */
@@ -157,6 +207,49 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     }
 
     // ---- what the screens show ----------------------------------------------------------------------------
+
+    // ---- backup and restore (0.8.0) ------------------------------------------------------------------------
+
+    private fun backups(): net.darkrelay.deaddropfinance.backup.DesktopBackups? {
+        val ok = engine?.opened as? DesktopDatabase.Opened.Ok ?: return null
+        return net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "desktop-${BuildInfo.VERSION}")
+    }
+
+    /** Writes an encrypted backup to [file] (through a temporary file, so a failed backup never leaves half a file). */
+    suspend fun backup(file: java.io.File, passphrase: String, rounds: Int = net.darkrelay.deaddropfinance.backup.BackupCrypto.ITERATIONS): Boolean {
+        val bk = backups() ?: return false
+        backupPasswordProblem(passphrase, passphrase)?.let { message = it to true; return false }
+        val tmp = java.io.File(file.absoluteFile.parentFile, file.name + ".part")
+        return try {
+            val s = tmp.outputStream().use { bk.write(it, passphrase.toCharArray(), rounds) }
+            java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            message = "Backed up to ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." to false
+            true
+        } catch (e: Exception) {
+            tmp.delete()
+            message = "The backup couldn't be written to ${file.name}. Nothing was saved." to true
+            false
+        }
+    }
+
+    /** Replaces the budget with the backup in [file]. A wrong password or a bad file changes nothing. */
+    suspend fun restore(file: java.io.File, passphrase: String): Boolean {
+        val bk = backups() ?: return false
+        return try {
+            val s = file.inputStream().use { bk.restore(it, passphrase.toCharArray()) }
+            refresh()
+            monthIndex = 0
+            drawerEnvelope = null
+            message = "Restored from ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." to false
+            true
+        } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
+            message = "${e.message} Your budget wasn't changed." to true
+            false
+        } catch (e: Exception) {
+            message = "${file.name} can't be read. Your budget wasn't changed." to true
+            false
+        }
+    }
 
     fun envelopesInTable(b: Budget): List<EnvelopeEntity> = b.fillOrder
 

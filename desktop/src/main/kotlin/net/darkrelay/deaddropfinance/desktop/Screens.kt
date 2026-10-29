@@ -500,6 +500,13 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
             }
         }
         Spacer(Modifier.height(16.dp))
+        Panel("Backup and restore", "One encrypted file with this computer's budget, opened with a password you choose. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("Back up...", { model.dialog = Dialog.Backup }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
+                Btn("Restore...", { shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
+            }
+        }
+        Spacer(Modifier.height(16.dp))
         Panel("About", null, Modifier.fillMaxWidth()) {
             Kv("Version", BuildInfo.VERSION, tag = "aboutVersion")
             Kv("Data folder", shell.dataFolder)

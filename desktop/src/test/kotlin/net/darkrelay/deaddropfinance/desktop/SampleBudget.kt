@@ -54,8 +54,12 @@ object SampleBudget {
         a.markPayday(pay, payday)
         a.move(null, ids["Emergency fund"]!!, 350_00, date = today.minusDays(2))
         a.move(null, ids["Gifts"]!!, 60_00, date = today.minusDays(2))
+        // purchases by hand need a category, as on the phone
+        val categoryOf = mapOf("Electric" to "Utilities", "Dining out" to "Eating out", "Gas" to "Car gas", "Groceries" to "Groceries")
+        val categories = a.snapshot().categories.associate { it.name to it.id }
         suspend fun spend(account: String, days: Long, payee: String, cents: Long, envelope: String, memo: String = "") =
-            a.saveTransaction(null, TransactionDraft(ids[account]!!, today.minusDays(days), payee, memo, -cents, listOf(LineDraft(ids[envelope], -cents))))
+            a.saveTransaction(null, TransactionDraft(ids[account]!!, today.minusDays(days), payee, memo, -cents,
+                listOf(LineDraft(ids[envelope], -cents, categoryId = categories.getValue(categoryOf.getValue(envelope))))))
         spend("Checking", 6, "Power Company", 58_00, "Electric", "Autopay")
         spend("Cash", 5, "Noodle House", 18_25, "Dining out")
         spend("Checking", 1, "Fuel Stop 12", 40_00, "Gas", "Half tank")

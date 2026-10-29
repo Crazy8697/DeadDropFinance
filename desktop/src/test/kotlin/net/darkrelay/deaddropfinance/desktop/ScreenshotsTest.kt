@@ -39,16 +39,30 @@ class ScreenshotsTest {
                 scene.close()
             }
         }
-        shot("01-budget") { m.go(Screen.BUDGET) }
-        shot("02-envelope-drawer") { m.go(Screen.BUDGET); m.drawerEnvelope = made.ids["Groceries"] }
-        shot("03-activity-all") { m.go(Screen.ACTIVITY); m.activityTab = null }
-        shot("04-activity-account") { m.go(Screen.ACTIVITY); m.activityTab = made.ids["Checking"] }
-        shot("05-accounts") { m.go(Screen.ACCOUNTS) }
-        shot("06-reports") { m.go(Screen.REPORTS) }
-        shot("07-sync") { m.go(Screen.SYNC) }
-        shot("08-settings") { m.go(Screen.SETTINGS) }
-        shot("09-add-transaction") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"]) }
-        shot("10-move-money") { m.go(Screen.BUDGET); m.dialog = Dialog.MoveMoney(READY_TO_ASSIGN, made.ids["Groceries"]) }
+        val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.8.0") {
+            // 0.8.0: the new and changed screens and dialogs
+            shot("01-add-transaction-category") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"]) }
+            shot("02-add-transaction-payday-fill") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], READY_TO_ASSIGN, payday = true, fill = true) }
+            shot("03-add-transaction-payday-only") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], READY_TO_ASSIGN, payday = true) }
+            shot("04-add-transaction-split") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"], split = true) }
+            shot("05-settings-backup") { m.go(Screen.SETTINGS) }
+            shot("06-backup") { m.go(Screen.SETTINGS); m.dialog = Dialog.Backup }
+            shot("07-restore") { m.go(Screen.SETTINGS); m.dialog = Dialog.Restore(backupFile) }
+            shot("08-restore-confirm") { m.go(Screen.SETTINGS); m.dialog = Dialog.Restore(backupFile, confirm = true) }
+            shot("09-budget") { m.go(Screen.BUDGET) }
+        } else {
+            shot("01-budget") { m.go(Screen.BUDGET) }
+            shot("02-envelope-drawer") { m.go(Screen.BUDGET); m.drawerEnvelope = made.ids["Groceries"] }
+            shot("03-activity-all") { m.go(Screen.ACTIVITY); m.activityTab = null }
+            shot("04-activity-account") { m.go(Screen.ACTIVITY); m.activityTab = made.ids["Checking"] }
+            shot("05-accounts") { m.go(Screen.ACCOUNTS) }
+            shot("06-reports") { m.go(Screen.REPORTS) }
+            shot("07-sync") { m.go(Screen.SYNC) }
+            shot("08-settings") { m.go(Screen.SETTINGS) }
+            shot("09-add-transaction") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"]) }
+            shot("10-move-money") { m.go(Screen.BUDGET); m.dialog = Dialog.MoveMoney(READY_TO_ASSIGN, made.ids["Groceries"]) }
+        }
         made.model.engine?.close()
     }
 }

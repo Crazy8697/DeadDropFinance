@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.ui.platform.testTag
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
@@ -386,6 +387,11 @@ fun TransactionEditScreen(
     presetAccount: String? = null,
     /** Started from an envelope's Add activity (1.3.0): that envelope is chosen. */
     presetEnvelope: String? = null,
+    /**
+     * A new transaction saved with Payday ticked (1.3.3): money in to Ready to Assign, marked as payday so the new budget
+     * month starts on its date; the Boolean is Fill envelopes. Null hides the two boxes.
+     */
+    onSavePayday: ((BudgetActions.TransactionDraft, Boolean) -> Unit)? = null,
 ) {
     val accounts = budget.accounts.filter { !it.archived || it.id == existing?.accountId }
     val existingLines = existing?.let { e -> budget.lines.filter { it.transactionId == e.id }.sortedBy { it.sortOrder } } ?: emptyList()
@@ -425,6 +431,12 @@ fun TransactionEditScreen(
     }
     val categoryOptions: List<Pair<String?, String>> = budget.categories.map { it.id to it.name }
     var atmEnvelope by remember { mutableStateOf<String?>(null) }
+    // Payday and Fill envelopes (1.3.3): only for new money in to Ready to Assign; Fill only once Payday is ticked
+    var payday by remember { mutableStateOf(false) }
+    var fillEnvelopes by remember { mutableStateOf(false) }
+    val paydayAllowed = existing == null && onSavePayday != null && kind == EditKind.INCOME && !split && single == "rta"
+    val paydayOn = payday && paydayAllowed
+    val fillOn = fillEnvelopes && paydayOn
     val envelopeOptions: List<Pair<String?, String>> = budget.fillOrder.map { it.id to it.name }
     val destOptions: List<Pair<String?, String>> =
         (if (kind == EditKind.INCOME) listOf<Pair<String?, String>>("rta" to "Ready to assign") else emptyList()) + envelopeOptions +
@@ -453,6 +465,22 @@ fun TransactionEditScreen(
         TextFieldRow("Memo", memo, { memo = it })
         if (kind != EditKind.TRANSFER) {
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(pending, { pending = it }); Text("Pending (the bank hasn't posted it yet)") }
+            if (existing == null && onSavePayday != null) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("paydayRow")) {
+                    Checkbox(paydayOn, { payday = it; if (!it) fillEnvelopes = false }, enabled = paydayAllowed, modifier = Modifier.testTag("payday"))
+                    Column {
+                        Text("Payday", color = if (paydayAllowed) androidx.compose.ui.graphics.Color.Unspecified else DdfColors.Muted)
+                        Text("The new budget month starts on this date. Only for money in to Ready to assign.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 24.dp)) {
+                    Checkbox(fillOn, { fillEnvelopes = it }, enabled = paydayOn, modifier = Modifier.testTag("fillEnvelopes"))
+                    Column {
+                        Text("Fill envelopes", color = if (paydayOn) androidx.compose.ui.graphics.Color.Unspecified else DdfColors.Muted)
+                        Text("Fills your envelopes from this payday, in fill order.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             if (!split) {
                 if (kind == EditKind.SPEND) Picker("Category", categoryOptions, singleCat, { c -> singleCat = c; c?.let { budget.envelopeForCategory(it) }?.let { single = it } })
                 Picker(if (kind == EditKind.SPEND) "Envelope" else "Goes to", destOptions, single, { single = it })
@@ -492,7 +520,8 @@ fun TransactionEditScreen(
                 } else {
                     fun line(dest: String?, a: Long, cat: String?) = BudgetActions.LineDraft(dest?.takeIf { it != "rta" }, a, toReadyToAssign = dest == "rta", categoryId = cat.takeIf { kind == EditKind.SPEND })
                     val lines = if (!split) listOf(line(single, sign * cents, singleCat)) else splitLines.map { line(it.envelope, sign * (Money.parse(it.amount)?.let { a -> kotlin.math.abs(a) } ?: 0), it.category) }
-                    onSave(BudgetActions.TransactionDraft(account ?: "", d, payee, memo, sign * cents, lines, pending))
+                    val draft = BudgetActions.TransactionDraft(account ?: "", d, payee, memo, sign * cents, lines, pending)
+                    if (paydayOn) onSavePayday?.invoke(draft, fillOn) else onSave(draft)
                 }
             },
             modifier = Modifier.fillMaxWidth(),

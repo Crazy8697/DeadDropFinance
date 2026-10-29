@@ -65,6 +65,7 @@ tasks.test {
     useJUnit()
     // screenshots of every screen into a folder, only when asked for: -Pddf.screens=<folder>
     systemProperty("ddf.screens", providers.gradleProperty("ddf.screens").getOrElse(""))
+    systemProperty("ddf.screensRound", providers.gradleProperty("ddf.screensRound").getOrElse(""))
 }
 
 compose.desktop {

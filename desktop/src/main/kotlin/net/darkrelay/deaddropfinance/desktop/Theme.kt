@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -184,7 +185,7 @@ fun Switch(on: Boolean, onChange: (Boolean) -> Unit, tag: String? = null) {
 
 /** A labeled text field (the mockup's .f input). */
 @Composable
-fun Field(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, placeholder: String = "", tag: String? = null) {
+fun Field(label: String, value: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, placeholder: String = "", tag: String? = null, masked: Boolean = false) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Label(label)
         val shape = RoundedCornerShape(7.dp)
@@ -192,6 +193,7 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, modifier: Mo
             if (value.isEmpty() && placeholder.isNotEmpty()) T(placeholder, 13.5.sp, C.Dim2)
             BasicTextField(
                 value, onChange, singleLine = true, textStyle = ts(13.5.sp), cursorBrush = SolidColor(C.Cyan),
+                visualTransformation = if (masked) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
                 modifier = Modifier.fillMaxWidth().let { if (tag != null) it.testTag(tag) else it },
             )
         }
@@ -200,7 +202,7 @@ fun Field(label: String, value: String, onChange: (String) -> Unit, modifier: Mo
 
 /** A labeled choice (the mockup's .f select): click to open the list. */
 @Composable
-fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSelect: (K) -> Unit, modifier: Modifier = Modifier, tag: String? = null) {
+fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSelect: (K) -> Unit, modifier: Modifier = Modifier, tag: String? = null, placeholder: String = "") {
     var open by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Label(label)
@@ -211,7 +213,8 @@ fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSel
                     .clickable { open = true }.padding(horizontal = 11.dp, vertical = 8.dp).let { if (tag != null) it.testTag(tag) else it },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                T(options.firstOrNull { it.first == selected }?.second ?: "", 13.5.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                val shown = options.firstOrNull { it.first == selected }?.second
+                T(shown ?: placeholder, 13.5.sp, if (shown == null) C.Dim2 else C.Text, modifier = Modifier.weight(1f).let { if (tag != null) it.testTag("$tag.value") else it }, maxLines = 1)
                 T("▾", 12.sp, C.Dim)
             }
             androidx.compose.material3.DropdownMenu(open, { open = false }, containerColor = C.Panel2, modifier = Modifier.border(1.dp, C.Line2)) {
@@ -230,4 +233,29 @@ fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSel
 @Composable
 fun Glow(size: Dp, radius: Dp, modifier: Modifier = Modifier) {
     Box(modifier.size(size).clip(RoundedCornerShape(radius)).background(Brush.radialGradient(listOf(C.Cyan, C.Teal))))
+}
+
+/**
+ * A checkbox with its label and help line, greyed and unclickable when not [enabled] (the Payday and Fill envelopes
+ * boxes). Toggleable semantics, so it reads as a checkbox to tests and screen readers.
+ */
+@Composable
+fun CheckRow(title: String, sub: String, checked: Boolean, enabled: Boolean, tag: String, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
+    Row(
+        modifier.alpha(if (enabled) 1f else 0.4f)
+            .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Checkbox, onValueChange = onChange)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val shape = RoundedCornerShape(4.dp)
+        Box(
+            Modifier.size(16.dp).clip(shape).background(if (checked) C.Teal else C.Input).border(1.dp, if (checked) C.Cyan else C.Line2, shape),
+            contentAlignment = Alignment.Center,
+        ) { if (checked) T("✓", 11.sp, C.Text, FontWeight.Bold) }
+        Box(Modifier.width(10.dp))
+        Column {
+            T(title, 13.5.sp)
+            T(sub, 11.5.sp, C.Dim2)
+        }
+    }
 }

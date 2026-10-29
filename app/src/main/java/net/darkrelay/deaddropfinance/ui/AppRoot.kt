@@ -660,6 +660,15 @@ fun AppRoot(
                 b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId, presetEnvelope = top.envelopeId,
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
                 onSaveTransfer = { from, to, amount, date, memo, env -> run(scope, popAfter = true) { actions.saveTransfer(top.id, from, to, amount, date, memo, env) } },
+                onSavePayday = { d, fill ->
+                    run(scope) {
+                        val plan = actions.savePayday(d, fill).second
+                        back()
+                        if (fill && plan.shortfalls.isNotEmpty()) go(Nav.Assign(plan.shortfalls))
+                        message = if (!fill) "Payday: the new budget month starts ${d.date}." else "Payday: ${plan.fills.size} envelopes filled, ${plan.sweeps.size} swept into Rollover." +
+                            if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."
+                    }
+                },
             )
             is Nav.Bonus -> {
                 val t = top.id?.let { id -> b.transactions.firstOrNull { it.id == id } }

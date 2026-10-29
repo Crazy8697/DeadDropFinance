@@ -452,7 +452,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
      * date; detection comes later). Its money goes to Ready to Assign, the budget month closes (Rollover sweep),
      * and auto-fill runs in fill order. Returns the plan, shortfalls included, for the screen.
      */
-    suspend fun markPayday(txId: String, today: LocalDate = LocalDate.now()): Payday.Plan {
+    suspend fun markPayday(txId: String, today: LocalDate = LocalDate.now(), fill: Boolean = true): Payday.Plan {
         val tx = dao.transaction(txId) ?: throw BudgetRuleException("That transaction is gone.")
         if (tx.kind != TransactionKind.NORMAL || tx.amount <= 0 || tx.isWash) throw BudgetRuleException("Only a deposit can be a payday.")
         if (tx.isPayday) throw BudgetRuleException("That's already marked as payday.")
@@ -463,6 +463,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             // the deposit itself lands in Ready to Assign
             replaceLines(this, tx.id, listOf(LineDraft(null, tx.amount, toReadyToAssign = true)))
             val b = snapshot()
+            // Payday without Fill envelopes (1.3.3): the new budget month starts on this date and nothing else moves
+            if (!fill) return@write Payday.Plan(emptyList(), emptyList(), emptyList(), b.readyToAssign)
             val closes = b.paydayDates.any { it.isBefore(tx.date) } || b.transactions.count { it.isPayday } > 1
             val plan = Payday.plan(b, today, closes)
             for (m in plan.sweeps) {
@@ -476,6 +478,22 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     }
 
     /** Undoes a payday: its sweep and auto-fill moves become tombstones; the deposit stays in Ready to Assign. */
+    /**
+     * Add transaction with Payday ticked (1.3.3): money in to Ready to Assign, saved and marked as payday, so the new
+     * budget month starts on its date. [fill] (Fill envelopes) runs the payday fill as Mark as payday does: the month's
+     * Rollover sweep, then auto-fill in fill order, shortfalls reported. Checked before anything is saved, so a refused
+     * payday saves nothing. Money in that isn't a payday is an ordinary [saveTransaction].
+     */
+    suspend fun savePayday(d: TransactionDraft, fill: Boolean, today: LocalDate = LocalDate.now()): Pair<String, Payday.Plan> {
+        val line = d.lines.singleOrNull()
+        if (d.amount <= 0 || line == null || !line.toReadyToAssign || line.envelopeId != null || line.transfer) {
+            throw BudgetRuleException("Only money in to Ready to Assign can be a payday.")
+        }
+        if (!snapshot().countsFor(d.accountId, d.date)) throw BudgetRuleException("That's before the budget start date, so it can't be a payday.")
+        val id = saveTransaction(null, d)
+        return id to markPayday(id, today, fill)
+    }
+
     suspend fun unmarkPayday(txId: String) = store.write {
         val tx = dao.transaction(txId) ?: return@write
         if (!tx.isPayday) return@write

@@ -124,7 +124,8 @@ try {
         if ($plain -and $r["dbMigrated"] -ne "true") { Fail "the plain budget wasn't moved into an encrypted one: $((Get-Content $out) -join '; ')" }
         if ($r["envelopes"] -ne $old["envelopes"] -or $r["categories"] -ne $old["categories"]) { Fail "the encrypted budget doesn't hold what the older one did" }
         foreach ($left in @("budget.db.plain", "budget.db.encrypting")) { if (Test-Path (Join-Path $data $left)) { Fail "$left was left behind" } }
-        Ok "upgrade: the older build's plain budget is now encrypted (SQLCipher 4 format, key under DPAPI), same rows, the plain file gone"
+        if ($plain) { Ok "upgrade: the older build's plain budget is now encrypted (SQLCipher 4 format, key under DPAPI), same rows, the plain file gone" }
+        else { Ok "upgrade: the older build's encrypted budget is kept, same key, same rows" }
     }
 
     # ---- 3 ----

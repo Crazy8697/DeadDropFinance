@@ -60,6 +60,10 @@ class Shell(
     val run: (suspend () -> Unit) -> Unit = {},
     /** Asks for a CSV file; null when cancelled. */
     val pickCsv: () -> java.io.File? = { null },
+    /** Asks where to save a backup ([suggested]: the file name offered); null when cancelled. */
+    val pickBackupSave: (suggested: String) -> java.io.File? = { null },
+    /** Asks for a backup file to restore; null when cancelled. */
+    val pickBackupOpen: () -> java.io.File? = { null },
 )
 
 @Composable
@@ -92,7 +96,13 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                 }
             }
         }
-        model.dialog?.let { d -> model.budget?.let { b -> DialogHost(model, shell, b, d) } }
+        model.dialog?.let { d ->
+            when (d) {
+                is Dialog.Backup -> BackupDialog(model, shell)
+                is Dialog.Restore -> RestoreDialog(model, shell, d)
+                else -> model.budget?.let { b -> DialogHost(model, shell, b, d) }
+            }
+        }
     }
 }
 
@@ -101,7 +111,11 @@ fun DesktopApp(model: AppModel, shell: Shell) {
 @Composable
 private fun MenuStrip(model: AppModel, shell: Shell) {
     Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF0D1217)).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Menu("File") { close -> MenuItem("Exit") { close(); shell.onExit() } }
+        Menu("File") { close ->
+            MenuItem("Back up...", enabled = model.budget != null) { close(); model.dialog = Dialog.Backup }
+            MenuItem("Restore...", enabled = model.budget != null) { close(); shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
+            MenuItem("Exit") { close(); shell.onExit() }
+        }
         Menu("Edit") { close ->
             MenuItem("Add transaction", enabled = model.budget != null) { close(); model.dialog = Dialog.AddTransaction(model.activityTab) }
             MenuItem("Move money", enabled = model.budget != null) { close(); model.dialog = Dialog.MoveMoney() }

@@ -96,6 +96,8 @@ class DesktopAppTest {
         tag("f.payee").performTextInput("Sample Car Wash")
         tag("f.amount").performTextInput("12.34")
         pick("f.account", "Checking")
+        // a purchase needs a category (0.8.0, the phone's rule); no envelope claims Car gas, so it would go to Unplanned
+        pick("f.category", "Car gas")
         pick("f.envelope", "Gas")
         tag("dialog.save").performClick()
         compose.waitForIdle()

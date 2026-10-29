@@ -110,6 +110,14 @@ fun main(args: Array<String>) {
                     val d = FileDialog(window, "Import CSV", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".csv") }; file = "*.csv"; isVisible = true }
                     d.file?.let { File(d.directory, it) }
                 },
+                pickBackupSave = { suggested ->
+                    val d = FileDialog(window, "Back up", FileDialog.SAVE).apply { file = suggested; isVisible = true }
+                    d.file?.let { n -> File(d.directory, if (n.lowercase().endsWith(".ddfbak")) n else "$n.ddfbak") }
+                },
+                pickBackupOpen = {
+                    val d = FileDialog(window, "Restore", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".ddfbak") }; file = "*.ddfbak"; isVisible = true }
+                    d.file?.let { File(d.directory, it) }
+                },
             )
             DesktopApp(model, shell)
             if (smoke != null) {
