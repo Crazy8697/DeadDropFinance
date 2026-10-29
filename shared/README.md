@@ -12,8 +12,11 @@ the budget math). Nothing here draws a screen.
 - **android** (the AGP `com.android.kotlin.multiplatform.library` plugin): what the phone app depends on. Room's code
   for it is generated exactly as it was inside the app, and the app still opens the database itself on SQLCipher
   (`app/.../data/DatabaseOpener.kt`), with its migrations (`Migrations.kt`) and keys (`DbKeys.kt`).
-- **jvm**: what the desktop program depends on. Room runs on bundled SQLite there (`DesktopDatabase`), on the
-  program's own file in `%APPDATA%\DeadDropFinance`, never the phone's.
+- **jvm**: what the desktop program depends on. Room runs there (`DesktopDatabase`) on the program's own file in
+  `%APPDATA%\DeadDropFinance`, never the phone's, encrypted in SQLCipher 4's format like the phone's (SQLite3 Multiple
+  Ciphers through its JDBC driver, `desktopdb/CipherDriver.kt`), with its 32-byte key protected by Windows DPAPI for
+  the current user (`DesktopKey`, `budget.key`). A plain budget left by desktop 0.6.0 is copied into an encrypted one,
+  checked, and only then removed. Tests: `src/jvmTest` (`DesktopEncryptionTest`).
 
 The code is in `src/jvmShared/kotlin`, which both targets compile as their own platform code. That keeps it exactly
 as it was in the app: it uses `java.time`, `javax.crypto` and `org.json` (Android's own on the phone, `org.json:json` on

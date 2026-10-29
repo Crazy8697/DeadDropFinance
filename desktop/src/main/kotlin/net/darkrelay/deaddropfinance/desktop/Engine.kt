@@ -7,7 +7,7 @@ import net.darkrelay.deaddropfinance.domain.BudgetActions
 
 /**
  * The Dead Drop Finance engine on the desktop: the phone app's own logic (the shared module) on the program's own
- * budget database in %APPDATA%\DeadDropFinance, separate from the phone until sync exists. No screen uses it yet.
+ * encrypted budget database in %APPDATA%\DeadDropFinance, separate from the phone until sync exists.
  */
 class Engine private constructor(val opened: DesktopDatabase.Opened) {
 
@@ -15,12 +15,15 @@ class Engine private constructor(val opened: DesktopDatabase.Opened) {
 
     /** What the program's data holds, in plain words, for the smoke test. Never throws. */
     suspend fun describe(): Map<String, String> {
-        val ok = opened as? DesktopDatabase.Opened.Ok ?: return mapOf("db" to "unavailable")
+        val ok = opened as? DesktopDatabase.Opened.Ok
+            ?: return mapOf("db" to "unavailable", "dbReason" to (opened as DesktopDatabase.Opened.Unavailable).reason)
         return try {
             val version = ok.store.db.useReaderConnection { c -> c.usePrepared("PRAGMA user_version") { it.step(); it.getLong(0) } }
             mapOf(
                 "db" to "ok",
                 "dbFile" to ok.file.absolutePath,
+                "dbEncrypted" to (!DesktopDatabase.isPlain(ok.file)).toString(),
+                "dbMigrated" to ok.migrated.toString(),
                 "dbSchema" to version.toString(),
                 "envelopes" to ok.store.dao.envelopesNow().size.toString(),
                 "categories" to ok.store.dao.categoriesNow().size.toString(),

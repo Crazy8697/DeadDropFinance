@@ -84,7 +84,7 @@ function Invoke-Build {
     Step "clean, test and build the app image (license gate on)"
     Push-Location $Root
     try {
-        Run (Join-Path $Root "gradlew.bat") @("--no-daemon", "--console=plain", ":desktop:clean", ":desktop:test", ":desktop:createDistributable")
+        Run (Join-Path $Root "gradlew.bat") @("--no-daemon", "--console=plain", ":desktop:clean", ":shared:jvmTest", ":desktop:test", ":desktop:createDistributable")
     } finally { Pop-Location }
     if (-not (Test-Path (Join-Path $AppImage "DeadDropFinance.exe"))) { Fail "no DeadDropFinance.exe after the build" }
 }
@@ -134,7 +134,8 @@ function Invoke-Smoke {
         $ver = Get-DesktopVersion
         $ok = $r["name"] -eq "Dead Drop Finance" -and $r["version"] -eq $ver -and $r["title"] -eq "Dead Drop Finance" -and
               $r["showing"] -eq "true" -and $r["focused"] -eq "false" -and $r["settingsDir"] -eq (Join-Path $appData "DeadDropFinance") -and
-              $r["db"] -eq "ok" -and $r["dbSchema"] -eq "12" -and $r["dbFile"] -eq (Join-Path $appData "DeadDropFinance\budget.db")
+              $r["db"] -eq "ok" -and $r["dbSchema"] -eq "12" -and $r["dbFile"] -eq (Join-Path $appData "DeadDropFinance\budget.db") -and
+              $r["dbEncrypted"] -eq "true"
         Get-Content $out | ForEach-Object { Write-Host "  $_" }
         $leftovers = @(Get-ChildItem -Recurse -File $AppImage | Where-Object { $_.LastWriteTime -gt $p.StartTime })
         if ($leftovers.Count) { Fail "the program wrote next to the exe: $($leftovers.FullName -join ', ')" }

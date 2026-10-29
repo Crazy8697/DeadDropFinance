@@ -204,7 +204,7 @@ class EngineTest {
         val e = start(dir)
         assertIs<DesktopDatabase.Opened.Unavailable>(e.opened)
         assertEquals(null, e.actions)
-        assertEquals(mapOf("db" to "unavailable"), e.describe())
+        assertEquals("unavailable", e.describe()["db"])
         assertTrue(File(dir, "budget.db").readBytes().contentEquals(junk), "the file is left exactly as it was")
     }
 

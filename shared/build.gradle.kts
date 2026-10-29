@@ -1,6 +1,6 @@
 // The shared module: Dead Drop Finance's logic (data model, database, envelopes, transactions, CSV import, rules,
 // calculations), built twice from one source folder: for the phone app (Android target, Room on the phone's SQLCipher)
-// and for the desktop program (JVM target, Room on bundled SQLite). See shared/README.md.
+// and for the desktop program (JVM target, Room on encrypted SQLite). See shared/README.md.
 //
 // The code lives in src/jvmShared/kotlin, which both targets compile as their own platform code, so it keeps using
 // java.time and org.json (Android's own org.json on the phone, org.json:json on the desktop) exactly as it did inside
@@ -39,14 +39,24 @@ kotlin {
             kotlin.srcDir(shared)
             dependencies {
                 api("androidx.room:room-runtime:2.8.5")
-                // SQLite itself for the desktop (the phone uses SQLCipher through the app)
-                api("androidx.sqlite:sqlite-bundled:2.6.2")
+                // the desktop's encrypted SQLite: SQLite3 Multiple Ciphers in its SQLCipher 4 mode (the phone uses SQLCipher
+                // through the app), and JNA for Windows DPAPI, which protects its key
+                implementation("io.github.willena:sqlite-jdbc:3.53.4.0")
+                implementation("net.java.dev.jna:jna-platform:5.19.1")
                 // the phone gets org.json from Android itself
                 implementation("org.json:json:20260814")
             }
         }
+        jvmTest {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation("junit:junit:4.13.2")
+            }
+        }
     }
 }
+
+tasks.named<Test>("jvmTest") { useJUnit() }
 
 dependencies {
     add("kspAndroid", "androidx.room:room-compiler:2.8.5")

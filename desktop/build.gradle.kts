@@ -63,6 +63,8 @@ dependencies {
 
 tasks.test {
     useJUnit()
+    // screenshots of every screen into a folder, only when asked for: -Pddf.screens=<folder>
+    systemProperty("ddf.screens", providers.gradleProperty("ddf.screens").getOrElse(""))
 }
 
 compose.desktop {
@@ -76,7 +78,8 @@ compose.desktop {
             vendor = "DarkRelay"
             copyright = "Copyright 2026 DarkRelay"
             licenseFile.set(rootProject.file("LICENSE"))
-            modules("java.desktop", "jdk.unsupported")
+            // java.sql: the JDBC driver behind the encrypted budget (0.7.0)
+            modules("java.desktop", "java.sql", "jdk.unsupported")
             windows {
                 iconFile.set(project.file("icons/deaddropfinance.ico"))
                 // the launcher never opens a console window

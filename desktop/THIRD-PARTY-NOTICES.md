@@ -16,7 +16,8 @@ License: GNU General Public License, version 2, with the Classpath Exception (de
 Upstream: https://openjdk.org, https://www.microsoft.com/openjdk
 
 The program runs on its own copy of the Java runtime (version 21.0.12, made with jlink: the modules java.base,
-java.datatransfer, java.desktop, java.logging, java.prefs, java.xml, jdk.crypto.ec and jdk.unsupported), in the
+java.datatransfer, java.desktop, java.logging, java.prefs, java.sql, java.transaction.xa, java.xml, jdk.crypto.ec and
+jdk.unsupported), in the
 runtime folder of the installed program. The runtime carries its own notices for the components it includes (among
 them zlib, libpng, libjpeg, giflib, FreeType, HarfBuzz, Little CMS, ICU and Unicode data) in runtime\legal, one folder
 per module, exactly as the JDK ships them.
@@ -62,14 +63,13 @@ Upstream: https://github.com/androidx/androidx
 | `androidx.savedstate:savedstate-desktop` | 1.4.0 | Apache License, Version 2.0 |
 | `androidx.savedstate:savedstate` | 1.4.0 | Apache License, Version 2.0 |
 
-## Room and SQLite for the desktop (Google, The Android Open Source Project)
+## Room for the desktop (Google, The Android Open Source Project)
 
 License: Apache-2.0 (licenses/Apache-2.0.txt)  
 Upstream: https://github.com/androidx/androidx
 
-The budget database (from 0.6.0): the phone app's Room database code, built for the desktop by the shared module, on
-bundled SQLite. sqlite-bundled-jvm carries the native library sqliteJni (SQLite 3.50.1, public domain,
-licenses/SQLite-Public-Domain.txt) for Windows, Linux and macOS inside the jar; the program uses the Windows one.
+The budget database: the phone app's Room database code, built for the desktop by the shared module. From 0.7.0 it
+runs on the encrypted SQLite below (0.6.0 used androidx.sqlite:sqlite-bundled, which no longer ships).
 
 | Component | Version | License (from its POM) |
 |---|---|---|
@@ -79,8 +79,37 @@ licenses/SQLite-Public-Domain.txt) for Windows, Linux and macOS inside the jar; 
 | `androidx.room:room-runtime-jvm` | 2.8.5 | Apache License, Version 2.0 |
 | `androidx.sqlite:sqlite` | 2.6.2 | Apache License, Version 2.0 |
 | `androidx.sqlite:sqlite-jvm` | 2.6.2 | Apache License, Version 2.0 |
-| `androidx.sqlite:sqlite-bundled` | 2.6.2 | Apache License, Version 2.0 |
-| `androidx.sqlite:sqlite-bundled-jvm` | 2.6.2 | Apache License, Version 2.0 |
+
+## SQLite JDBC with SQLite3 Multiple Ciphers (the encrypted budget, from 0.7.0)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt), with parts under the BSD-2-Clause-style license of the original Zentus
+driver (desktop/licenses/BSD-2-Clause-sqlite-jdbc.txt)  
+Upstream: https://github.com/Willena/sqlite-jdbc-crypt, https://github.com/utelle/SQLite3MultipleCiphers
+
+The budget file is encrypted in SQLCipher 4's format by SQLite3 Multiple Ciphers 2.4.0 (Ulrich Telle, MIT,
+desktop/licenses/MIT-SQLite3MultipleCiphers.txt), built into the driver's native library with SQLite 3.53.4 (public
+domain, licenses/SQLite-Public-Domain.txt). The native library also carries SQLite3 Multiple Ciphers' crypto code: SHA-2
+by Olivier Gay (BSD-3-Clause, desktop/licenses/BSD-3-Clause-SHA2-Olivier-Gay.txt), fastpbkdf2 (CC0, public domain),
+and ChaCha20, Poly1305 and Rijndael (public domain). The jar holds the native library for Windows, Linux, macOS and
+FreeBSD; the program loads the Windows x86-64 one.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `io.github.willena:sqlite-jdbc` | 3.53.4.0 | The Apache Software License, Version 2.0 |
+
+## JNA, Java Native Access (the DPAPI key protection, from 0.7.0)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt). JNA is offered under LGPL-2.1-or-later or Apache-2.0, at the user's
+choice; Dead Drop Finance uses it under Apache-2.0.  
+Upstream: https://github.com/java-native-access/jna
+
+JNA calls Windows' CryptProtectData and CryptUnprotectData, which protect the budget's key for the current Windows
+user. The jna jar carries its native dispatch library for many systems; the program loads the Windows x86-64 one.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `net.java.dev.jna:jna` | 5.19.1 | LGPL-2.1-or-later or Apache-2.0 |
+| `net.java.dev.jna:jna-platform` | 5.19.1 | LGPL-2.1-or-later or Apache-2.0 |
 
 ## JSON in Java (org.json)
 

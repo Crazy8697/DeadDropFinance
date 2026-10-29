@@ -48,6 +48,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 LOCAL_NAME = "tools/privacy-local.txt"
 PRIVATE_PREFIX = "docs/mockups/"
+DESKTOP_PRIVATE_PREFIX = "desktop/docs/"
 
 # public values that may appear: the release certificate's SHA-256 is printed in docs/SIGNING.md on purpose
 PUBLIC_FINGERPRINTS = {"a93e9aa12b807633335bf28800b4d987fd1ad47c1a078ef095c2ac7feaf45ce0"}
@@ -274,6 +275,10 @@ def check_public(root, local):
         if rel.startswith(PRIVATE_PREFIX) or rel.rstrip("/") == PRIVATE_PREFIX.rstrip("/"):
             sc.found.append(f"{rel}: a private {PRIVATE_PREFIX} file in the public set (export-ignore missing?)")
             continue
+        # the desktop program's mockup (the spec for its screens) is private too, export-ignored like docs/mockups
+        if rel.startswith(DESKTOP_PRIVATE_PREFIX):
+            sc.found.append(f"{rel}: a private {DESKTOP_PRIVATE_PREFIX} file in the public set (export-ignore missing?)")
+            continue
         sc.file(rel, data, TREE_PATTERNS)
     return sc, len([m for m in members if m[1] is not None])
 
@@ -401,7 +406,10 @@ DESKTOP_THIRD_PARTY = [USER_PATH, HOMELAB, TAILNET, TOKEN, CRED_URL, DESKTOP_KEY
 # (Written with [x] character classes, so these lines don't match the patterns they allow.)
 DESKTOP_VENDOR_STRINGS = [re.compile(r"(?i)\bN[e]xus[ _](?:One|S|4|5X?|6P?|7(?:_2013)?|9|10)\b|id:N[e]xus[ _]\w+"),
                           re.compile(r"file:///[u]sers/auser/"),
-                          re.compile(r"/space/[h]ome/stax/")]
+                          re.compile(r"/space/[h]ome/stax/"),
+                          # JNA's native libraries keep their maintainers' build paths (AIX and LoongArch builds)
+                          re.compile(r"/[h]ome/matthiasblaesing/build-package-[^\s\x00]*"),
+                          re.compile(r"/[h]ome/panxuefeng/vm-infra/src/jna/[^\s\x00]*")]
 DESKTOP_SKIP = ("DeadDropFinance/runtime/legal/",)
 
 

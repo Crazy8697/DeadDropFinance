@@ -3,3 +3,5 @@ gradlew text eol=lf
 *.jar binary
 docs/mockups export-ignore
 docs/mockups/** export-ignore
+desktop/docs export-ignore
+desktop/docs/** export-ignore

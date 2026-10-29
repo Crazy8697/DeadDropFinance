@@ -16,8 +16,10 @@ Wuffs linked into Skiko's native library. Skiko carries this notice:
    This project contains code adapted from "The Android Open Source Project" licensed under the Apache License,
    Version 2.0: https://android.googlesource.com/platform/frameworks/base
 
-It includes Room and SQLite (Google; SQLite itself is in the public domain) for its budget database, and JSON
-in Java (org.json, public domain).
+It includes Room (Google) for its budget database, which is encrypted by SQLite JDBC (Apache-2.0, with parts under
+the original Zentus driver's BSD-style license: Copyright (c) 2006, David Crawshaw) with SQLite3 Multiple Ciphers
+(Copyright (c) 2019-2026 Ulrich Telle, MIT) and SQLite (public domain), and JSON in Java (org.json, public domain).
+It includes JNA (Java Native Access), used under the Apache License, Version 2.0, for Windows DPAPI.
 
 It includes the kotlinx.coroutines and kotlinx.serialization libraries, which carry these notices under section 4(d)
 of the Apache License, Version 2.0:
