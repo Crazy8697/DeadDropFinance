@@ -29,7 +29,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * Payday is marked by hand only (1.3.1): a deposit from a CSV import or a bank notification is an ordinary transaction
+ * Payday is marked by hand only (1.3.1): a deposit from a CSV import is an ordinary transaction
  * and starts no payday; marking it by hand sweeps and fills as before. Also a bought parked buy's charge sorted
  * against its envelope when it's imported. Synthetic data only.
  */
@@ -94,23 +94,6 @@ class PaydayByHandTest {
         assertEquals("both rows wait in To sort like any import", 2, b.toSort.size)
         assertEquals(before.readyToAssign, b.readyToAssign)
         assertEquals(0L, b.sortedCheck)
-    }
-
-    @Test fun aNotificationDepositIsAnOrdinaryTransactionAndNoPayday() = runBlocking<Unit> {
-        BillActions(store, a) { day }.pickApp("com.example.samplebank", "Sample Bank", acct)
-        val moves = paydayMoves().size
-        val r = NotifLog(store, a, { day }, { now }).log("com.example.samplebank", NotifParse.Parsed(1480_00, "SAMPLE EMPLOYER", deposit = true))
-        val dep = store.dao.transaction(r.txId!!)!!
-        assertFalse(dep.isPayday)
-        assertEquals(1480_00L, dep.amount)
-        assertEquals(moves, paydayMoves().size)
-        // the bank's CSV row of the same deposit adds no second row, and still no payday
-        val csv = "Date,Description,Amount\n$day,SAMPLE EMPLOYER,1480.00\n"
-        val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
-        assertTrue(res.newIds.isEmpty())
-        Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
-        assertEquals(moves, paydayMoves().size)
-        assertEquals(1, a.snapshot().paydayDates.size)
     }
 
     @Test fun markingPaydayByHandStillSweepsAndFills() = runBlocking<Unit> {

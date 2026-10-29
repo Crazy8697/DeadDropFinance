@@ -261,7 +261,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                 }
                 else -> {}
             }
-            SettingRow("Everyday spending", "Counts in Safe to Spend, like groceries and gas. Alerts warn when Safe to Spend would go negative.", everyday, true, { everyday = it })
+            SettingRow("Everyday spending", "Counts in Safe to Spend, like groceries and gas.", everyday, true, { everyday = it })
         }
         if (claims != null && existing?.unplanned != true && !system) {
             SectionTitle("Categories this envelope claims")

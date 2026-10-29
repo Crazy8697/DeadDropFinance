@@ -5,7 +5,7 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.ReceiptFiles
 
 /**
- * What new transactions start, however they came in (CSV import, a bank notification): parked buys' charges,
+ * What new transactions from a CSV import start: parked buys' charges,
  * auto-approve, bill payments and waiting receipts. Payday is never started here: it is marked by hand only (1.3.1).
  */
 class Arrivals(

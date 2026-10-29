@@ -26,14 +26,16 @@ the desktop). The only call that differs is the database transaction, one small 
 Both targets export Room's schema to `app/schemas`, where every version since 1 is committed. They write the same
 file, so a schema that drifted between the phone and the desktop would show up there as a change.
 
-## Server sync (1.4.0)
+## Server sync (1.4.0, desktop 0.10.0)
 
 `serversync` is the phone's side of the user's own Dead Drop server: `Box` (libsodium envelopes through lazysodium,
 built for Android in `src/androidMain` and for the JVM in `src/jvmMain`), `ServerClient` (setup, login and the
 encrypted calls, every reply opened with the pinned server key), `HttpTransport`, and `ServerSync` (first upload,
 takeover, pull and push of the change log with last write wins, the offline queue, the edit lock, status, devices and
-log out). The desktop program compiles it but doesn't ship lazysodium or sync yet. Tests: `ServerSyncTest` against an
-in-memory server (no network), and `ServerE2ETest`, which runs only when pointed at a throwaway test server.
+log out). 1.5.0 and desktop 0.10.0 add take over (`takeOver`, and the handoff notice that keeps a device's waiting changes
+until it holds the lock again), pairing from a QR code (`PairingQr`, `pair`) and the codes for it (`newPairingCode`).
+The desktop program ships it with lazysodium-java (libsodium for Windows inside the jar). Tests: `ServerSyncTest` against
+an in-memory server (no network), and `ServerE2ETest`, which runs only when pointed at a throwaway test server.
 
 ## Tests
 

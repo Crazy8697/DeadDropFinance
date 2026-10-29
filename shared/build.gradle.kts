@@ -49,8 +49,9 @@ kotlin {
                 implementation("net.java.dev.jna:jna-platform:5.19.1")
                 // the phone gets org.json from Android itself
                 implementation("org.json:json:20260814")
-                // server sync compiles against lazysodium; the desktop program doesn't sync yet, so it doesn't ship it
-                compileOnly("com.goterl:lazysodium-java:5.2.0")
+                // libsodium for server sync's envelopes (desktop 0.10.0): lazysodium's Java build, whose jar carries
+                // libsodium for Windows, through the JNA the program already ships
+                implementation("com.goterl:lazysodium-java:5.2.0")
             }
         }
         jvmTest {

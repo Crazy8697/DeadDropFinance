@@ -24,7 +24,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - If the money runs out before the list does, the app shows which envelopes did not fill and by how much. No advice, no suggestions.
 - Stage 10: the next payday is predicted from the marked payday deposits (monthly on the usual day of the month, or the usual number of days apart; one payday so far is taken as two weeks and says so). The Bills tab shows it, and Change sets it by hand. It's used by the payday checklist, autopay warnings and the forecast. Payday itself starts only when the deposit is marked as payday.
 - A late payday (the date passed, no deposit marked yet) shows a quiet note, never an alarm; the forecast counts it as tomorrow until it's marked.
-- Payday is marked by hand only (1.3.1): on the deposit's transaction screen, Mark as payday runs it (Rollover sweep, auto-fill, the Pay these now checklist). A deposit that comes in through a CSV import or a bank notification is an ordinary transaction: it never starts payday by itself. From Stage 11 until 1.3.0 a deposit that looked like the payday deposit started payday with no tap; that is gone.
+- Payday is marked by hand only (1.3.1): on the deposit's transaction screen, Mark as payday runs it (Rollover sweep, auto-fill, the Pay these now checklist). A deposit that comes in through a CSV import is an ordinary transaction: it never starts payday by itself. From Stage 11 until 1.3.0 a deposit that looked like the payday deposit started payday with no tap; that is gone.
 - There is no "It's payday" card (Stage 10 had one; Stage 11 removed it). Marking a deposit as payday by hand, on its own screen, still works.
 - Payday and Fill envelopes on New transaction (1.3.3, the desktop program 0.8.0 too): Income going to Ready to assign can be ticked as Payday when it's entered; the new budget month starts on that transaction's date (paydays move, so the month starts on whatever date is marked). Fill envelopes, under it, can only be ticked once Payday is: it runs the same payday fill as Mark as payday (the Rollover sweep, then auto-fill in fill order, shortfalls on the Assign screen). Both are optional, every time: Payday without Fill envelopes only starts the month and moves no money. Money in that isn't ticked as Payday (a refund, say) is plain money in. Spending, transfers, a split, or income going anywhere but Ready to assign grey both out. Mark as payday on a deposit's own screen still works as before and always fills.
 - Payday changes in 1.4.0 (the desktop program 0.9.0 too): Payday without Fill envelopes still closes the month, so Fill to target leftovers sweep into Rollover; it fills nothing. With Fill envelopes it sweeps, then fills. Edit transaction on an existing deposit has the same two boxes: ticking Payday marks it (Fill as chosen), unticking it unmarks it; Fill is greyed on a deposit that is already a payday. Mark as payday on a deposit's own screen asks first, with Fill envelopes as a choice (never automatic). The desktop program also splits money in across envelopes, Ready to assign and To sort, as the phone does.
@@ -79,7 +79,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Bank sync through SimpleFIN is gone: the Easy door, connecting and linking, the Sync button and background sync, the Bank sync screen in More, the Bank sync section on the account screen with its balance check, Add an adjustment, the wrong-sign warning and Adjust, "It's actually negative (overdrawn)", and "Last sync". SimpleFIN only refreshed about once a day and couldn't be made to refresh sooner.
 - Every account and transaction stays. Accounts that were linked are ordinary manual accounts ("Manual account" on their Activity tab, with their starting balance entry). Synced transactions stay as ordinary ones; any still pending become posted. Nothing else in the budget changes: balances, envelopes and Ready to Assign are as before.
 - On the first start of 1.3.0 the saved SimpleFIN login is deleted from the phone, with bank sync's settings and its background job. The SimpleFIN Bridge still has the app's connection until the user deletes it there.
-- CSV import, entering things by hand, Scan and reading bank notifications are how transactions get in.
+- CSV import, entering things by hand and Scan are how transactions get in.
 
 ## Bills (Stage 6 data model, Stage 10 in full)
 - A bill has a name, an amount, a due date, how often it repeats (monthly, every 3 months, every 6 months, yearly, or irregular/one-off), the envelope it feeds, and an autopay flag. Each due date is one cycle; payments count toward a cycle.
@@ -87,14 +87,15 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - One bill can be paid by several payments, by different methods (bank, ticked by hand, cash). The cycle counts as paid only when the payments reach the amount due.
 - Partial payments: the cycle stays open with the rest owed ("$X left"). One tap (Rest to debt) moves the rest into the bill's catch-up Debt envelope (made the first time) and settles the cycle.
 - Once-a-year and irregular bills fill a little each payday: a Fill to target envelope with no target that bills feed gets, each payday, the least that has every bill's money in by its due date.
-- CSV import (and a bank notification) marks bills paid when the payment matches: the bill's "payment's description has" words and an amount that fits (a part payment is fine), "any amount counts" for a bill paid in parts by transfers, or a rule set to count toward the bill (any amount unless the rule has a range). A payment toward a bill in To sort is suggested into the bill's envelope.
+- CSV import marks bills paid when the payment matches: the bill's "payment's description has" words and an amount that fits (a part payment is fine), "any amount counts" for a bill paid in parts by transfers, or a rule set to count toward the bill (any amount unless the rule has a range). A payment toward a bill in To sort is suggested into the bill's envelope.
 - Bills can be ticked paid by hand, or "Paid in cash" (logs the cash spend from the bill's envelope). When the bank's record of a hand-ticked bill comes in, it takes the place of the tick, never a second payment.
 - The amount changes (utilities): the latest charge is the expected amount next time.
 - Detection: repeating charges are found in the history (see Subscriptions); one becomes a bill only when the user taps Make it a bill. Nothing is created silently.
 - Bills tab (bottom bar: Home, Envelopes, Activity, Bills, More): the next payday, the autopay check, Coming up (sorted by due date, overdue marked, with debt payments), and Subscriptions.
 - Autopay warning: an autopay due before the next payday whose envelope doesn't have enough (all its autopays due by then together) shows the shortfall in the Bills tab, and a notification once per cycle.
 - Reminders are off by default and turned on per bill, with how many days ahead (on the day to a week). They come as notifications from a WorkManager job that runs a few times a day (it survives reboots and needs no exact-alarm permission), once per cycle, while unpaid.
-- Notification channels of their own: Bill reminders and Autopay warnings, each with a switch in More, Alerts. The lock screen shows no amounts unless that's turned on.
+- Notification channels of their own: Bill reminders and Autopay warnings, each with a switch in More, Alerts. The lock screen shows no bill names or amounts unless Show amounts on the lock screen (More, Alerts, off by default) is turned on.
+- The notification permission (Android 13 and up) is asked for when one is turned on. Never at first launch.
 
 ### Payday checklist (Stage 10)
 - When payday is marked, auto-fill runs, and then a "Pay these now" card appears on Home (under Ready to Assign) with the bills due before the next payday, and anything still overdue.
@@ -111,7 +112,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - It is off by default because it also blacks out screen mirroring tools the user may rely on.
 
 ## Matching and approval (Stage 8)
-- Every new transaction from a CSV or a bank notification gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
+- Every new transaction from a CSV import gets a suggested envelope when there's a good basis, and lands in To sort with it. With no basis it lands in To sort with no suggestion.
 - Payees are compared after cleaning: card numbers, store numbers, dates, times, reference codes and words like "POS PURCHASE" are stripped, so every charge from the same merchant looks the same.
 - A suggestion comes from, in order: a likely return (see Returns), the first rule that matches, or the user's own last choices for that payee when they agree.
 - Rules match the cleaned payee, and optionally the account, money in or out, and an amount range. A rule puts the money in one envelope, splits it across several (in the same proportions for any amount), or marks it a transfer between the user's own accounts (not spending or income). A rule can also count toward a bill (Stage 10, set in the rule editor).
@@ -124,20 +125,11 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Rules live only on the user's phone, never in code or test data.
 - Transfers to payment apps that do not match a rule go to the approve list.
 
-## Live spend alerts (Stage 8)
-- When a bank notification brings new spending (Read bank notifications, below), a notification shows the payee, the amount, the suggested envelope and what would be left in it, with Approve and Change. Several new charges make one notification, not one each.
-- Warnings, in a second notification: an envelope going low (under 15% of its target or payday amount) or overspent, and Safe to Spend going negative.
-- The notification permission (Android 13 and up) is asked for when an alert is turned on. Never at first launch.
-- More, Alerts: a switch for each kind, and Show amounts on the lock screen (off by default: the lock screen shows only how many came in, no payees, envelopes or amounts). Approve from a notification needs the phone unlocked.
-- Spending alerts come as soon as a bank app's notification is read. The settings say so.
-- Everything stays on the phone.
-- Reading bank notifications (Stage 10, More, Alerts, Read bank notifications; off by default): with Android's notification access, the app reads only the apps the user picks (a bank or wallet app), each logging to an account the user picks. Every other app's notification is dropped unread.
-- A spend notification logs the purchase right away as pending, runs the rules (and auto-approve, if on) and sends the spend alert above. When a CSV import brings the real record (the same amount, within 5 days), it posts the entry instead of adding a second row. An entry no import brings is flagged in Activity after a week ("Not imported after a week": Keep or Delete).
-- A deposit notification is logged as an ordinary transaction; it never starts payday (1.3.1: payday is marked by hand only). A repeat of the same notification within 10 minutes is ignored.
-- Reading is learned per app: the first money notification from an app is shown in the app once ("Check how <app> is read": pick the amount, fix the payee, money in or out); after that the app's notifications like it are read by themselves, spending and deposits each learned once. Nothing bank-specific is built in.
-- Privacy: the notification text is read in memory on the phone. What's kept, in the encrypted database: the parsed amount and payee (as the transaction, and as the app's last read for the test line), and, per app, how its notifications are laid out (the few words around the amount and payee in the one the user confirmed). The rest of the text is never written, logged or sent. A notification waiting to be checked is held in memory only. Turning reading off switches the reader off entirely (Android stops binding it) and hides the access steps.
-- Installed from a download, the app is under Android's restricted settings (Android 13 and up): the reading screen walks through it with buttons to Open notification access and Open app info (three dots, Allow restricted settings).
-- Test: each picked app shows what was last read from it (amount, payee, time).
+## Notification reader removed (1.5.0)
+- Reading bank notifications is gone from the phone, with the live spend alerts it sent: the reader itself and Android's notification access for it, Read bank notifications in More, Alerts (picking apps, checking how a notification is read, the restricted settings steps), the New spending, Envelope low or overspent and Safe to Spend going negative alerts with their Approve button, and "Not imported after a week" in Activity.
+- Every transaction the reader logged stays as an ordinary transaction, with its envelopes and balances as before. One still marked pending stays pending: a CSV import posts it when the bank's record comes in (never a second row), or it can be unticked by hand.
+- On the first start of 1.5.0 the reader's settings and picked apps are removed from the phone, and its three notification channels (New spending, Envelope warnings, Notification reading) are deleted. A backup or setup file from an older version that still has the spend alert switches restores and imports as before; those switches are ignored.
+- CSV import, entering things by hand and Scan are how transactions get in. Bill reminders and autopay warnings stay.
 
 ## Subscriptions screen (Stage 10)
 - Lists every recurring charge found in the history at any interval: monthly, every 3 months, every 6 months, yearly. A series is one payee's charges at a steady interval (monthly needs three charges, or two of the same amount); a store visited now and then isn't one.
@@ -150,7 +142,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A newly detected subscription is marked "New".
 
 ## Safe to Spend (Stage 11)
-- From 0.8.0, an envelope can be marked Everyday spending (envelope edit screen); the setup wizard marks the Groceries and Gas starters. Alerts and the forecast use it too.
+- From 0.8.0, an envelope can be marked Everyday spending (envelope edit screen); the setup wizard marks the Groceries and Gas starters. The forecast uses it too.
 - Safe to Spend counts only the envelopes marked as everyday spending. The default is groceries and gas. The user can change which envelopes count: tapping the Safe to Spend card opens a list of envelopes with a switch each, and the envelope edit screen has the same switch. A change shows on Home right away.
 - It is what is left in those envelopes. Bills due before the next payday and set-asides live in their own envelopes, so they are already out of it.
 - Rollover is excluded, even if marked. It is not shown on the home screen anywhere and has no callouts there. Cover from Rollover stays on the envelope screens.
@@ -211,7 +203,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Park a non-essential purchase with a name and a price. It waits a set time before the app gives a verdict. Wait options are 1 day, 2 days and 1 week; the default is set in Settings (More, Parking lot wait; 1 day out of the box), and the park form can pick another.
 - After the wait, it shows whether Rollover covers it: "There's room" with what would be left, or "Not right now". Actions: buy from Rollover (or from another envelope the user picks), keep waiting, or drop it. Until the wait is over it can only be dropped.
 - Keep waiting waits one more day.
-- Buying marks it bought; no money moves then. The real charge is sorted against the chosen envelope when it comes in (a CSV import or a bank notification): money out, unsorted (or sorted by a rule as it came in), from the day before buying to 14 days after, and from 10% under to 25% over the parked price (tax, shipping). The closest amount wins. Until its charge comes in, a buy from Rollover is held back from Rollover in the next verdicts.
+- Buying marks it bought; no money moves then. The real charge is sorted against the chosen envelope when it comes in (a CSV import): money out, unsorted (or sorted by a rule as it came in), from the day before buying to 14 days after, and from 10% under to 25% over the parked price (tax, shipping). The closest amount wins. Until its charge comes in, a buy from Rollover is held back from Rollover in the next verdicts.
 - A running total of dropped amounts ("Dropped so far").
 - A home screen card ("N waiting, M ready to decide"), plus an entry in More.
 - Parked buys are budget rows (change-logged, schema version 8).
@@ -350,8 +342,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 
 ## Activity rows (1.2.1)
 
-- Every row in Activity (All's To sort and Recent, every account tab, the notification entries, a manual account's
-  Starting balance) has three lines: the name on one line, cut with an ellipsis when it's long; the info line (date
+- Every row in Activity (All's To sort and Recent, every account tab, a manual account's Starting balance) has
+  three lines: the name on one line, cut with an ellipsis when it's long; the info line (date
   and status, as before); and a line of chips: the category (or Uncategorized) first, then what used to sit beside
   the name: how bonus income came in, payday, pending, fee, fee rebate.
 - The amount sits in a fixed column on the right, sized for the widest realistic amount ("+$12,345.67",
@@ -391,8 +383,11 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - The device that creates the account sends its whole budget up as the server's copy. A device that logs in to a server holding a budget takes the server's copy; if it had a budget of its own, it is first saved to Downloads/DeadDropFinance as an encrypted backup (the phone's backup format, opened with the account password), then replaced.
 - Changes go both ways, in the server's change format, each change taken once. When two devices change the same thing, the later change (by the time it was made) wins on every device, and the device whose change lost gets a note naming the other device.
 - Offline: changes wait in the change log, so nothing is lost if the app closes; they go when the server can be reached.
-- The edit lock: the app takes it while on screen, sends a heartbeat every 40 seconds (the server lets it lapse after 120 seconds without one), and lets go when the app goes to the back or closes. While another device holds it, the app is read only, with a banner naming that device; what the app does on its own (reading a bank notification) still goes in and reaches the server as an offline change. There is no take-over button.
+- The edit lock: the app takes it while on screen, sends a heartbeat every 40 seconds (the server lets it lapse after 120 seconds without one), and lets go when the app goes to the back or closes. While another device holds it, the app is read only, with a banner naming that device; what the app does on its own (the start-up checks) still goes in and reaches the server as an offline change.
+- Take over editing (1.5.0): the read-only banner has Take over editing. A confirmation names the device holding the lock; then the server moves the lock to this one, and the other device turns read only with a banner saying who took over. Its changes that hadn't reached the server wait there (the server refuses them until then) and go once it holds the lock again, the later change winning as usual.
 - Status, on Home and the Server screen: Not connected, Syncing, Synced, Offline (with how many changes wait) or an error, when it last synced, and Sync Now.
 - Settings > Server, connected: the server's address, fingerprint, account and this device's name; the device list with Remove (that device's key is deleted on the server and it is cut off); Log out (sends what's waiting if it can, lets go of the lock, removes this device on the server and deletes its key here; the budget stays).
 - While connected, Restore a backup and Purge data ask to log out first. Erase everything logs out first.
-- Receipt photos stay on the phone that took them; the receipts themselves sync. The desktop program doesn't sync yet.
+- Receipt photos stay on the phone that took them; the receipts themselves sync.
+- Scan QR code (1.5.0): Connect to server has Scan QR code beside the typed address. The camera is asked for only when it's tapped; refused, a short note says to type the address instead. The code (the desktop program's Settings > Server > Add a phone) holds the server's address, its key fingerprint and a one-time pairing code, never a password or key. The app checks the server's key against the fingerprint (a mismatch is refused and nothing is sent), then redeems the code for this phone's own key (it works once, for 10 minutes), and then it's the same as a login: the server's budget replaces this phone's, after an encrypted backup of the phone's own budget with a password typed twice.
+- The desktop program (0.10.0) syncs the same way: Settings > Server, the same lock (held while its window is open and not minimized), Take over editing, devices and Log out, and Add a phone.

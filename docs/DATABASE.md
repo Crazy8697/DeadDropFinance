@@ -33,7 +33,8 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   counts toward and how it was paid (`period_due`, `method` on `bill_payment`), debt reminders (`reminder`,
   `reminder_days` on `envelope`), `bill_id` on `rule`, the `subscription` table (change-logged) and `notif_app` (the
   bank apps whose notifications are read: this phone's own, not change-logged, holding only the last parsed amount
-  and payee, never notification text). All new columns have defaults or are nullable.
+  and payee, never notification text). All new columns have defaults or are nullable. The notification reader was
+  removed in 1.5.0: `notif_app` stays (the schema doesn't change) but is emptied on the first start and never used.
 - Version 8 (0.11.0): adds the `parked_buy` table (parked buys: name, price, wait, when it's ready, bought,
   dropped, the envelope it's bought from and its matched charge; change-logged like the budget tables). No existing
   table changes. `MigrationTest` checks 7 to 8 and 1 to the latest.

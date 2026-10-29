@@ -22,7 +22,7 @@ class ServerException(val kind: Kind, message: String) : Exception(message) {
         REFUSED,
         /** The server doesn't know this device any more: it was removed (revoked). */
         REVOKED,
-        /** The server's key isn't the one this phone pinned: never trusted. */
+        /** The server's key isn't the one this device pinned (or the QR code's fingerprint): never trusted. */
         KEY_CHANGED,
         /** The server answered with an error. */
         ERROR,
@@ -38,7 +38,17 @@ class ServerKeyInfo(val publicKey: ByteArray) {
 
 data class PairReply(val deviceId: String, val name: String, val kind: String, val serverTime: Long)
 
-data class LockState(val holder: String?, val holderName: String?, val expiresAt: Long?, val youHoldIt: Boolean)
+/**
+ * [takenBy] (1.5.0): the handoff notice. Another device took the lock over from this one, which hasn't held it since,
+ * so this one's waiting changes stay here until it holds the lock again.
+ */
+data class LockState(
+    val holder: String?, val holderName: String?, val expiresAt: Long?, val youHoldIt: Boolean,
+    val takenBy: String? = null, val takenByName: String? = null, val takenAt: Long? = null,
+)
+
+/** A one-time pairing code for another device (1.5.0), shown as a QR code. */
+data class PairingCode(val code: String, val name: String, val createdAt: Long, val expiresAt: Long)
 
 data class DeviceInfo(val id: String, val name: String, val kind: String, val pairedAt: Long, val lastSeen: Long?, val open: Boolean, val revokedAt: Long?)
 
@@ -82,11 +92,15 @@ class ServerClient(
         account("/v1/login", JSONObject().put("username", username).put("password", pass)
             .put("name", name).put("kind", kind).put("publicKey", keys.publicKey.hex()))
 
-    private fun account(path: String, req: JSONObject): PairReply {
+    /** Redeems a one-time pairing code (the desktop's QR code) for this device's own key. */
+    fun pair(code: String, name: String, kind: String): PairReply =
+        account("/v1/pair", JSONObject().put("code", code).put("kind", kind).put("publicKey", keys.publicKey.hex()).put("name", name), PAIR_REFUSED)
+
+    private fun account(path: String, req: JSONObject, refused: String = REFUSED): PairReply {
         val resp = call { transport.post(path, Box.sealed(req.toString().toByteArray(), serverPublic)) }
         when (resp.status) {
             200 -> {}
-            403 -> throw ServerException(ServerException.Kind.REFUSED, "The server said no. Check the details, and after 5 wrong tries wait 10 minutes.")
+            403 -> throw ServerException(ServerException.Kind.REFUSED, refused)
             else -> throw ServerException(ServerException.Kind.ERROR, "The server answered ${resp.status}.")
         }
         val plain = Box.openReply(resp.body, serverPublic, keys.secretKey)
@@ -98,7 +112,7 @@ class ServerClient(
     // ---- the encrypted calls
 
     private fun rpc(op: String, args: JSONObject = JSONObject()): Any? {
-        val id = deviceId ?: throw ServerException(ServerException.Kind.REVOKED, "This phone isn't logged in.")
+        val id = deviceId ?: throw ServerException(ServerException.Kind.REVOKED, "This device isn't logged in.")
         val plain = JSONObject().put("op", op).put("ts", clock()).put("args", args).toString().toByteArray()
         val (body, nonce) = Box.request(id, plain, serverPublic, keys.secretKey)
         val resp = call { transport.post("/v1/rpc", body) }
@@ -126,6 +140,13 @@ class ServerClient(
     fun heartbeat(open: Boolean) = lock(rpc("heartbeat", JSONObject().put("open", open)) as JSONObject)
     fun acquire() = lock(rpc("lock.acquire") as JSONObject)
     fun release() = lock(rpc("lock.release") as JSONObject)
+    /** Take over (1.5.0): the lock moves here even while another device holds it. */
+    fun takeover() = lock(rpc("lock.takeover") as JSONObject)
+
+    fun pairingCode(name: String, minutes: Long = 10): PairingCode {
+        val o = rpc("pairing.new", JSONObject().put("name", name).put("minutes", minutes)) as JSONObject
+        return PairingCode(o.getString("code"), o.getString("name"), o.getLong("createdAt"), o.getLong("expiresAt"))
+    }
 
     fun push(changes: List<Change>, baseSeq: Long, offline: Boolean): PushResult {
         val a = JSONArray()
@@ -156,7 +177,8 @@ class ServerClient(
     fun revoke(id: String): DeviceInfo = device(rpc("devices.revoke", JSONObject().put("deviceId", id)) as JSONObject)
 
     private fun lock(o: JSONObject) = LockState(o.optStringOrNull("holder"), o.optStringOrNull("holderName"),
-        if (o.has("expiresAt") && !o.isNull("expiresAt")) o.getLong("expiresAt") else null, o.optBoolean("youHoldIt"))
+        if (o.has("expiresAt") && !o.isNull("expiresAt")) o.getLong("expiresAt") else null, o.optBoolean("youHoldIt"),
+        o.optStringOrNull("takenBy"), o.optStringOrNull("takenByName"), if (o.has("takenAt") && !o.isNull("takenAt")) o.getLong("takenAt") else null)
 
     private fun device(o: JSONObject) = DeviceInfo(o.getString("id"), o.getString("name"), o.getString("kind"), o.getLong("pairedAt"),
         if (o.has("lastSeen") && !o.isNull("lastSeen")) o.getLong("lastSeen") else null, o.optBoolean("open"),
@@ -167,9 +189,12 @@ class ServerClient(
     }
 
     companion object {
-        const val KEY_CHANGED = "The server's key is not the one this phone pinned. It could be a different server, so nothing was sent. " +
+        const val KEY_CHANGED = "The server's key is not the one this device pinned. It could be a different server, so nothing was sent. " +
             "If the server was rebuilt on purpose, log out and connect again."
-        const val REVOKED = "This phone was removed from the server. Log in again to sync."
+        const val REVOKED = "This device was removed from the server. Log in again to sync."
+        const val QR_MISMATCH = "The server's key doesn't match the QR code's fingerprint. It could be a different server, so nothing was sent."
+        const val REFUSED = "The server said no. Check the details, and after 5 wrong tries wait 10 minutes."
+        const val PAIR_REFUSED = "The server refused that pairing code: it works once, for 10 minutes. Make a new one in the desktop program (Add a phone)."
 
         /** GET /v1/server-key: the server's public key (public), for pinning on first contact. */
         fun serverKey(transport: Transport): ServerKeyInfo {

@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.4.0.
+Effective with version 1.5.0.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
@@ -16,9 +16,6 @@ DarkRelay never receives your budget, your bank data, your bank logins or anythi
   database encrypted with a key that's protected by your phone's secure hardware (the Android Keystore).
 - Receipt photos you take or pick, encrypted in the app's private storage. They never go to the phone's gallery or
   shared storage.
-- From bank notifications you choose to have read: the amount and payee, saved as a transaction, and for each app
-  how its notifications are laid out (the few words around the amount and payee in the one you confirmed). The rest
-  of the text is read in memory and never saved, logged or sent.
 - Your settings.
 - If you connect to your own Dead Drop server (1.4.0): its address, its public key (pinned the first time), the
   username, this phone's name and id on the server, and its own server key (in the encrypted secrets file, protected
@@ -29,7 +26,8 @@ Android's own backup is turned off for the app, so none of this leaves the phone
 ## What the app sends, and where
 
 - No bank connection: the app never connects to your bank or to any service that does. Transactions come in from CSV
-  files you import, notifications you choose to have read, or what you enter yourself.
+  files you import or what you enter yourself. The app doesn't read other apps' notifications (it did, if you turned
+  it on, until 1.5.0).
 - Update check (on by default, can be turned off in More): the app asks GitHub for the latest release of the app.
   Nothing about you or your budget is sent; GitHub sees the request like any web request.
 - Downloading an update (Download and install, from 0.15.1): when you choose to install a newer version, the app
@@ -53,12 +51,15 @@ can't be opened, by anyone, including DarkRelay.
 
 ## Permissions
 
-- Notifications: for spend alerts, bill reminders and autopay warnings, if you turn them on.
-- Notification access: only if you turn on reading bank notifications, for the apps you pick.
+- Notifications: for bill reminders and autopay warnings, if you turn them on.
 - Internet and network state: for the update check, downloading an update, and syncing with your own server.
 - Biometric: for app lock with your fingerprint or the phone's PIN.
 - Run at startup, keep awake briefly and run in the foreground: so reminders keep running after a restart.
-- The app has no camera, location, contacts or storage permission. Photos come from the camera app or a file you pick.
+- Camera (1.5.0): for Scan QR code on the Server screen, which reads the desktop program's Add a phone code on the phone,
+  and for Take photo on a receipt, which Android then lets the camera app do only with it. It is asked for only when you
+  tap one of them; refused, type the server's address instead, or pick a receipt file. Nothing the camera sees leaves the
+  phone: the QR code's content (the server's address, its key fingerprint and a one-time code) is used only to pair.
+- The app has no location, contacts or storage permission. Receipt photos come from the camera app or a file you pick.
 
 ## Deleting your data
 

@@ -77,12 +77,13 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     Column(Modifier.fillMaxSize()) {
                         TopBar(model)
+                        model.server?.let { SyncBanners(model, it) }
                         model.message?.let { (text, error) -> MessageLine(text, error) { model.message = null } }
                         val unavailable = model.unavailable
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when {
                                 model.screen == Screen.SETTINGS -> SettingsScreen(model, shell)
-                                model.screen == Screen.SYNC -> SyncScreen()
+                                model.screen == Screen.SYNC -> SyncScreen(model, model.server)
                                 model.screen == Screen.REPORTS -> ReportsScreen()
                                 unavailable != null -> UnavailableScreen(unavailable)
                                 model.budget == null -> Box(Modifier.fillMaxSize().padding(18.dp)) { T("Opening your budget...", color = C.Dim) }
@@ -97,7 +98,9 @@ fun DesktopApp(model: AppModel, shell: Shell) {
             }
         }
         model.dialog?.let { d ->
+            val server = model.server
             when (d) {
+                is Dialog.ServerDialog -> if (server != null) ServerDialog(model, server, shell, d)
                 is Dialog.Backup -> BackupDialog(model, shell)
                 is Dialog.Restore -> RestoreDialog(model, shell, d)
                 else -> model.budget?.let { b -> DialogHost(model, shell, b, d) }
@@ -113,7 +116,7 @@ private fun MenuStrip(model: AppModel, shell: Shell) {
     Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF0D1217)).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Menu("File") { close ->
             MenuItem("Back up...", enabled = model.budget != null) { close(); model.dialog = Dialog.Backup }
-            MenuItem("Restore...", enabled = model.budget != null) { close(); shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
+            MenuItem("Restore...", enabled = model.budget != null) { close(); if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
             MenuItem("Exit") { close(); shell.onExit() }
         }
         Menu("Edit") { close ->
@@ -200,7 +203,7 @@ private fun Sidebar(model: AppModel) {
         Spacer(Modifier.weight(1f))
         Column(Modifier.fillMaxWidth().topLine().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
             T("Version ${BuildInfo.VERSION}", 11.sp, C.Dim2)
-            T("Not connected", 11.sp, C.Dim2, modifier = Modifier.testTag("sideSync"))
+            T(model.server?.status?.let { ServerModel.pillText(it) } ?: "Not connected", 11.sp, C.Dim2, modifier = Modifier.testTag("sideSync"))
         }
     }
 }
@@ -234,7 +237,7 @@ private fun TopBar(model: AppModel) {
         T(model.screen.title, 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.testTag("title"))
         if (budgety && model.budget != null) MonthPicker(model)
         Spacer(Modifier.weight(1f))
-        SyncPill { model.go(Screen.SYNC) }
+        SyncPill(model.server) { model.go(Screen.SYNC) }
         if (budgety && model.budget != null) {
             Btn("Move money", { model.dialog = Dialog.MoveMoney() }, ghost = true, tag = "top.move")
             Btn("Add transaction", { model.dialog = Dialog.AddTransaction(model.activityTab.takeIf { model.screen == Screen.ACTIVITY }) }, tag = "top.add")
@@ -252,19 +255,6 @@ private fun MonthPicker(model: AppModel) {
         Box(Modifier.clickable(enabled = older) { model.monthIndex++ }.padding(horizontal = 6.dp).testTag("month.older")) { T("◀", 13.sp, if (older) C.Dim else C.Line2) }
         T(monthLabel(model.month), 13.sp, modifier = Modifier.padding(horizontal = 4.dp).testTag("month.label"))
         Box(Modifier.clickable(enabled = newer) { model.monthIndex-- }.padding(horizontal = 6.dp).testTag("month.newer")) { T("▶", 13.sp, if (newer) C.Dim else C.Line2) }
-    }
-}
-
-@Composable
-private fun SyncPill(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(50)
-    Row(
-        Modifier.clip(shape).background(C.Panel2).border(1.dp, C.Line2, shape).clickable(onClick = onClick).padding(horizontal = 11.dp, vertical = 5.dp).testTag("syncPill"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(C.Dim2))
-        Spacer(Modifier.width(7.dp))
-        T("Not connected", 12.sp, C.Dim)
     }
 }
 

@@ -226,6 +226,20 @@ The Android build of JNA ships its native dispatch library libjnidispatch.so; th
 |---|---|---|
 | `net.java.dev.jna:jna` | 5.19.1 | LGPL-2.1-or-later, Apache-2.0 |
 
+## ZXing Android Embedded and ZXing core (Scan QR code, from 1.5.0)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt)  
+Upstream: https://github.com/journeyapps/zxing-android-embedded and https://github.com/zxing/zxing
+
+Scan QR code on the Server screen reads the desktop program's Add a phone code with the camera, on the phone, through
+ZXing Android Embedded's scanner and ZXing's core decoder. Both are used as published. Neither has network code, and
+neither needs Google Play services. The camera permission they bring is asked for only when Scan QR code is tapped.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `com.journeyapps:zxing-android-embedded` | 4.3.0 | The Apache License, Version 2.0 |
+| `com.google.zxing:core` | 3.5.3 | The Apache Software License, Version 2.0 |
+
 ## Version alignment only (no code shipped)
 
 These are bills of materials: they only pin the versions of the components above.

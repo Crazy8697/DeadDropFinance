@@ -50,7 +50,6 @@ object SetupImport {
     /** Only what the file sets; null is "leave it". [parkingLotWait] is in days. */
     data class SettingsIn(
         val autoApprove: Boolean? = null,
-        val alertSpending: Boolean? = null, val alertLowOrOverspent: Boolean? = null, val alertSafeToSpendNegative: Boolean? = null,
         val alertAmountsOnLockScreen: Boolean? = null, val alertBillReminders: Boolean? = null, val alertAutopayWarnings: Boolean? = null,
         val appLock: Boolean? = null, val lockAfterMinutes: Int? = null, val hideScreen: Boolean? = null,
         val checkForUpdatesAtStartup: Boolean? = null, val parkingLotWait: Int? = null,
@@ -58,8 +57,7 @@ object SetupImport {
         /** The settings the file changes, by their file names. */
         fun named(): List<String> = listOfNotNull(
             autoApprove?.let { "autoApprove" },
-            alertSpending?.let { "alerts.spending" }, alertLowOrOverspent?.let { "alerts.lowOrOverspent" },
-            alertSafeToSpendNegative?.let { "alerts.safeToSpendNegative" }, alertAmountsOnLockScreen?.let { "alerts.amountsOnLockScreen" },
+            alertAmountsOnLockScreen?.let { "alerts.amountsOnLockScreen" },
             alertBillReminders?.let { "alerts.billReminders" }, alertAutopayWarnings?.let { "alerts.autopayWarnings" },
             appLock?.let { "appLock" }, lockAfterMinutes?.let { "lockAfterMinutes" }, hideScreen?.let { "hideScreen" },
             checkForUpdatesAtStartup?.let { "checkForUpdatesAtStartup" }, parkingLotWait?.let { "parkingLotWait" },
@@ -102,6 +100,10 @@ object SetupImport {
     private val BILL_KEYS = setOf("name", "amount", "due", "repeats", "envelope", "autopay", "payeeWords", "anyAmount", "amountChanges", "reminder", "reminderDays")
     private val RULE_KEYS = setOf("match", "account", "direction", "min", "max", "envelope", "splits", "transfer", "alwaysAsk", "bill", "category")
     private val SUB_KEYS = setOf("name", "payees", "status", "bill")
+    /**
+     * "spending", "lowOrOverspent" and "safeToSpendNegative" were the spend alerts of the bank notification reader,
+     * removed in 1.5.0: a file that still has them is read as before, and they are ignored.
+     */
     private val ALERT_KEYS = setOf("spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings")
     private val SETTING_KEYS = setOf(
         "autoApprove", "alerts", "appLock", "lockAfterMinutes", "hideScreen", "checkForUpdatesAtStartup", "parkingLotWait",
@@ -288,8 +290,7 @@ object SetupImport {
                 val ar = Reader(alerts, "settings.alerts", errors, ALERT_KEYS)
                 settings = SettingsIn(
                     r.bool("autoApprove"),
-                    ar.bool("spending"), ar.bool("lowOrOverspent"), ar.bool("safeToSpendNegative"), ar.bool("amountsOnLockScreen"),
-                    ar.bool("billReminders"), ar.bool("autopayWarnings"),
+                    ar.bool("amountsOnLockScreen"), ar.bool("billReminders"), ar.bool("autopayWarnings"),
                     r.bool("appLock"), r.int("lockAfterMinutes", LOCK_MINUTES, "0, 1, 5, 15 or 30"), r.bool("hideScreen"),
                     r.bool("checkForUpdatesAtStartup"), r.choice("parkingLotWait", WAITS),
                 )

@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
     private var generation by mutableIntStateOf(0)
     /** Rises each time the activity comes back to the front. */
     private var resumeTick by mutableIntStateOf(0)
-    /** Where a notification opened the app (To sort, Bills, Home, reading setup); [OpenTo.n] rises each time. */
+    /** Where a notification opened the app (To sort, Bills, Home); [OpenTo.n] rises each time. */
     private var openTo by mutableStateOf<net.darkrelay.deaddropfinance.ui.OpenTo?>(null)
     private var permissionDone: ((Boolean) -> Unit)? = null
     /** Images shared to the app, to scan as a receipt. */
@@ -62,8 +62,18 @@ class MainActivity : ComponentActivity() {
     private var photoDone: ((Uri?) -> Unit)? = null
     private var captureFile: java.io.File? = null
     private var fileDone: ((Uri?) -> Unit)? = null
+    private var photoPermissionDone: ((Uri?) -> Unit)? = null
+    private val photoCameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val done = photoPermissionDone ?: return@registerForActivityResult
+        photoPermissionDone = null
+        if (ok) startReceiptPhoto(done) else done(null)
+    }
 
-    /** The camera app writes the photo to a file in the app's cache (no camera permission); it's deleted once read. */
+    /**
+     * The camera app writes the photo to a file in the app's cache; it's deleted once read. Since 1.5.0 the app declares
+     * the camera permission (Scan QR code), and Android then lets it start the camera app only once that's granted, so
+     * Take photo asks for it first (photoCameraPermission); refused, no photo is taken.
+     */
     private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val done = photoDone ?: return@registerForActivityResult
         photoDone = null
@@ -115,6 +125,36 @@ class MainActivity : ComponentActivity() {
         done(ok && alerts.allowed())
     }
     private val alerts by lazy { net.darkrelay.deaddropfinance.alerts.SpendAlerts(this) }
+
+    /** Scan QR code (1.5.0): the camera is asked for only when Scan is tapped; a refusal falls back to typing. */
+    private var scanDone: ((net.darkrelay.deaddropfinance.ui.QrScan) -> Unit)? = null
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) launchQrScanner() else finishScan(net.darkrelay.deaddropfinance.ui.QrScan.CameraDenied)
+    }
+    private val qrScanner = registerForActivityResult(com.journeyapps.barcodescanner.ScanContract()) { r ->
+        val missing = r.originalIntent?.hasExtra(com.google.zxing.client.android.Intents.Scan.MISSING_CAMERA_PERMISSION) == true
+        finishScan(
+            when {
+                r.contents != null -> net.darkrelay.deaddropfinance.ui.QrScan.Read(r.contents)
+                missing -> net.darkrelay.deaddropfinance.ui.QrScan.CameraDenied
+                else -> net.darkrelay.deaddropfinance.ui.QrScan.Cancelled
+            },
+        )
+    }
+
+    private fun launchQrScanner() = qrScanner.launch(
+        com.journeyapps.barcodescanner.ScanOptions()
+            .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
+            .setPrompt("Scan the QR code from the desktop program's Add a phone")
+            .setBeepEnabled(false)
+            .setOrientationLocked(false),
+    )
+
+    private fun finishScan(r: net.darkrelay.deaddropfinance.ui.QrScan) {
+        val done = scanDone ?: return
+        scanDone = null
+        done(r)
+    }
 
     private val picker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         val cb = pickCallback ?: return@registerForActivityResult
@@ -191,12 +231,6 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumeTick++
-        if (!app.lock.locked) clearAlerts()
-    }
-
-    /** The app is open and unlocked: the spend alerts showing have been seen. */
-    private fun clearAlerts() {
-        settings?.let { alerts.clear(it) }
     }
 
     private fun openNotificationSettings() {
@@ -233,7 +267,6 @@ class MainActivity : ComponentActivity() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                         app.lock.unlocked()
                         locked = false
-                        clearAlerts()
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
@@ -252,6 +285,20 @@ class MainActivity : ComponentActivity() {
         }
     } catch (t: Throwable) {
         null
+    }
+
+    private fun startReceiptPhoto(done: (Uri?) -> Unit) {
+        val dir = app.captureDir().apply { mkdirs() }
+        val f = java.io.File(dir, "capture-${java.util.UUID.randomUUID()}.jpg")
+        captureFile = f
+        photoDone = done
+        val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.capture", f)
+        try {
+            app.lock.expectReturn()
+            camera.launch(uri)
+        } catch (e: Exception) {
+            photoDone = null; f.delete(); done(null)
+        }
     }
 
     private val platform = object : Platform {
@@ -308,17 +355,8 @@ class MainActivity : ComponentActivity() {
         override fun notificationsAllowed() = alerts.allowed()
 
         override fun takeReceiptPhoto(done: (Uri?) -> Unit) {
-            val dir = app.captureDir().apply { mkdirs() }
-            val f = java.io.File(dir, "capture-${java.util.UUID.randomUUID()}.jpg")
-            captureFile = f
-            photoDone = done
-            val uri = androidx.core.content.FileProvider.getUriForFile(this@MainActivity, "$packageName.capture", f)
-            try {
-                app.lock.expectReturn()
-                camera.launch(uri)
-            } catch (e: Exception) {
-                photoDone = null; f.delete(); done(null)
-            }
+            if (checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) startReceiptPhoto(done)
+            else { photoPermissionDone = done; photoCameraPermission.launch(android.Manifest.permission.CAMERA) }
         }
 
         override fun pickReceiptFile(done: (Uri?) -> Unit) {
@@ -342,42 +380,6 @@ class MainActivity : ComponentActivity() {
         }
 
         override val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles get() = app.receiptImages
-
-        override fun notifAccessGranted() = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.accessGranted(this@MainActivity)
-
-        override fun setNotifReading(on: Boolean) {
-            val st = SyncSettings(this@MainActivity)
-            st.notifReading = on
-            net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this@MainActivity, on)
-        }
-
-        override fun openNotifAccess() {
-            val c = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.component(this@MainActivity)
-            val detail = Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                .putExtra(android.provider.Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, c.flattenToString())
-            runCatching { startActivity(detail) }.onFailure { runCatching { startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) } }
-        }
-
-        override fun openAppInfo() {
-            runCatching {
-                startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", packageName, null)))
-            }
-        }
-
-        override fun launcherApps(): List<Pair<String, String>> {
-            val pm = packageManager
-            val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            return pm.queryIntentActivities(launch, android.content.pm.PackageManager.ResolveInfoFlags.of(0))
-                .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
-                .filter { it.first != packageName }.distinctBy { it.first }.sortedBy { it.second.lowercase() }
-        }
-
-        override fun notifPending(): Map<String, String> {
-            val inbox = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.Inbox
-            return inbox.packages().associateWith { inbox.get(it) ?: "" }.filterValues { it.isNotEmpty() }
-        }
-
-        override fun clearNotifPending(pkg: String) = net.darkrelay.deaddropfinance.alerts.BankNotificationListener.Inbox.clear(pkg)
 
         override fun docs(): List<String> = runCatching { assets.list("licenses")?.toList().orEmpty() }.getOrDefault(emptyList())
 
@@ -430,6 +432,12 @@ class MainActivity : ComponentActivity() {
         override fun sweepReceiptFiles(keep: Set<String>) {
             runCatching { app.receiptImages.sweep(keep) }
             runCatching { app.captureDir().listFiles()?.forEach { it.delete() } }
+        }
+
+        override fun scanQr(onResult: (net.darkrelay.deaddropfinance.ui.QrScan) -> Unit) {
+            scanDone = onResult
+            if (checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) launchQrScanner()
+            else cameraPermission.launch(android.Manifest.permission.CAMERA)
         }
 
         override fun requestNotifications(done: (Boolean) -> Unit) {
@@ -544,12 +552,11 @@ class MainActivity : ComponentActivity() {
     companion object {
         /** Bank exports are small; anything bigger than this isn't one. */
         const val MAX_CSV = 8 * 1024 * 1024
-        /** A spend alert opens the app here. */
+        /** A bill reminder or autopay warning opens the app here. */
         const val EXTRA_OPEN = "open"
         const val OPEN_ACTIVITY = "activity"
         const val OPEN_BILLS = "bills"
         const val OPEN_HOME = "home"
-        const val OPEN_READING = "reading"
     }
 }
 

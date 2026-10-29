@@ -10,9 +10,8 @@ telemetry.
 Version 1.0.0 is the first full release. It does the whole job: accounts, envelopes, paydays, bills, transactions,
 receipt scanning, parked buys, backup and restore, and an in-app update.
 
-Bank transactions come in as CSV files you download from your bank and import. You can also enter things by hand,
-scan receipts, or have the app read your bank app's notifications. There is no bank connection (bank sync was removed
-in 1.3.0).
+Bank transactions come in as CSV files you download from your bank and import. You can also enter things by hand
+or scan receipts. There is no bank connection (bank sync was removed in 1.3.0).
 
 To install it, [download `DeadDropFinance.apk`](https://github.com/Crazy8697/DeadDropFinance/releases/latest/download/DeadDropFinance.apk)
 on your phone, or use the [Releases](https://github.com/Crazy8697/DeadDropFinance/releases) page. When Android asks,

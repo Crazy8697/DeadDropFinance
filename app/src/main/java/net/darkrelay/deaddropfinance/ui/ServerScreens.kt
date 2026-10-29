@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import net.darkrelay.deaddropfinance.serversync.DeviceInfo
+import net.darkrelay.deaddropfinance.serversync.PairingQr
 import net.darkrelay.deaddropfinance.serversync.SyncStatus
 
 /** What the Server screen shows besides the sync status (1.4.0). */
@@ -39,7 +40,21 @@ data class ServerUi(
     val working: String? = null,
     val message: String? = null,
     val error: String? = null,
+    /** A scanned pairing QR code (1.5.0): the desktop program's Add a phone. */
+    val scanned: PairingQr.Info? = null,
+    /** Why the scan didn't happen (the camera was refused), shown above the typed fields. */
+    val scanNote: String? = null,
 )
+
+/** What came back from Scan QR code (1.5.0). */
+sealed class QrScan {
+    data class Read(val text: String) : QrScan()
+    object CameraDenied : QrScan()
+    object Cancelled : QrScan()
+}
+
+/** The note shown when the camera is refused: the typed fields still work. */
+const val CAMERA_DENIED_NOTE = "Without the camera, the QR code can't be scanned. Type the server's address below instead, or allow the camera for Dead Drop Finance in Android's settings."
 
 /** The connected server, as kept on the phone (nothing secret). */
 data class ServerInfo(val url: String?, val fingerprint: String?, val username: String?, val deviceName: String?, val deviceId: String?)
@@ -90,14 +105,39 @@ fun SyncStatusLine(s: SyncStatus, onSyncNow: () -> Unit, modifier: Modifier = Mo
     }
 }
 
-/** Shown on every screen while another device holds the edit lock. */
+/** The read-only banner's words: who is editing, or who took over from this phone and what waits here. */
+fun readOnlyText(s: SyncStatus): String = when {
+    s.takenOverBy != null -> "${s.takenOverBy} took over editing. This phone is read only" +
+        if (s.queued > 0) "; its ${s.queued} waiting ${if (s.queued == 1) "change is" else "changes are"} sent once it can edit again." else "."
+    else -> "Read only: ${s.readOnlyBy} is editing the budget. You can make changes here once it closes."
+}
+
+/**
+ * Shown on every screen while another device holds the edit lock, with Take over editing (1.5.0): a confirmation
+ * naming that device, then the lock moves to this phone and that device turns read only.
+ */
 @Composable
-fun ReadOnlyBanner(holder: String) {
-    Text(
-        "Read only: $holder is editing the budget. You can make changes here once it closes.",
-        color = DdfColors.Background, style = MaterialTheme.typography.bodySmall,
-        modifier = Modifier.fillMaxWidth().background(DdfColors.Cyan).padding(horizontal = 16.dp, vertical = 6.dp),
-    )
+fun ReadOnlyBanner(status: SyncStatus, onTakeOver: () -> Unit) {
+    val holder = status.readOnlyBy ?: return
+    var confirming by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth().background(DdfColors.Cyan).padding(start = 16.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(readOnlyText(status), color = DdfColors.Background, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+        TextButton(onClick = { confirming = true }) { Text("Take over editing", color = DdfColors.Background) }
+    }
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Take over editing?") },
+            text = {
+                Text("$holder is editing the budget. Taking over moves the edit lock to this phone: $holder turns read only, and changes it hasn't sent yet wait there until it can edit again (the last change wins).")
+            },
+            confirmButton = { TextButton(onClick = { confirming = false; onTakeOver() }) { Text("Take over") } },
+            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
+        )
+    }
 }
 
 /** A last-write-wins note: one of this phone's changes was replaced by a newer one. */
@@ -128,6 +168,11 @@ fun ServerScreen(
     onSyncNow: () -> Unit,
     onRevoke: (DeviceInfo) -> Unit,
     onLogout: () -> Unit,
+    /** Scan QR code (1.5.0); null where there is no camera to ask for. */
+    onScan: (() -> Unit)? = null,
+    /** Pair from the scanned code: this device's name, and the backup password when this phone has data of its own. */
+    onPair: (deviceName: String, backupPass: String?) -> Unit = { _, _ -> },
+    onCancelScan: () -> Unit = {},
 ) {
     val busy = ui.working != null
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -136,15 +181,65 @@ fun ServerScreen(
         if (ui.message != null) Text(ui.message, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
         ErrorLine(ui.error)
         if (connected) Connected(ui, status, info, busy, onSyncNow, onRevoke, onLogout)
-        else Connect(ui, busy, onContact, onMode, onCreate, onLogin)
+        else if (ui.scanned != null) Scanned(ui, ui.scanned, busy, onPair, onCancelScan)
+        else Connect(ui, busy, onContact, onMode, onCreate, onLogin, onScan)
         Gap(24)
+    }
+}
+
+/** A scanned Add a phone code: the server it names, then this phone's name (and a backup password if it has a budget of its own). */
+@Composable
+private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (String, String?) -> Unit, onCancel: () -> Unit) {
+    var deviceName by remember { mutableStateOf("Phone") }
+    var pass by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var tried by remember { mutableStateOf(false) }
+    var confirmReplace by remember { mutableStateOf(false) }
+    SectionTitle("Pair with the scanned code")
+    Text(
+        "From the desktop program's Add a phone. The phone checks the server's key against this fingerprint, then gets its own key with the one-time code. The server's budget replaces the one on this phone.",
+        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+    )
+    Line("Address", qr.serverUrl)
+    Line("Fingerprint", fingerprintText(qr.fingerprint))
+    Field("This device's name", deviceName, KeyboardType.Text) { deviceName = it }
+    if (ui.hasLocalData) {
+        Text(
+            "This phone has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads/DeadDropFinance, encrypted with the password you type here (use the account password).",
+            color = DdfColors.Error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp),
+        )
+        Secret("Backup password", pass) { pass = it }
+        Secret("Backup password again", again) { again = it }
+    }
+    val problem = when {
+        deviceName.isBlank() -> "Name this device."
+        ui.hasLocalData -> serverPasswordProblem(pass, again)
+        else -> null
+    }
+    if (tried && problem != null) Text(problem, color = DdfColors.Error, style = MaterialTheme.typography.bodySmall)
+    Row(Modifier.padding(top = 8.dp)) {
+        Button(onClick = {
+            tried = true
+            if (problem != null) return@Button
+            if (ui.hasLocalData) confirmReplace = true else onPair(deviceName, null)
+        }, enabled = !busy) { Text("Pair this phone") }
+        TextButton(onClick = onCancel, enabled = !busy) { Text("Cancel") }
+    }
+    if (confirmReplace) {
+        AlertDialog(
+            onDismissRequest = { confirmReplace = false },
+            title = { Text("Replace this phone's budget?") },
+            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with the password you typed.") },
+            confirmButton = { TextButton(onClick = { confirmReplace = false; onPair(deviceName, pass) }) { Text("Back up and pair", color = DdfColors.Error) } },
+            dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
+        )
     }
 }
 
 @Composable
 private fun Connect(
     ui: ServerUi, busy: Boolean, onContact: (String) -> Unit, onMode: (Boolean) -> Unit,
-    onCreate: (String, String, String, String) -> Unit, onLogin: (String, String, String) -> Unit,
+    onCreate: (String, String, String, String) -> Unit, onLogin: (String, String, String) -> Unit, onScan: (() -> Unit)?,
 ) {
     var address by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
@@ -159,6 +254,12 @@ private fun Connect(
         "Your own Dead Drop server keeps the budget in step across your devices. Everything between this phone and it is encrypted.",
         color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
     )
+    if (onScan != null) {
+        Text("With the desktop program logged in, its Settings > Server > Add a phone shows a QR code that does all of this.",
+            color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
+        Button(onClick = onScan, enabled = !busy, modifier = Modifier.padding(top = 4.dp)) { Text("Scan QR code") }
+    }
+    ui.scanNote?.let { Text(it, color = DdfColors.Error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp)) }
     Field("Server address", address, KeyboardType.Uri) { address = it }
     Text("The server's IP address or name, with :5090 (its port) unless it uses another.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     OutlinedButton(onClick = { onContact(address) }, enabled = !busy && address.isNotBlank(), modifier = Modifier.padding(top = 8.dp)) { Text("Connect") }
@@ -232,11 +333,11 @@ private fun Connected(
     var revoking by remember { mutableStateOf<DeviceInfo?>(null) }
     var loggingOut by remember { mutableStateOf(false) }
     SyncStatusLine(status, onSyncNow, Modifier.padding(vertical = 4.dp))
-    if (status.readOnlyBy != null) Text("Read only: ${status.readOnlyBy} holds the edit lock.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+    if (status.readOnlyBy != null) Text(readOnlyText(status), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     SectionTitle("This server")
     Line("Address", info.url ?: "")
     info.fingerprint?.let { Line("Fingerprint", fingerprintText(it)) }
-    Line("Account", info.username ?: "")
+    Line("Account", info.username ?: "Paired with a code")
     Line("This device", info.deviceName ?: "")
     SectionTitle("Devices")
     val devices = ui.devices

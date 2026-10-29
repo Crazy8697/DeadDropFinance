@@ -438,15 +438,33 @@ private fun PlaceholderTile(title: String, sub: String, modifier: Modifier) {
     }
 }
 
-// ---- Sync (placeholder) ---------------------------------------------------------------------------------------------
+// ---- Sync (0.10.0) -------------------------------------------------------------------------------------------------
 
 @Composable
-fun SyncScreen() {
+fun SyncScreen(model: AppModel, server: ServerModel?) {
     Body {
         Frame(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp).testTag("syncComing")) {
-                T("Sync is coming", 14.sp, weight = FontWeight.SemiBold)
-                T("This program keeps its own budget on this computer for now. Syncing with your phone comes in a later version.", 12.5.sp, C.Dim, modifier = Modifier.padding(top = 6.dp))
+            Column(Modifier.padding(16.dp).testTag("syncSummary")) {
+                if (server == null || !server.connected) {
+                    T("Not connected", 14.sp, weight = FontWeight.SemiBold)
+                    T("Log in under Settings > Server to keep this computer's budget in step with your phone through your own Dead Drop server.",
+                        12.5.sp, C.Dim, modifier = Modifier.padding(top = 6.dp))
+                } else {
+                    val s = server.status
+                    T(ServerModel.pillText(s), 14.sp, weight = FontWeight.SemiBold, modifier = Modifier.testTag("sync.state"))
+                    Kv("Server", server.sync.serverUrl ?: "")
+                    Kv("Last synced", if (s.lastSyncedAt > 0) ServerModel.clockTime(s.lastSyncedAt) else "Not yet")
+                    Kv("Changes waiting", s.queued.toString())
+                    Kv("Editing", when {
+                        s.readOnlyBy != null -> "${s.readOnlyBy} (this computer is read only)"
+                        else -> "This computer, while its window is open"
+                    }, last = true)
+                    s.message?.let { T(it, 12.sp, C.Bad, modifier = Modifier.padding(top = 6.dp)) }
+                }
+                Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (server != null && server.connected) Btn("Sync now", { server.syncNow() }, small = true, tag = "sync.now")
+                    Btn("Server settings", { model.go(Screen.SETTINGS) }, ghost = true, small = true, tag = "sync.settings")
+                }
             }
         }
     }
@@ -455,7 +473,7 @@ fun SyncScreen() {
 // ---- Settings -------------------------------------------------------------------------------------------------------
 
 @Composable
-private fun Panel(title: String, hint: String?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+internal fun Panel(title: String, hint: String?, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Frame(modifier) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             T(title, 14.sp, weight = FontWeight.SemiBold)
@@ -477,7 +495,7 @@ private fun ToggleRow(title: String, sub: String, on: Boolean, tag: String, onCh
 }
 
 @Composable
-private fun Kv(key: String, value: String, last: Boolean = false, tag: String? = null) {
+internal fun Kv(key: String, value: String, last: Boolean = false, tag: String? = null) {
     Row(Modifier.fillMaxWidth().let { if (last) it else it.bottomLine() }.padding(vertical = 8.dp)) {
         T(key, 13.sp, C.Dim, modifier = Modifier.weight(1f))
         T(value, 13.sp, weight = FontWeight.Bold, modifier = if (tag != null) Modifier.testTag(tag) else Modifier)
@@ -503,9 +521,11 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         Panel("Backup and restore", "One encrypted file with this computer's budget, opened with a password you choose. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Back up...", { model.dialog = Dialog.Backup }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
-                Btn("Restore...", { shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
+                Btn("Restore...", { if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
             }
         }
+        Spacer(Modifier.height(16.dp))
+        ServerPanel(model, model.server, shell)
         Spacer(Modifier.height(16.dp))
         Panel("About", null, Modifier.fillMaxWidth()) {
             Kv("Version", BuildInfo.VERSION, tag = "aboutVersion")

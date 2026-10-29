@@ -98,7 +98,6 @@ sealed interface Nav {
     data object Subscriptions : Nav
     data class Subscription(val key: String) : Nav
     data object Forecast : Nav
-    data object Reading : Nav
     data object ParkedBuys : Nav
     data object Backup : Nav
     data object SetupImport : Nav
@@ -148,7 +147,7 @@ interface Platform {
     /** Runs the update check; [done] gets an available release or null, and a message for a manual check. */
     fun checkForUpdates(manual: Boolean, done: (UpdateCheck.Release?, String?) -> Unit)
     fun skipVersion(version: String)
-    /** Spend alerts can be shown (the notification permission is granted and notifications are on). */
+    /** Bill reminders and autopay warnings can be shown (the notification permission is granted and notifications are on). */
     fun notificationsAllowed(): Boolean
     /** Asks for the notification permission; when Android won't ask again, opens the app's notification settings. */
     fun requestNotifications(done: (Boolean) -> Unit)
@@ -164,17 +163,6 @@ interface Platform {
     val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles
     /** Removes photos whose receipt is gone. */
     fun sweepReceiptFiles(keep: Set<String>)
-    /** Android's notification access for the bank notification reader is granted. */
-    fun notifAccessGranted(): Boolean
-    /** Turns reading bank notifications on or off (the listener itself, not only a setting). */
-    fun setNotifReading(on: Boolean)
-    fun openNotifAccess()
-    fun openAppInfo()
-    /** The phone's apps with a launcher icon (package, name), for picking a bank app. */
-    fun launcherApps(): List<Pair<String, String>>
-    /** Picked apps' notifications waiting to be checked (in memory only). */
-    fun notifPending(): Map<String, String>
-    fun clearNotifPending(pkg: String)
     /** The documents and license texts the app carries (assets/licenses), by file name. */
     fun docs(): List<String>
     /** One carried document's text, or null. */
@@ -191,6 +179,11 @@ interface Platform {
     suspend fun restoreBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
     /** Server login (1.4.0): this phone's budget, backed up to Downloads before the server's replaces it; returns where. */
     suspend fun backupBeforeServer(passphrase: CharArray): String
+    /**
+     * Scan QR code (1.5.0): asks for the camera only now, then reads one QR code. Without a camera to ask for (tests),
+     * nothing happens.
+     */
+    fun scanQr(onResult: (QrScan) -> Unit) { onResult(QrScan.Cancelled) }
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -238,10 +231,8 @@ fun AppRoot(
     // a parked buy turns ready with time alone, so the clock is checked every minute
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
-    val notifApps by remember(store) { store.dao.notifApps() }.collectAsState(initial = emptyList())
-    // bumped when something outside Compose changes (the payday correction, reading access, the pending inbox)
+    // bumped when something outside Compose changes (the payday correction)
     var planTick by remember { mutableIntStateOf(0) }
-    var readingOn by remember { mutableStateOf(appSettings.notifReading) }
     val receipts by remember(store) { store.dao.receipts() }.collectAsState(initial = emptyList())
     val receiptItems by remember(store) { store.dao.receiptItems() }.collectAsState(initial = emptyList())
     val itemReturns by remember(store) { store.dao.itemReturns() }.collectAsState(initial = emptyList())
@@ -323,9 +314,6 @@ fun AppRoot(
     fun applySettings(s: net.darkrelay.deaddropfinance.domain.SetupImport.SettingsIn) {
         val st = appSettings
         s.autoApprove?.let { st.autoApprove = it; autoApprove = it }
-        s.alertSpending?.let { st.alertSpending = it }
-        s.alertLowOrOverspent?.let { st.alertLowOrOverspent = it }
-        s.alertSafeToSpendNegative?.let { st.alertSafeToSpend = it }
         s.alertAmountsOnLockScreen?.let { st.alertAmountsOnLockScreen = it }
         s.alertBillReminders?.let { st.alertBills = it }
         s.alertAutopayWarnings?.let { st.alertAutopay = it }
@@ -411,7 +399,6 @@ fun AppRoot(
             null -> {}
             net.darkrelay.deaddropfinance.MainActivity.OPEN_BILLS -> tab(Nav.Bills)
             net.darkrelay.deaddropfinance.MainActivity.OPEN_HOME -> tab(Nav.Home)
-            net.darkrelay.deaddropfinance.MainActivity.OPEN_READING -> { tab(Nav.More); go(Nav.Reading) }
             else -> tab(Nav.Activity)
         }
     }
@@ -570,9 +557,6 @@ fun AppRoot(
                         onScan = { startScan(null) },
                         waitingReceipts = receipts.count { it.transactionId == null },
                         onReceipts = { go(Nav.Receipts) },
-                        stale = net.darkrelay.deaddropfinance.domain.NotifLog.stale(b, today),
-                        onKeepStale = { id -> run(scope) { net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).keep(id) } },
-                        onDeleteStale = { id -> run(scope) { actions.deleteTransaction(id) } },
                     ),
                     tabs = ActivityTabs(
                         accounts = activityTabAccounts(b),
@@ -618,17 +602,13 @@ fun AppRoot(
                     val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
                     SortingAndAlertsSection(
                         SortAlertState(
-                            rules.size, autoApprove, st.alertSpending, st.alertLowOrOverspent, st.alertSafeToSpend, st.alertAmountsOnLockScreen,
-                            notificationsAllowed, st.alertBills, st.alertAutopay, readingOn,
+                            rules.size, autoApprove, st.alertAmountsOnLockScreen,
+                            notificationsAllowed, st.alertBills, st.alertAutopay,
                         ),
-                        onReading = { go(Nav.Reading) },
                         onRules = { go(Nav.Rules) },
                         onAutoApprove = { st.autoApprove = it; autoApprove = it },
                         onAlert = { key, on ->
                             when (key) {
-                                ALERT_SPENDING -> st.alertSpending = on
-                                ALERT_LOW -> st.alertLowOrOverspent = on
-                                ALERT_SAFE -> st.alertSafeToSpend = on
                                 ALERT_LOCK_AMOUNTS -> st.alertAmountsOnLockScreen = on
                                 ALERT_BILLS -> st.alertBills = on
                                 ALERT_AUTOPAY -> st.alertAutopay = on
@@ -985,47 +965,6 @@ fun AppRoot(
                 DocumentScreen(APP_DOCS.firstOrNull { it.first == top.name }?.second ?: top.name, text, ::back)
             }
             Nav.SafeToSpend -> SafeToSpendScreen(b, error, ::back) { id, on -> run(scope) { actions.setEveryday(id, on) } }
-            Nav.Reading -> {
-                val granted = key(planTick) { platform.notifAccessGranted() }
-                val launcher by produceState(emptyList<Pair<String, String>>(), readingOn) { value = withContext(Dispatchers.IO) { platform.launcherApps() } }
-                val pending = key(planTick, notifApps) { platform.notifPending() }
-                LaunchedEffect(Unit) { while (true) { delay(3000); planTick++ } }
-                NotifReadingScreen(
-                    ReadingState(readingOn, granted, notifApps, launcher, pending), b, ::back,
-                    onToggle = { on ->
-                        platform.setNotifReading(on); readingOn = on; planTick++
-                        if (on && !platform.notificationsAllowed()) askNotifications()
-                    },
-                    onOpenAccess = { platform.openNotifAccess() }, onOpenAppInfo = { platform.openAppInfo() },
-                    onPick = { pkg, label, acct ->
-                        run(scope) {
-                            billActions.pickApp(pkg, label, acct)
-                            appSettings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
-                        }
-                    },
-                    onDrop = { pkg ->
-                        run(scope) {
-                            billActions.dropApp(pkg); platform.clearNotifPending(pkg)
-                            appSettings.notifPackages = store.dao.notifAppsNow().filter { it.enabled }.map { it.packageName }.toSet()
-                        }
-                    },
-                    onTeach = { pkg, t ->
-                        run(scope) {
-                            billActions.teach(pkg, t)
-                            val text = platform.notifPending()[pkg]
-                            platform.clearNotifPending(pkg)
-                            val p = text?.let { net.darkrelay.deaddropfinance.domain.NotifParse.parse(it, listOf(t)) }
-                            if (p != null) {
-                                net.darkrelay.deaddropfinance.domain.NotifLog(store, actions).log(pkg, p)
-                                message = "Read and logged."
-                            }
-                            planTick++
-                        }
-                    },
-                    onForget = { pkg -> run(scope) { billActions.forget(pkg) } },
-                    onRefresh = { planTick++ },
-                )
-            }
             is Nav.ReturnItems -> {
                 val credit = b.transactions.firstOrNull { it.id == top.creditId }
                 val purchase = b.transactions.firstOrNull { it.id == top.purchaseId }
@@ -1144,6 +1083,26 @@ fun AppRoot(
                             "Logged out. The budget stays on this phone."
                         }
                     },
+                    onScan = {
+                        serverUi = serverUi.copy(scanNote = null, error = null)
+                        platform.scanQr { r ->
+                            serverUi = when (r) {
+                                is QrScan.Read -> net.darkrelay.deaddropfinance.serversync.PairingQr.parse(r.text)?.let { serverUi.copy(scanned = it) }
+                                    ?: serverUi.copy(error = "That QR code isn't a Dead Drop pairing code. The desktop program shows one under Settings > Server > Add a phone.")
+                                QrScan.CameraDenied -> serverUi.copy(scanNote = CAMERA_DENIED_NOTE)
+                                QrScan.Cancelled -> serverUi
+                            }
+                        }
+                    },
+                    onPair = { name, pass ->
+                        serverRun("Pairing...") {
+                            val saved = s.pair(serverUi.scanned!!, name, pass) { p -> platform.backupBeforeServer(p) }
+                            serverUi = serverUi.copy(scanned = null)
+                            loadDevices()
+                            if (saved != null) "Paired. This phone's old budget was backed up to $saved, encrypted with the password you typed." else "Paired."
+                        }
+                    },
+                    onCancelScan = { serverUi = serverUi.copy(scanned = null, error = null) },
                 )
             }
             Nav.Import -> ImportScreen(
@@ -1213,10 +1172,10 @@ fun AppRoot(
         bottomBar = { BottomTabs(stack.first()) { tab(it) } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            syncStatus.readOnlyBy?.let { ReadOnlyBanner(it) }
+            ReadOnlyBanner(syncStatus) { sync?.let { s -> scope.launch { s.takeOver() } } }
             for (n in syncNotices) SyncNotice(n) { sync?.dismissNotice(n) }
             // screens that don't show errors themselves get them here, so a failed action never goes unsaid
-            val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Reading, Nav.Receipts)
+            val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Receipts)
             val e = error
             if (shown && e != null) {
                 androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {

@@ -104,11 +104,12 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.ImportCsv -> ImportDialog(model, shell, b, d)
         is Dialog.Backup -> BackupDialog(model, shell)
         is Dialog.Restore -> RestoreDialog(model, shell, d)
+        is Dialog.ServerDialog -> {}   // DesktopApp shows these, with the server
     }
 }
 
 @Composable
-private fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @Composable () -> Unit, body: @Composable () -> Unit) {
+fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @Composable () -> Unit, body: @Composable () -> Unit) {
     Box(
         Modifier.fillMaxSize().background(C.Scrim).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
         contentAlignment = Alignment.Center,

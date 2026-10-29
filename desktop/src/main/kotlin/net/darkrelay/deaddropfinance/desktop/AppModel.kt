@@ -30,6 +30,16 @@ sealed class Dialog {
     object Backup : Dialog()
     /** Restore from [file]: its password, then a confirmation before the budget is replaced. */
     data class Restore(val file: java.io.File, val confirm: Boolean = false) : Dialog()
+
+    /** The server's dialogs (0.10.0). */
+    sealed class ServerDialog : Dialog()
+    data class ConfirmLogin(val username: String, val pass: String, val name: String) : ServerDialog() {
+        override fun toString() = "ConfirmLogin"
+    }
+    data class TakeOver(val holder: String) : ServerDialog()
+    data class RemoveDevice(val id: String, val name: String) : ServerDialog()
+    object Logout : ServerDialog()
+    object AddPhone : ServerDialog()
 }
 
 /** A backup password has to be at least this long (as on the phone). */
@@ -66,6 +76,8 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     var dialog by mutableStateOf<Dialog?>(null)
     /** A plain line under the top bar: a refused action's reason, or what an action did. */
     var message by mutableStateOf<Pair<String, Boolean>?>(null)
+    /** The server connection (0.10.0), once the budget is open. */
+    var server by mutableStateOf<ServerModel?>(null)
 
     /** The phone's rules: a purchase entered by hand needs a category (0.8.0). */
     val actions: BudgetActions? = engine?.actions?.also { it.requireCategories = true }
@@ -246,8 +258,29 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         }
     }
 
+    /** The backup a server login makes first: [file], written through a temporary file. Throws when it can't be written. */
+    suspend fun writeBackup(file: java.io.File, pass: CharArray, rounds: Int = net.darkrelay.deaddropfinance.backup.BackupCrypto.ITERATIONS) {
+        val bk = backups() ?: throw IllegalStateException("the budget isn't open")
+        val tmp = java.io.File(file.absoluteFile.parentFile, file.name + ".part")
+        try {
+            tmp.outputStream().use { bk.write(it, pass, rounds) }
+            java.nio.file.Files.move(tmp.toPath(), file.toPath())
+        } catch (e: Exception) {
+            tmp.delete()
+            throw e
+        }
+    }
+
+    /** While connected to the server, a restore waits for a log out (as on the phone): it would replace the budget the server keeps in step. */
+    fun canRestore(): Boolean {
+        if (server?.connected != true) return true
+        message = "Log out of the server (Settings > Server) before restoring a backup: a restore would replace the budget the server keeps in step." to true
+        return false
+    }
+
     /** Replaces the budget with the backup in [file]. A wrong password or a bad file changes nothing. */
     suspend fun restore(file: java.io.File, passphrase: String): Boolean {
+        if (!canRestore()) return false
         val bk = backups() ?: return false
         return try {
             val s = file.inputStream().use { bk.restore(it, passphrase.toCharArray()) }

@@ -105,13 +105,12 @@ class PurgeTest {
         images.write(rid, 0, "invented photo".toByteArray())
         ParkedBuys(store, a, { day }) { now }.park("Sample Lamp", 24_00, 1)
         ParkedBuys(store, a, { day }) { now }.setDefaultWait(7)
-        bills.pickApp("com.example.samplebank", "Sample Bank", store.dao.accountsNow().first().id)
         settings.autoApprove = true
         settings.setupDone = true
-        settings.alertSpending = false
+        settings.alertBills = false
         prefs[1].edit(commit = true) { putBoolean("lock_enabled", false); putInt("lock_timeout_minutes", 30) }
         prefs[2].edit(commit = true) { putBoolean("check_at_startup", false) }
-        assertTrue(rowsLeft().toString(), rowsLeft().keys.containsAll(listOf("account", "envelope", "txn", "txn_line", "envelope_move", "bill", "rule", "subscription", "receipt", "parked_buy", "change_log", "meta", "notif_app")))
+        assertTrue(rowsLeft().toString(), rowsLeft().keys.containsAll(listOf("account", "envelope", "txn", "txn_line", "envelope_move", "bill", "rule", "subscription", "receipt", "parked_buy", "change_log", "meta")))
 
         purger().purge()
 
@@ -129,7 +128,7 @@ class PurgeTest {
         assertTrue(prefs.all { it.all.isEmpty() })
         assertFalse(settings.autoApprove)
         assertFalse(settings.setupDone)
-        assertTrue(settings.alertSpending)
+        assertTrue(settings.alertBills)
         assertEquals(1, ParkedBuys(store, a, { day }).defaultWait())
         assertTrue(store.deviceId().isNotBlank())
     }

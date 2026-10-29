@@ -43,10 +43,17 @@ val phoneUpdateSrc = tasks.register<Sync>("phoneUpdateSrc") {
     into(layout.buildDirectory.dir("generated/phone-update-src"))
 }
 
+// The shared module's in-memory Dead Drop server (its unit tests' FakeServer), copied unchanged into the desktop tests
+// only, so the program's sync is tested against the same server rules with no network.
+val fakeServerSrc = tasks.register<Sync>("fakeServerSrc") {
+    from(rootProject.file("shared/src/jvmTest/kotlin")) { include("net/darkrelay/deaddropfinance/serversync/FakeServer.kt") }
+    into(layout.buildDirectory.dir("generated/fake-server-src"))
+}
+
 kotlin {
     jvmToolchain(21)
     sourceSets.named("main") { kotlin.srcDir(generateBuildInfo) }
-    sourceSets.named("test") { kotlin.srcDir(phoneUpdateSrc) }
+    sourceSets.named("test") { kotlin.srcDir(phoneUpdateSrc); kotlin.srcDir(fakeServerSrc) }
 }
 
 dependencies {
@@ -56,6 +63,8 @@ dependencies {
     implementation(compose.material3)
     // the dark native title bar (0.9.0): one dwmapi call through JNA, which the program already ships (shared's DPAPI)
     implementation("net.java.dev.jna:jna:5.19.1")
+    // the Add a phone QR code (0.10.0): ZXing's core library, which makes the code's modules; the program draws them
+    implementation("com.google.zxing:core:3.5.3")
     testImplementation(kotlin("test"))
     testImplementation(compose.desktop.uiTestJUnit4)
     testImplementation("junit:junit:4.13.2")

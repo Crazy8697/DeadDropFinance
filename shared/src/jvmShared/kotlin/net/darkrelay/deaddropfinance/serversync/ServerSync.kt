@@ -57,6 +57,8 @@ data class SyncStatus(
     val message: String? = null,
     /** Another device holds the edit lock, so this one is read only: that device's name. */
     val readOnlyBy: String? = null,
+    /** The handoff notice (1.5.0): this device took over the lock from this one, whose waiting changes stay here until it edits again. */
+    val takenOverBy: String? = null,
 ) {
     enum class State { NOT_CONNECTED, SYNCING, SYNCED, OFFLINE, ERROR }
 }
@@ -88,6 +90,7 @@ class ServerSync(
     @Volatile private var foreground = false
     @Volatile private var holdsLock = false
     @Volatile private var readOnlyBy: String? = null
+    @Volatile private var takenBy: String? = null
     @Volatile private var keyChecked = false
     @Volatile private var names: Map<String, String> = emptyMap()
     private var sendJob: Job? = null
@@ -98,6 +101,9 @@ class ServerSync(
     }
 
     val connected: Boolean get() = prefs.deviceId != null && prefs.serverKey != null && vault.load() != null
+
+    /** This device held the edit lock at its last word with the server. */
+    val holdsEditLock: Boolean get() = holdsLock
 
     // what the Server screen shows (nothing secret)
     val serverUrl: String? get() = prefs.serverUrl
@@ -110,10 +116,14 @@ class ServerSync(
 
     // ---- connecting
 
-    /** First contact with [address]: its key, refused if this address had a different one pinned. Pins it otherwise. */
-    suspend fun contact(address: String): Pair<String, ServerKeyInfo> = withContext(Dispatchers.IO) {
+    /**
+     * First contact with [address]: its key, refused if this address had a different one pinned, or if it doesn't match
+     * [fingerprint] (from a QR code). Pins it otherwise.
+     */
+    suspend fun contact(address: String, fingerprint: String? = null): Pair<String, ServerKeyInfo> = withContext(Dispatchers.IO) {
         val url = HttpTransport.normalize(address)
         val key = ServerClient.serverKey(transportFor(url))
+        if (fingerprint != null && !PairingQr.sameFingerprint(fingerprint, key.fingerprint)) throw ServerException(ServerException.Kind.KEY_CHANGED, ServerClient.QR_MISMATCH)
         val pinned = prefs.pinned(url)
         if (pinned != null && pinned != key.publicKey.hex()) throw ServerException(ServerException.Kind.KEY_CHANGED, ServerClient.KEY_CHANGED)
         prefs.pin(url, key.publicKey.hex())
@@ -154,7 +164,34 @@ class ServerSync(
         return savedTo
     }
 
-    private fun remember(url: String, key: ServerKeyInfo, keys: Box.KeyPair, r: PairReply, username: String, phase: String) {
+    /**
+     * Pairs this device from a QR code (1.5.0): the address, the key fingerprint it must match, and a one-time code
+     * that's redeemed for this device's own key. Then as a login: when this device has data of its own, [backup] saves it
+     * first, encrypted with [backupPass], and the server's copy replaces it. Returns where the backup went, or null.
+     */
+    suspend fun pair(qr: PairingQr.Info, deviceName: String, backupPass: String?, backup: suspend (CharArray) -> String): String? {
+        var savedTo: String? = null
+        mutex.withLock {
+            check(!connected) { "already connected" }
+            val (url, key) = contact(qr.serverUrl, qr.fingerprint)
+            if (hasLocalData()) savedTo = backup((backupPass ?: throw IllegalStateException("a backup password is needed first")).toCharArray())
+            val keys = Box.keyPair()
+            val r = withContext(Dispatchers.IO) { ServerClient(transportFor(url), key.publicKey, keys, clock = clock).pair(qr.code, deviceName.trim(), kind) }
+            remember(url, key, keys, r, null, PHASE_TAKEOVER)
+        }
+        syncNow()
+        return savedTo
+    }
+
+    /** A one-time pairing code for a phone (Add a phone), and the QR code's content for it. */
+    suspend fun newPairingCode(name: String = "Phone"): Pair<PairingCode, String> = mutex.withLock {
+        withContext(Dispatchers.IO) {
+            val code = client().pairingCode(name)
+            code to PairingQr.encode(prefs.serverUrl!!, fingerprint!!, code.code)
+        }
+    }
+
+    private fun remember(url: String, key: ServerKeyInfo, keys: Box.KeyPair, r: PairReply, username: String?, phase: String) {
         vault.save(keys.secretKey)
         prefs.serverUrl = url
         prefs.serverKey = key.publicKey.hex()
@@ -182,6 +219,29 @@ class ServerSync(
     suspend fun foreground() { foreground = true; syncNow() }
 
     suspend fun tick() = syncNow()
+
+    /**
+     * Take over editing (1.5.0): the lock moves here from the device holding it, which turns read only and keeps its
+     * waiting changes until it holds the lock again.
+     */
+    suspend fun takeOver() {
+        mutex.withLock {
+            if (!connected || prefs.revoked) return
+            publish(SyncStatus.State.SYNCING)
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    takeLock(client().takeover())
+                    true
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    fail(e)
+                    false
+                }
+            }
+            if (!ok) return
+        }
+        syncNow()
+    }
 
     /** The app went to the back or closed: send what's waiting, then let go of the lock. */
     suspend fun background() {
@@ -272,6 +332,7 @@ class ServerSync(
 
     private fun takeLock(l: LockState) {
         holdsLock = l.youHoldIt
+        takenBy = if (l.takenBy != null && !l.youHoldIt) l.takenByName ?: "Another device" else null
         readOnlyBy = if (foreground && !l.youHoldIt && l.holder != null) l.holderName ?: "Another device" else null
     }
 
@@ -387,6 +448,8 @@ class ServerSync(
         if (ch.operation == "DELETE") JSONObject(ch.changedFields.toString()).put("deleted", true) else ch.changedFields
 
     private suspend fun pushAll(c: ServerClient) {
+        // taken over: what's waiting stays here until this device holds the lock again (the server refuses it until then)
+        if (takenBy != null) return
         val me = store.deviceId()
         while (true) {
             val rows = store.db.rawTransaction { raw ->
@@ -396,12 +459,19 @@ class ServerSync(
             if (rows.isEmpty()) return
             val changes = rows.map { Change(it[0] as String, it[1] as String, it[2] as String, it[3] as String, JSONObject(it[4] as String), it[5] as Long) }
             val r = try {
-                c.push(changes, prefs.pulledSeq, offline = !holdsLock)
+                try {
+                    c.push(changes, prefs.pulledSeq, offline = !holdsLock)
+                } catch (e: ServerClient.RpcError) {
+                    // the lock lapsed or another device has it: these were made while this one could edit, so they go as offline changes
+                    if (e.code != "locked") throw e
+                    holdsLock = false
+                    c.push(changes, prefs.pulledSeq, offline = true)
+                }
             } catch (e: ServerClient.RpcError) {
-                // the lock lapsed or another device has it: these were made while this one could edit, so they go as offline changes
-                if (e.code != "locked") throw e
+                if (e.code != "taken_over") throw e
                 holdsLock = false
-                c.push(changes, prefs.pulledSeq, offline = true)
+                takenBy = takenBy ?: "Another device"
+                return
             }
             noteConflicts(r.conflicts)
             prefs.pushedSeq = rows.last()[6] as Long
@@ -444,7 +514,7 @@ class ServerSync(
             vault.delete()
             prefs.serverUrl = null; prefs.serverKey = null; prefs.deviceId = null; prefs.deviceName = null; prefs.username = null
             prefs.phase = null; prefs.pushedSeq = 0; prefs.pulledSeq = 0; prefs.lastSyncedAt = 0; prefs.revoked = false
-            holdsLock = false; readOnlyBy = null; keyChecked = false
+            holdsLock = false; readOnlyBy = null; takenBy = null; keyChecked = false
             _notices.value = emptyList()
             publish(SyncStatus.State.NOT_CONNECTED)
         }
@@ -461,13 +531,13 @@ class ServerSync(
     }
 
     private suspend fun publish(state: SyncStatus.State, message: String? = null) {
-        _status.value = SyncStatus(state, queued(), prefs.lastSyncedAt, message, readOnlyBy)
+        _status.value = SyncStatus(state, queued(), prefs.lastSyncedAt, message, readOnlyBy, takenBy)
     }
 
     /** Recounts the queue (after a write while offline). */
     suspend fun refresh() {
         val s = _status.value
-        _status.value = s.copy(queued = queued(), readOnlyBy = readOnlyBy)
+        _status.value = s.copy(queued = queued(), readOnlyBy = readOnlyBy, takenOverBy = takenBy)
     }
 
     companion object {

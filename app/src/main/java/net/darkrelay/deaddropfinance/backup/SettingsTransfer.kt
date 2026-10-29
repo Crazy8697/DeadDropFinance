@@ -6,8 +6,9 @@ import org.json.JSONObject
 
 /**
  * The settings a backup carries: the user's own choices (sorting, alerts, app lock, hide screen, update
- * checks). Not setup progress, alert bookkeeping, a skipped version or notification reading (that needs Android's
- * permission on each phone). [files] are the settings files by name: "sync", "lock" and "updates".
+ * checks). Not setup progress, alert bookkeeping or a skipped version. [files] are the settings files by name:
+ * "sync", "lock" and "updates". A backup from before 1.5.0 may also carry the spend alert switches of the bank
+ * notification reader (removed in 1.5.0): they are not carried keys any more, so a restore ignores them.
  */
 class SettingsTransfer(private val files: Map<String, SharedPreferences>) {
 
@@ -47,8 +48,7 @@ class SettingsTransfer(private val files: Map<String, SharedPreferences>) {
     companion object {
         val CARRIED = mapOf(
             "sync" to listOf(
-                "auto_approve", "alert_spending", "alert_low", "alert_safe_to_spend",
-                "alert_lock_screen_amounts", "alert_bills", "alert_autopay",
+                "auto_approve", "alert_lock_screen_amounts", "alert_bills", "alert_autopay",
             ),
             "lock" to listOf("lock_enabled", "lock_timeout_minutes", "hide_screen"),
             "updates" to listOf("check_at_startup"),

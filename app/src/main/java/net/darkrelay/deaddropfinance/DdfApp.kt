@@ -8,6 +8,7 @@ import net.darkrelay.deaddropfinance.data.BankSyncCleanup
 import net.darkrelay.deaddropfinance.data.DatabaseOpener
 import net.darkrelay.deaddropfinance.data.Eraser
 import net.darkrelay.deaddropfinance.data.KeystoreWrapper
+import net.darkrelay.deaddropfinance.data.ReaderRemoval
 import net.darkrelay.deaddropfinance.data.SecretStore
 import net.darkrelay.deaddropfinance.lock.AppLock
 import net.darkrelay.deaddropfinance.sync.SyncSettings
@@ -104,14 +105,19 @@ class DdfApp : Application() {
 
     /**
      * The app's settings, once the database is open; null if the budget can't be opened on this phone. The first call
-     * removes what bank sync (removed in 1.3.0) left outside the database: its saved login, settings and background job.
+     * removes what bank sync (removed in 1.3.0) left outside the database: its saved login, settings and background job;
+     * and what the bank notification reader (removed in 1.5.0) left: its settings, picked apps and notification channels.
      */
     suspend fun settings(): SyncSettings? {
-        open() as? DatabaseOpener.Opened.Ok ?: return null
+        val ok = open() as? DatabaseOpener.Opened.Ok ?: return null
         val settings = SyncSettings(this)
         if (!cleaned) openLock.withLock {
             if (!cleaned) {
                 runCatching { BankSyncCleanup(secrets(), settings) { androidx.work.WorkManager.getInstance(this).cancelUniqueWork(it) }.run() }
+                runCatching {
+                    val nm = getSystemService(android.app.NotificationManager::class.java)
+                    ReaderRemoval(ok.store.dao, settings) { nm.deleteNotificationChannel(it) }.run()
+                }
                 cleaned = true
             }
         }
@@ -129,8 +135,6 @@ class DdfApp : Application() {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { syncLifecycle?.detach() }
         syncLifecycle = null
         serverSync = null
-        // stop reading bank notifications (the listener is switched off, not just its setting)
-        runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         (opened as? DatabaseOpener.Opened.Ok)?.store?.db?.close()
         opened = null
         val left = Eraser(
@@ -149,7 +153,6 @@ class DdfApp : Application() {
     /** Purge data (FEATURES.md). The database stays open; the next start of the screens opens the setup wizard. */
     suspend fun purgeData() = openLock.withLock {
         val o = opened as? DatabaseOpener.Opened.Ok ?: return@withLock
-        runCatching { net.darkrelay.deaddropfinance.alerts.BankNotificationListener.setEnabled(this, false) }
         net.darkrelay.deaddropfinance.data.Purger(
             o.store.db, secrets(), listOf("lock", "sync", "updates").map { getSharedPreferences(it, MODE_PRIVATE) },
             listOf(receiptDir(), captureDir(), File(cacheDir, "restore")),

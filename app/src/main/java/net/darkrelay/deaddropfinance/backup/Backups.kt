@@ -205,8 +205,12 @@ class Backups(
 
     companion object {
         const val FORMAT_NAME = "deaddropfinance-backup"
-        /** The database's bookkeeping never travels (and bank sync's tables, gone since 1.3.0, never did). */
-        val LEFT_OUT = setOf("connection", "linked_account", "sync_log", "room_master_table", "android_metadata")
+        /**
+         * The database's bookkeeping never travels (and bank sync's tables, gone since 1.3.0, never did). Nor does
+         * `notif_app`, the bank notification reader's table (reader removed in 1.5.0): kept empty, so an older
+         * backup's rows for it are left out of a restore.
+         */
+        val LEFT_OUT = setOf("connection", "linked_account", "sync_log", "notif_app", "room_master_table", "android_metadata")
         private val ID = Regex("[A-Za-z0-9-]{1,64}")
 
         /** A backup file's suggested name: deaddrop-yyyy-mm-dd.ddfbak. */

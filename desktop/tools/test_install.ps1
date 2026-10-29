@@ -48,6 +48,9 @@ function Install([string[]]$extra, [string]$exe = $Setup) {
     $a = @("/CURRENTUSER", "/DIR=`"$dir`"", "/MERGETASKS=`"!desktopicon`"", "/NORESTART", "/SUPPRESSMSGBOXES", "/SP-", "/LOG=`"$log`"") + $extra
     $p = Start-Process -FilePath $exe -ArgumentList $a -PassThru -Wait
     if ($p.ExitCode -ne 0) { Fail "Setup exited with $($p.ExitCode) (log $log)" }
+    # when Setup finished: anything in the folder newer than this was written by the program, not by Setup (over an
+    # older build, Setup keeps unins000.exe and only rewrites unins000.dat, so unins000.exe's time isn't it)
+    $script:installedAt = Get-Date
 }
 
 function RunProgram([string[]]$argv, [string]$out) {
@@ -117,7 +120,7 @@ try {
         $r["dbFile"] -ne (Join-Path $data "budget.db") -or $r["dbEncrypted"] -ne "true") { Fail "smoke test: $((Get-Content $out) -join '; ')" }
     if (IsPlain (Join-Path $data "budget.db")) { Fail "budget.db is still plain SQLite" }
     if (-not (Test-Path (Join-Path $data "budget.key"))) { Fail "no budget.key beside the budget" }
-    $written = @(Get-ChildItem -Recurse -File $dir | Where-Object { $_.LastWriteTime -gt (Get-Item (Join-Path $dir "unins000.exe")).LastWriteTime.AddSeconds(5) })
+    $written = @(Get-ChildItem -Recurse -File $dir | Where-Object { $_.LastWriteTime -gt $script:installedAt.AddSeconds(2) })
     if ($written.Count) { Fail "the program wrote into its folder: $($written.Name -join ', ')" }
     Ok "installed program: name, version $Version, shown off screen, not focused, settings and encrypted budget (schema 12, $($r["envelopes"]) envelopes, $($r["categories"]) categories) in the throwaway APPDATA, nothing written in its folder"
     if ($old) {

@@ -1,25 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Only the update check and its download (one anonymous GET of this app's GitHub releases). -->
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- App lock: fingerprint or the phone's PIN through the system prompt -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <!-- Spend alerts and bill reminders. Asked for when an alert is turned on, never at first launch. -->
+    <!-- Bill reminders and autopay warnings. Asked for when one is turned on, never at first launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Download and install (0.15.1): installing the verified release APK through PackageInstaller. Android asks
          the user to turn this on the first time; the app never installs anything unverified. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Scan QR code (1.5.0): the desktop program's Add a phone code, read on the phone. Asked for only when Scan QR code
+         is tapped; refused, the server's address is typed instead. (The scanner library declares it too.) -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Read-only: whether the network is metered, to warn before an update downloads over mobile data. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <!-- To open release links in a real browser (Browsers.kt), the browsers have to be visible. -->
     <queries>
-        <!-- The app picker for reading bank notifications lists the phone's apps that have a launcher icon. -->
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
@@ -74,22 +74,11 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/capture_paths" />
         </provider>
-        <!-- Reading the notifications of the bank and wallet apps the user picks. Off (disabled) until the user turns it
-             on in More, Alerts; only Android can bind it, and only once the user grants notification access. -->
-        <service
-            android:name=".alerts.BankNotificationListener"
-            android:enabled="false"
-            android:exported="true"
-            android:label="Dead Drop Finance: bank notifications"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-            </intent-filter>
-        </service>
-        <!-- A spend alert's Approve button. Only this app's own notifications can reach it. -->
-        <receiver
-            android:name=".alerts.AlertActionReceiver"
-            android:exported="false" />
+        <!-- The QR scanner (ZXing Android Embedded): follows the phone's rotation, as the rest of the app does. -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="android:screenOrientation" />
     </application>
 
 </manifest>

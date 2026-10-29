@@ -42,7 +42,6 @@ import net.darkrelay.deaddropfinance.data.BillEntity
 import net.darkrelay.deaddropfinance.data.BillPaymentEntity
 import net.darkrelay.deaddropfinance.data.BillRecurrence
 import net.darkrelay.deaddropfinance.data.PaymentMethod
-import net.darkrelay.deaddropfinance.data.NotifAppEntity
 import net.darkrelay.deaddropfinance.data.ParkedBuyEntity
 import net.darkrelay.deaddropfinance.data.ParkedStatus
 import net.darkrelay.deaddropfinance.domain.ParkedBuys
@@ -50,7 +49,6 @@ import net.darkrelay.deaddropfinance.data.SubscriptionEntity
 import net.darkrelay.deaddropfinance.data.SubscriptionStatus
 import net.darkrelay.deaddropfinance.domain.Bills
 import net.darkrelay.deaddropfinance.domain.Forecast
-import net.darkrelay.deaddropfinance.domain.NotifParse
 import net.darkrelay.deaddropfinance.domain.Paydays
 import net.darkrelay.deaddropfinance.domain.Recurring
 import org.junit.Assume.assumeTrue
@@ -315,7 +313,7 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun moreSortingAlerts() = shot("73-more-sorting-alerts") {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, sortAlerts = {
-            SortingAndAlertsSection(SortAlertState(6, false, true, true, true, false, false), {}, {}, { _, _ -> }, {})
+            SortingAndAlertsSection(SortAlertState(6, false, false, false), {}, {}, { _, _ -> }, {})
         })
     }
     @Test @Config(qualifiers = TALL) fun returnPicker() = shot("74-this-is-a-return") {
@@ -396,7 +394,7 @@ class ScreenshotTest {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {})
     }
 
-    // ---- 0.10.0: bills, paydays, subscriptions, forecast, reading bank notifications -------------------------------
+    // ---- 0.10.0: bills, paydays, subscriptions, forecast ----------------------------------------------------------
     private fun bill(id: String, name: String, amount: Long, due: java.time.LocalDate, env: String?, rec: BillRecurrence = BillRecurrence.MONTHLY, autopay: Boolean = false, reminder: Boolean = false, varies: Boolean = false) =
         BillEntity(id = id, name = name, envelopeId = env, amountDue = amount, dueDate = due, recurrence = rec, autopay = autopay, reminder = reminder, varies = varies, matchText = name.lowercase(), createdAt = 0, updatedAt = 0)
     private fun pay(bill: String, amount: Long, due: java.time.LocalDate, method: PaymentMethod = PaymentMethod.BANK, tx: String? = null) =
@@ -489,26 +487,10 @@ class ScreenshotTest {
         val thin = Budget(b.accounts, b.envelopes, b.transactions.filter { !it.isPayday || it.date == b.paydayDates.last() }, b.lines, b.moves, b.bills, b.billPayments)
         ForecastScreen(Forecast.build(thin, series10, today, pred10.next!!), {})
     }
-    @Test @Config(qualifiers = TALL) fun moreAlertsStage10() = shot("108-more-alerts-bills-reading") {
+    @Test @Config(qualifiers = TALL) fun moreAlertsStage10() = shot("108-more-alerts-bills") {
         MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, {}, {}, sortAlerts = {
-            SortingAndAlertsSection(SortAlertState(4, false, true, true, true, false, true, bills = true, autopay = true, reading = true), {}, {}, { _, _ -> }, {})
+            SortingAndAlertsSection(SortAlertState(4, false, false, true, bills = true, autopay = true), {}, {}, { _, _ -> }, {})
         })
-    }
-    private val bankApp = NotifAppEntity("com.example.samplebank", "Sample Bank", "chk", templates = NotifParse.encode(listOf(NotifParse.Template(false, "of", "at", "with card"))), lastAmount = 42_18, lastPayee = "SAMPLE MARKET 0042", lastAt = at)
-    @Test fun readingOff() = shot("109-reading-off") { NotifReadingScreen(ReadingState(false, false, emptyList(), emptyList(), emptyMap()), budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {}) }
-    @Test @Config(qualifiers = TALL) fun readingRestricted() = shot("110-reading-restricted-steps") {
-        NotifReadingScreen(ReadingState(true, false, emptyList(), listOf("com.example.samplebank" to "Sample Bank", "com.example.samplewallet" to "Sample Wallet"), emptyMap()), budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {})
-    }
-    @Test @Config(qualifiers = TALL) fun readingTeach() = shot("111-reading-teach-and-last-read") {
-        val wallet = NotifAppEntity("com.example.samplewallet", "Sample Wallet", "chk")
-        NotifReadingScreen(
-            ReadingState(true, true, listOf(bankApp, wallet), emptyList(), mapOf("com.example.samplewallet" to "Sample Wallet: You paid \$6.25 to SAMPLE COFFEE CART. Balance \$40.10.")),
-            budget10, {}, {}, {}, {}, { _, _, _ -> }, {}, { _, _ -> }, {}, {},
-        )
-    }
-    @Test fun activityStale() = shot("112-activity-not-in-sync") {
-        val t = TransactionEntity(id = "n1", accountId = "chk", date = today.minusDays(9), payee = "SAMPLE KIOSK", amount = -9_99, pending = true, source = net.darkrelay.deaddropfinance.data.TransactionSource.NOTIFICATION, createdAt = 0, updatedAt = 0)
-        ActivityScreen(budget8, {}, {}, { _, _, _ -> }, {}, sorting = SortingUi(stale = listOf(t)))
     }
     @Test @Config(qualifiers = TALL) fun envelopeDebtReminder() = shot("113-envelope-debt-reminder") { EnvelopeEditScreen(budget10.envelopes.first { it.id == "debt" }, null, {}, {}) }
     @Test @Config(qualifiers = TALL) fun ruleCountsTowardBill() = shot("114-rule-counts-toward-bill") {

@@ -183,7 +183,8 @@ class SortingTest {
     @Test fun autoApproveIsOffByDefaultAndAlertsStartQuiet() {
         val st = SyncSettings(ctx.getSharedPreferences("sorting-defaults", Context.MODE_PRIVATE).also { it.edit().clear().commit() })
         assertFalse(st.autoApprove)
-        assertTrue(st.alertSpending && st.alertLowOrOverspent && st.alertSafeToSpend)
+        assertTrue("the channels are on; each bill's own reminder starts off", st.alertBills && st.alertAutopay)
+        assertTrue(st.reminded.isEmpty())
         assertFalse("no amounts on the lock screen unless turned on", st.alertAmountsOnLockScreen)
         assertFalse(st.alertsAsked)
     }

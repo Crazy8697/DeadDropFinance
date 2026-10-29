@@ -230,21 +230,16 @@ fun RuleEditScreen(
 data class SortAlertState(
     val ruleCount: Int,
     val autoApprove: Boolean,
-    val spending: Boolean,
-    val lowOrOverspent: Boolean,
-    val safeToSpend: Boolean,
     val amountsOnLockScreen: Boolean,
     val notificationsAllowed: Boolean,
     val bills: Boolean = true,
     val autopay: Boolean = true,
-    val reading: Boolean = false,
 )
 
 /** More's Sorting and Alerts sections. */
 @Composable
 fun SortingAndAlertsSection(
     s: SortAlertState, onRules: () -> Unit, onAutoApprove: (Boolean) -> Unit, onAlert: (key: String, on: Boolean) -> Unit, onAllowNotifications: () -> Unit,
-    onReading: () -> Unit = {},
 ) {
     SectionTitle("Sorting")
     ListRow(onRules) {
@@ -262,36 +257,17 @@ fun SortingAndAlertsSection(
         s.autoApprove, true, onAutoApprove,
     )
     SectionTitle("Alerts")
-    Text(
-        "Spending alerts come from Read bank notifications, below: they come when your bank app's notification is read.",
-        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-    )
     if (!s.notificationsAllowed) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Notifications are off for this app.", Modifier.weight(1f), color = DdfColors.Warning)
             TextButton(onClick = onAllowNotifications) { Text("Turn on") }
         }
     }
-    SettingRow("New spending", "Payee, amount, the suggested envelope and what's left, with Approve.", s.spending, true) { onAlert(ALERT_SPENDING, it) }
-    SettingRow("Envelope low or overspent", "When new spending takes an envelope under ${net.darkrelay.deaddropfinance.domain.Alerts.LOW_PERCENT}% of its target, or below zero.", s.lowOrOverspent, true) { onAlert(ALERT_LOW, it) }
-    SettingRow("Safe to Spend going negative", "Counts the envelopes marked Everyday spending.", s.safeToSpend, true) { onAlert(ALERT_SAFE, it) }
-    SettingRow("Show amounts on the lock screen", "Off: the lock screen shows only how many came in, no payees, envelopes or amounts.", s.amountsOnLockScreen, true) { onAlert(ALERT_LOCK_AMOUNTS, it) }
     SettingRow("Bill reminders", "For the bills (and debt payments) you turn a reminder on for. Each bill's reminder is off until you do.", s.bills, true) { onAlert(ALERT_BILLS, it) }
     SettingRow("Autopay warnings", "When an autopay is due before payday and its envelope is short.", s.autopay, true) { onAlert(ALERT_AUTOPAY, it) }
-    ListRow(onReading) {
-        Column {
-            Text("Read bank notifications")
-            Text(
-                if (s.reading) "On: spending shows up as soon as your bank app notifies you" else "Off. Logs spending from your bank app's notifications",
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+    SettingRow("Show amounts on the lock screen", "Off: the lock screen only says a bill is due or an autopay is short, with no names or amounts.", s.amountsOnLockScreen, true) { onAlert(ALERT_LOCK_AMOUNTS, it) }
 }
 
-const val ALERT_SPENDING = "spending"
-const val ALERT_LOW = "low"
-const val ALERT_SAFE = "safe"
 const val ALERT_LOCK_AMOUNTS = "lock_amounts"
 const val ALERT_BILLS = "bills"
 const val ALERT_AUTOPAY = "autopay"

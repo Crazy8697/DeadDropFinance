@@ -81,10 +81,6 @@ data class SortingUi(
     /** Receipts still waiting for their charge. */
     val waitingReceipts: Int = 0,
     val onReceipts: () -> Unit = {},
-    /** Logged from a bank notification a week ago and never matched by an import. */
-    val stale: List<TransactionEntity> = emptyList(),
-    val onKeepStale: (String) -> Unit = {},
-    val onDeleteStale: (String) -> Unit = {},
 )
 
 /**
@@ -185,7 +181,6 @@ private fun AllActivity(
         budget.toSort.forEach { t ->
             ToSortRow(t, budget, accounts[t.accountId]?.name ?: "", sorting.suggestions[t.id], envelopes, onTransaction, onSort, onSplit, sorting)
         }
-        StaleNotificationEntries(sorting.stale, sorting.onKeepStale, sorting.onDeleteStale)
         if (sorting.recentlySorted.isNotEmpty()) {
             SectionTitle("Recently sorted by rules")
             Text("Auto-approve sorted these as they arrived. Tap one to change it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)

@@ -74,7 +74,7 @@ class MigrationTest {
             assertTrue(d.receiptsNow().isEmpty())
             assertTrue(d.receiptItemsNow().isEmpty())
             assertTrue(d.subscriptionsNow().isEmpty())
-            assertTrue(d.notifAppsNow().isEmpty())
+            assertEquals(0, d.notifAppCount())
             assertTrue(d.parkedBuysNow().isEmpty())
         } finally {
             db.close()
@@ -203,12 +203,12 @@ class MigrationTest {
             assertEquals(2, d.envelope("d1")!!.reminderDays)
             assertNull(d.rulesNow().single().billId)
             assertEquals("t1", d.receiptsNow().single().transactionId)
-            // the new tables work: a subscription through the store (change-logged), a notification app directly (this phone's own)
+            // the new tables work: a subscription through the store (change-logged); the notification app table is there
+            // (empty: the reader that used it was removed in 1.5.0, but the schema keeps it)
             val store = BudgetStore(db)
             store.write { put(null, SubscriptionEntity(matchKey = "sample stream", createdAt = now, updatedAt = now)) }
-            d.upsertNotifApp(NotifAppEntity("com.example.samplebank", "Sample Bank"))
             assertEquals(SubscriptionStatus.NEW, d.subscriptionsNow().single().status)
-            assertEquals("Sample Bank", d.notifAppsNow().single().label)
+            assertEquals(0, d.notifAppCount())
             assertTrue(d.changes().any { it.entityType == "subscription" })
         } finally {
             db.close()
@@ -236,7 +236,8 @@ class MigrationTest {
             assertEquals("sample bill", d.bill("b1")!!.matchText)
             assertEquals(PaymentMethod.HAND, d.billPayment("p1")!!.method)
             assertEquals(SubscriptionStatus.CONFIRMED, d.subscriptionsNow().single().status)
-            assertEquals("a1", d.notifAppsNow().single().accountId)
+            // the migration keeps the row; the upgrade cleanup (ReaderRemoval) empties the table at the first start
+            assertEquals(1, d.notifAppCount())
             assertEquals(-1234L, d.transaction("t1")!!.amount)
             assertTrue(d.parkedBuysNow().isEmpty())
             // the new table works, through the store (change-logged)

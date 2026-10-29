@@ -19,7 +19,11 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
     var account: Pair<String, String>? = null
     private var failures = 0
 
-    class Device(val id: String, val name: String, val kind: String, var key: ByteArray?, val pairedAt: Long, var revokedAt: Long? = null, var open: Boolean = false)
+    class Device(val id: String, val name: String, val kind: String, var key: ByteArray?, val pairedAt: Long, var revokedAt: Long? = null, var open: Boolean = false,
+                 var takenBy: String? = null, var takenAt: Long? = null)
+
+    class PairCode(val name: String, val expiresAt: Long, var usedAt: Long? = null)
+    val pairingCodes = linkedMapOf<String, PairCode>()
     val devices = linkedMapOf<String, Device>()
 
     class Row(val seq: Long, val change: JSONObject, val device: String, val offline: Boolean)
@@ -43,7 +47,7 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
             if (!online) throw IOException("offline")
             return synchronized(this@FakeServer) {
                 when (path) {
-                    "/v1/setup", "/v1/login" -> account(path, body)
+                    "/v1/setup", "/v1/login", "/v1/pair" -> account(path, body)
                     "/v1/rpc" -> rpc(body)
                     else -> Transport.Response(404, ByteArray(0))
                 }
@@ -57,7 +61,13 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         val plain = if (body.isNotEmpty() && body[0] == Box.VERSION) Box.sealOpen(body.copyOfRange(1, body.size), keys.publicKey, keys.secretKey) else null
         val req = plain?.let { runCatching { JSONObject(String(it)) }.getOrNull() } ?: run { failures++; return forbidden }
         val key = runCatching { req.getString("publicKey").unhex() }.getOrNull()
+        var name = req.optString("name")
         val ok = when (path) {
+            "/v1/pair" -> pairingCodes[req.optString("code")]?.takeIf { it.usedAt == null && it.expiresAt > clock() }?.let { pc ->
+                pc.usedAt = clock()
+                name = req.optString("name").trim().ifEmpty { pc.name }
+                true
+            } ?: false
             "/v1/setup" -> setupCode != null && account == null && req.getString("setupCode").uppercase().filter { it.isLetterOrDigit() } ==
                 setupCode!!.filter { it.isLetterOrDigit() } && req.getString("password").length >= 8
             else -> account != null && account!!.first.equals(req.getString("username").trim(), true) && account!!.second == req.getString("password")
@@ -65,8 +75,8 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         if (!ok || key == null || key.size != 32) { failures++; return forbidden }
         if (path == "/v1/setup") { account = req.getString("username").trim() to req.getString("password"); setupCode = null }
         val id = UUID.randomUUID().toString()
-        devices[id] = Device(id, req.getString("name"), req.getString("kind"), key, clock())
-        val reply = JSONObject().put("deviceId", id).put("name", req.getString("name")).put("kind", req.getString("kind")).put("serverTime", clock())
+        devices[id] = Device(id, name, req.getString("kind"), key, clock())
+        val reply = JSONObject().put("deviceId", id).put("name", name).put("kind", req.getString("kind")).put("serverTime", clock())
         return Transport.Response(200, Box.reply(reply.toString().toByteArray(), key, keys.secretKey))
     }
 
@@ -92,8 +102,16 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
     private fun holder(): String? = lockHolder?.takeIf { lockExpires > clock() }
 
     private fun lockJson(me: String): JSONObject {
-        val h = holder() ?: return JSONObject().put("youHoldIt", false)
-        return JSONObject().put("holder", h).put("holderName", devices[h]?.name).put("expiresAt", lockExpires).put("youHoldIt", h == me)
+        val h = holder()
+        val o = if (h == null) JSONObject().put("youHoldIt", false)
+        else JSONObject().put("holder", h).put("holderName", devices[h]?.name).put("expiresAt", lockExpires).put("youHoldIt", h == me)
+        devices[me]?.takenBy?.let { o.put("takenBy", it).put("takenByName", devices[it]?.name).put("takenAt", devices[me]!!.takenAt) }
+        return o
+    }
+
+    private fun grant(me: String) {
+        lockHolder = me; lockExpires = clock() + lockTimeoutMs
+        devices[me]?.takenBy = null; devices[me]?.takenAt = null
     }
 
     private fun devJson(d: Device) = JSONObject().put("id", d.id).put("name", d.name).put("kind", d.kind).put("pairedAt", d.pairedAt)
@@ -109,7 +127,18 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
             if (holder() == me) { if (a.optBoolean("open", true)) lockExpires = clock() + lockTimeoutMs else lockHolder = null }
             lockJson(me)
         }
-        "lock.acquire" -> { if (holder() == null || holder() == me) { lockHolder = me; lockExpires = clock() + lockTimeoutMs }; lockJson(me) }
+        "lock.acquire" -> { if (holder() == null || holder() == me) grant(me); lockJson(me) }
+        "lock.takeover" -> {
+            holder()?.takeIf { it != me }?.let { devices[it]?.takenBy = me; devices[it]?.takenAt = clock() }
+            grant(me)
+            lockJson(me)
+        }
+        "pairing.new" -> {
+            val code = (1..2).joinToString("-") { (1..4).map { "ABCDEFGHJKMNPQRSTVWXYZ23456789".random() }.joinToString("") }
+            val pc = PairCode(a.optString("name", "Phone"), clock() + a.optLong("minutes", 10) * 60_000)
+            pairingCodes[code] = pc
+            JSONObject().put("code", code).put("name", pc.name).put("createdAt", clock()).put("expiresAt", pc.expiresAt)
+        }
         "lock.release" -> { if (holder() == me) lockHolder = null; lockJson(me) }
         "push" -> push(me, a)
         "pull" -> {
@@ -143,6 +172,7 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
 
     private fun push(me: String, a: JSONObject): JSONObject {
         val offline = a.optBoolean("offline", false)
+        if (devices[me]?.takenBy != null) throw Refused("taken_over", "another device took over editing")
         if (!offline && holder() != me) throw Refused("locked", if (holder() == null) "take the edit lock first" else "another device holds the edit lock")
         val baseSeq = a.optLong("baseSeq", 0)
         var appliedN = 0; var dup = 0; var lost = 0

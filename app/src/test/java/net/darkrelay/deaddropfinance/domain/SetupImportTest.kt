@@ -146,7 +146,8 @@ class SetupImportTest {
         assertEquals(SubscriptionStatus.CONFIRMED, sub.status)
         assertEquals(car.id, sub.billId)
         assertEquals(7, ParkedBuys(store, a, { day }).defaultWait())
-        assertEquals(listOf("autoApprove", "alerts.spending", "parkingLotWait"), plan.settings!!.named())
+        // "alerts": { "spending" } was a spend alert of the notification reader (removed in 1.5.0): read, then ignored
+        assertEquals(listOf("autoApprove", "parkingLotWait"), plan.settings!!.named())
         // transactions untouched
         assertEquals(txBefore, b().transactions.map { it.id to it.amount })
         assertEquals(6, p.addCount)

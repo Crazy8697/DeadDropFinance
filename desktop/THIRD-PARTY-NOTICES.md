@@ -8,7 +8,7 @@ The desktop program ships the components below: the runtime classpath of the des
 license gate, which refuses to package a component missing from this file), the Java runtime bundled with it, and the
 native code inside Skiko. Each Java library's license was read from its POM. The installed program carries this file,
 desktop/NOTICE, LICENSE and the license texts under licenses\ in its folder. The license texts are in licenses/ (shared
-with the phone app: Apache-2.0.txt, libpng-2.0.txt, SQLite-Public-Domain.txt) and desktop/licenses/ (the desktop-only ones).
+with the phone app: Apache-2.0.txt, libpng-2.0.txt, SQLite-Public-Domain.txt, MPL-2.0.txt, ISC-libsodium.txt) and desktop/licenses/ (the desktop-only ones).
 
 ## The Java runtime (OpenJDK 21, Microsoft Build of OpenJDK)
 
@@ -110,6 +110,35 @@ user. From 0.9.0 it also calls DwmSetWindowAttribute, which turns the window's o
 |---|---|---|
 | `net.java.dev.jna:jna` | 5.19.1 | LGPL-2.1-or-later or Apache-2.0 |
 | `net.java.dev.jna:jna-platform` | 5.19.1 | LGPL-2.1-or-later or Apache-2.0 |
+
+## Lazysodium for Java and libsodium (server sync, from 0.10.0)
+
+License: Mozilla Public License 2.0 for Lazysodium (licenses/MPL-2.0.txt); ISC for libsodium (licenses/ISC-libsodium.txt);
+MIT for its resource loader (desktop/licenses/MIT-resource-loader.txt) and SLF4J's API (desktop/licenses/MIT-SLF4J.txt).  
+Upstream: https://github.com/terl/lazysodium-java, https://github.com/jedisct1/libsodium, https://github.com/terl/resource-loader, https://github.com/qos-ch/slf4j
+
+Every message between the program and the user's own Dead Drop server is a libsodium envelope (crypto_box and
+crypto_box_seal), made through Lazysodium, which calls libsodium through JNA. The lazysodium-java jar carries libsodium
+built for several systems; the program loads the Windows x86-64 one. The program is not changed from upstream; MPL-2.0's
+source is at the upstream URL. SLF4J's API comes along as Lazysodium's logging interface; with no logger bound it logs
+nothing.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `com.goterl:lazysodium-java` | 5.2.0 | Mozilla Public License, Version 2.0 |
+| `com.goterl:resource-loader` | 2.1.0 | MIT |
+| `org.slf4j:slf4j-api` | 2.0.17 | MIT |
+
+## ZXing core (the Add a phone QR code, from 0.10.0)
+
+License: Apache-2.0 (licenses/Apache-2.0.txt)  
+Upstream: https://github.com/zxing/zxing
+
+Makes the modules of the Add a phone QR code; the program draws them itself.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `com.google.zxing:core` | 3.5.3 | The Apache Software License, Version 2.0 |
 
 ## JSON in Java (org.json)
 

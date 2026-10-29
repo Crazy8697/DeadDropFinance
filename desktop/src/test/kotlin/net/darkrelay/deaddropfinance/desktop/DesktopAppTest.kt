@@ -179,13 +179,21 @@ class DesktopAppTest {
         tag("dialog.move").assertExists()
     }
 
-    @Test fun syncSaysNotConnectedAndNothingElse() {
+    @Test fun syncSaysNotConnectedAndPointsToSettings() {
         show()
         tag("sideSync").assertTextEquals("Not connected")
         tag("nav.SYNC").performClick()
         compose.waitForIdle()
-        tag("syncComing").assertExists()
-        for (word in listOf("Server connected", "Synced", "Connected", "Pair a phone", "Revoke")) {
+        tag("syncSummary").assertExists()
+        compose.onAllNodesWithText("Not connected", substring = false).fetchSemanticsNodes().let { assertTrue(it.isNotEmpty()) }
+        tag("sync.now").assertDoesNotExist()
+        tag("sync.settings").performClick()
+        compose.waitForIdle()
+        assertEquals(Screen.SETTINGS, m.screen)
+        tag("serverPanel").assertExists()
+        tag("nav.SYNC").performClick()
+        compose.waitForIdle()
+        for (word in listOf("Synced", "Add a phone", "Log out")) {
             assertEquals(0, compose.onAllNodesWithText(word, substring = false).fetchSemanticsNodes().size, word)
         }
         tag("top.add").assertDoesNotExist()

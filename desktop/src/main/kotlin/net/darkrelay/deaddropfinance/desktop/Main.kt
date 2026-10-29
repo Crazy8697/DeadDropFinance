@@ -47,6 +47,7 @@ fun main(args: Array<String>) {
     val updates = UpdateModel()
     // the budget (the phone app's engine on the program's own encrypted file) opens in the background
     val engine = CompletableDeferred<Engine>()
+    val syncScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
     Thread({ engine.complete(runBlocking { Engine.start(settings.dir) }) }, "engine-start").apply { isDaemon = true }.start()
     application {
         val windowState = rememberWindowState(
@@ -63,6 +64,12 @@ fun main(args: Array<String>) {
             val e = withContext(Dispatchers.IO) { engine.await() }
             val m = AppModel(e)
             withContext(Dispatchers.IO) { m.refresh() }
+            // server sync (0.10.0): the phone's own sync code on this budget; its settings and key in the data folder
+            val ok = e.opened as? net.darkrelay.deaddropfinance.data.DesktopDatabase.Opened.Ok
+            if (ok != null && smoke == null) {
+                val sync = net.darkrelay.deaddropfinance.serversync.ServerSync(ok.store, DesktopSyncPrefs(settings.dir), DesktopKeyVault(settings.dir), syncScope, kind = "desktop")
+                m.server = ServerModel(sync, m, syncScope)
+            }
             model = m
         }
 
@@ -71,6 +78,8 @@ fun main(args: Array<String>) {
         }
 
         fun quit() {
+            // let go of the edit lock and send what's waiting (a few seconds at most), then close the budget
+            model.server?.let { s -> runBlocking { s.closing() } }
             if (engine.isCompleted) engine.getCompleted().close()
             exitApplication()
         }
@@ -85,6 +94,11 @@ fun main(args: Array<String>) {
         ) {
             // Windows' own title bar, dark like the program (0.9.0)
             LaunchedEffect(Unit) { TitleBar.dark(window) }
+            // the edit lock follows the window (0.10.0): held while it's open and not minimized
+            val server = model.server
+            LaunchedEffect(server, windowState.isMinimized) {
+                if (server != null) { if (windowState.isMinimized) server.hidden() else server.shown() }
+            }
             val installed = UpdateModel.isInstalled()
             val shell = Shell(
                 update = update,

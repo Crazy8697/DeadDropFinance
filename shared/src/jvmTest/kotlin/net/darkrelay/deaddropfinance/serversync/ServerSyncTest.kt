@@ -322,6 +322,142 @@ class ServerSyncTest {
         a.actions.saveAccount(null, "Solo", AccountType.BANK, 1_00, day)
     }
 
+    // ---- stage 26: take over editing, and pairing a phone by the desktop's QR code
+
+    private fun names(p: Phone) = runBlocking { p.store.dao.accountsNow().map { it.name } }
+
+    @Test fun takingOverMovesTheLockAndTheOtherDeviceKeepsItsWaitingChanges() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        a.sync.foreground()
+        val b = Phone("B"); b.login("Test desktop")
+        b.sync.foreground()
+        assertEquals("Test phone", b.sync.status.value.readOnlyBy, "A holds the lock")
+        b.sync.takeOver()
+        assertEquals(b.prefs.deviceId, server.lockHolder)
+        assertNull(b.sync.status.value.readOnlyBy)
+        b.actions.saveAccount(null, "Desk Savings", AccountType.BANK, 1_00, day)
+        b.sync.syncNow()
+        // A made an edit before it heard; its next sync turns it read only with the notice, and the edit waits here
+        a.actions.saveAccount(null, "Waiting Edit", AccountType.BANK, 2_00, day)
+        a.sync.tick()
+        val st = a.sync.status.value
+        assertEquals("Test desktop", st.readOnlyBy)
+        assertEquals("Test desktop", st.takenOverBy)
+        assertTrue(st.queued > 0, "the edit waits in the queue")
+        assertFalse(server.records.values.any { it.data.optString("name") == "Waiting Edit" }, "not sent while taken over")
+        assertTrue(names(a).contains("Desk Savings"), "the new holder's edits still come in")
+        assertFailsWith<ReadOnlyException> { a.actions.saveAccount(null, "Blocked", AccountType.BANK, 1_00, day) }
+        // the app closes and opens again: still waiting
+        a.sync = a.newSync()
+        a.sync.foreground()
+        assertEquals("Test desktop", a.sync.status.value.takenOverBy)
+        assertFalse(server.records.values.any { it.data.optString("name") == "Waiting Edit" })
+        // the desktop lets go; A gets the lock back and its waiting edit goes (last write wins applies as usual)
+        b.sync.background()
+        a.sync.tick()
+        assertEquals(a.prefs.deviceId, server.lockHolder)
+        assertNull(a.sync.status.value.takenOverBy)
+        assertEquals(0, queued(a))
+        assertTrue(server.records.values.any { it.data.optString("name") == "Waiting Edit" })
+        b.sync.syncNow()
+        assertTrue(names(b).contains("Waiting Edit"))
+    }
+
+    @Test fun eitherSideCanTakeOver() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login("Test desktop")
+        a.sync.foreground(); b.sync.foreground()
+        b.sync.takeOver()
+        a.sync.tick()
+        assertEquals("Test desktop", a.sync.status.value.takenOverBy)
+        a.sync.takeOver()
+        assertEquals(a.prefs.deviceId, server.lockHolder)
+        assertNull(a.sync.status.value.takenOverBy)
+        assertNull(a.sync.status.value.readOnlyBy)
+        b.sync.tick()
+        assertEquals("Test phone", b.sync.status.value.takenOverBy)
+        assertEquals("Test phone", b.sync.status.value.readOnlyBy)
+    }
+
+    @Test fun theQrCodeHoldsTheAddressFingerprintAndCodeOnly() = runBlocking<Unit> {
+        val desk = Phone("D"); desk.fill("Sample"); desk.create()
+        val (code, qr) = desk.sync.newPairingCode()
+        val info = assertNotNull(PairingQr.parse(qr))
+        assertEquals("http://server.example:5090", info.serverUrl)
+        assertEquals(Box.fingerprint(server.keys.publicKey), info.fingerprint)
+        assertEquals(code.code, info.code)
+        assertTrue(code.expiresAt - System.currentTimeMillis() in 590_000..600_000, "10 minutes")
+        assertFalse(qr.contains(server.keys.publicKey.hex()), "no key")
+        assertFalse(qr.contains(desk.vault.key!!.hex()))
+        assertFalse(qr.contains(pw), "no password")
+        // not ours, or damaged: refused
+        for (bad in listOf("", "https://example.com", qr.replace("fp=", "fx="), qr.replace(info.code, "AAAA-0000"), qr.substringBefore("&code"))) {
+            assertNull(PairingQr.parse(bad), bad)
+        }
+        assertEquals(info, PairingQr.parse(PairingQr.encode(info.serverUrl, info.fingerprint.chunked(4).joinToString(" ").uppercase(), info.code)))
+    }
+
+    @Test fun aPhonePairsByTheQrCodeAndTakesTheServersCopy() = runBlocking<Unit> {
+        val desk = Phone("D"); desk.fill("Sample"); desk.create()
+        val (_, qr) = desk.sync.newPairingCode()
+        val phone = Phone("P")
+        assertNull(phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", null) { error("nothing to back up") })
+        assertTrue(phone.sync.connected)
+        assertEquals(SyncStatus.State.SYNCED, phone.sync.status.value.state, phone.sync.status.value.message)
+        assertEquals("Test tablet", server.devices[phone.prefs.deviceId]!!.name)
+        assertEquals(server.keys.publicKey.hex(), phone.prefs.serverKey, "pinned")
+        assertEquals(desk.picture(), phone.picture())
+        // edits flow both ways afterwards (the desktop's window goes to the back, so the phone can edit)
+        desk.sync.background()
+        phone.sync.foreground()
+        phone.actions.saveAccount(null, "Paired Savings", AccountType.BANK, 1_00, day)
+        phone.sync.syncNow()
+        desk.sync.syncNow()
+        assertTrue(names(desk).contains("Paired Savings"))
+    }
+
+    @Test fun pairingWithDataOfItsOwnBacksItUpFirst() = runBlocking<Unit> {
+        val desk = Phone("D"); desk.fill("Sample"); desk.create()
+        val (_, qr) = desk.sync.newPairingCode()
+        val phone = Phone("P"); phone.fill("Zzlocal")
+        assertFailsWith<IllegalStateException> { phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", null) { "x" } }
+        assertFalse(phone.sync.connected)
+        val where = phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", "backup-pass-test") { p -> phone.backups += String(p); "Downloads/test-backup.ddfbak" }
+        assertEquals("Downloads/test-backup.ddfbak", where)
+        assertEquals(listOf("backup-pass-test"), phone.backups)
+        assertEquals(desk.picture(), phone.picture())
+    }
+
+    @Test fun aUsedOrExpiredPairingCodeIsRefused() = runBlocking<Unit> {
+        val desk = Phone("D"); desk.fill("Sample"); desk.create()
+        val (_, qr) = desk.sync.newPairingCode()
+        Phone("P1").sync.pair(PairingQr.parse(qr)!!, "First tablet", null) { "x" }
+        val second = Phone("P2")
+        val used = assertFailsWith<ServerException> { second.sync.pair(PairingQr.parse(qr)!!, "Second tablet", null) { "x" } }
+        assertEquals(ServerException.Kind.REFUSED, used.kind)
+        assertEquals(ServerClient.PAIR_REFUSED, used.message)
+        assertFalse(second.sync.connected)
+        assertNull(second.vault.key)
+        // a code past its 10 minutes
+        val (_, late) = desk.sync.newPairingCode()
+        val now = System.currentTimeMillis()
+        server.clock = { now + 11 * 60_000 }
+        assertEquals(ServerException.Kind.REFUSED, assertFailsWith<ServerException> { Phone("P3").sync.pair(PairingQr.parse(late)!!, "Late tablet", null) { "x" } }.kind)
+    }
+
+    @Test fun aQrCodeWhoseFingerprintDoesNotMatchTheServerIsRefused() = runBlocking<Unit> {
+        val desk = Phone("D"); desk.fill("Sample"); desk.create()
+        val (code, _) = desk.sync.newPairingCode()
+        val forged = PairingQr.encode("server.example", Box.fingerprint(Box.keyPair().publicKey), code.code)
+        val phone = Phone("P")
+        val e = assertFailsWith<ServerException> { phone.sync.pair(PairingQr.parse(forged)!!, "Test tablet", null) { "x" } }
+        assertEquals(ServerException.Kind.KEY_CHANGED, e.kind)
+        assertEquals(ServerClient.QR_MISMATCH, e.message)
+        assertFalse(phone.sync.connected)
+        assertTrue(phone.prefs.pins.isEmpty(), "nothing pinned")
+        assertNull(server.pairingCodes[code.code]!!.usedAt, "the code was never sent")
+    }
+
     @Test fun everySyncedColumnIsInTheChangeLog() = runBlocking<Unit> {
         val a = Phone("A"); a.fill("Sample")
         val d = a.store.dao

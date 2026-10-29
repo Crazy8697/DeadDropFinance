@@ -112,7 +112,7 @@ A rule needs one of `envelope`, `splits`, `category` or `transfer`. A new rule i
 | Field | What it is |
 |---|---|
 | `autoApprove` | Approve rule matches automatically. |
-| `alerts` | `{ "spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings" }`, each `true` or `false`. |
+| `alerts` | `{ "billReminders", "autopayWarnings", "amountsOnLockScreen" }`, each `true` or `false`. A file from before 1.5.0 may also have `"spending"`, `"lowOrOverspent"` and `"safeToSpendNegative"` (the notification reader's spend alerts, removed in 1.5.0): it still imports, and those are ignored. |
 | `appLock` | App lock (it needs a screen lock on the phone). |
 | `lockAfterMinutes` | 0, 1, 5, 15 or 30. |
 | `hideScreen` | Hide screen. |
@@ -159,7 +159,7 @@ Every name and amount here is invented.
   ],
   "settings": {
     "autoApprove": false,
-    "alerts": { "spending": true, "lowOrOverspent": true, "safeToSpendNegative": true, "amountsOnLockScreen": false, "billReminders": true, "autopayWarnings": true },
+    "alerts": { "billReminders": true, "autopayWarnings": true, "amountsOnLockScreen": false },
     "appLock": true,
     "lockAfterMinutes": 5,
     "hideScreen": false,

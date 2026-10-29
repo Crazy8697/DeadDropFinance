@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 import androidx.core.content.edit
 
 /**
- * Plain settings for setup, sorting, alerts, backup and reading notifications. Nothing here is a secret: they are
+ * Plain settings for setup, sorting, alerts and backup. Nothing here is a secret: they are
  * switches and times. The name (and the "sync" settings file) is from when it also held bank sync's settings (until
  * 1.3.0); renaming the file would lose every setting.
  */
@@ -33,21 +33,9 @@ class SyncSettings(private val prefs: SharedPreferences) {
         get() = prefs.getBoolean("auto_approve", false)
         set(v) = prefs.edit { putBoolean("auto_approve", v) }
 
-    // ---- spend alerts (notifications after a bank notification is read) ---------------------------------------------
+    // ---- alerts (bill reminders and autopay warnings) -----------------------------------------------------------------
 
-    var alertSpending: Boolean
-        get() = prefs.getBoolean("alert_spending", true)
-        set(v) = prefs.edit { putBoolean("alert_spending", v) }
-
-    var alertLowOrOverspent: Boolean
-        get() = prefs.getBoolean("alert_low", true)
-        set(v) = prefs.edit { putBoolean("alert_low", v) }
-
-    var alertSafeToSpend: Boolean
-        get() = prefs.getBoolean("alert_safe_to_spend", true)
-        set(v) = prefs.edit { putBoolean("alert_safe_to_spend", v) }
-
-    /** Payees, envelopes and amounts on the lock screen. Off by default: the lock screen shows only a count. */
+    /** Bill names and amounts on the lock screen. Off by default: the lock screen shows only what kind of alert it is. */
     var alertAmountsOnLockScreen: Boolean
         get() = prefs.getBoolean("alert_lock_screen_amounts", false)
         set(v) = prefs.edit { putBoolean("alert_lock_screen_amounts", v) }
@@ -56,11 +44,6 @@ class SyncSettings(private val prefs: SharedPreferences) {
     var alertsAsked: Boolean
         get() = prefs.getBoolean("alerts_asked", false)
         set(v) = prefs.edit { putBoolean("alerts_asked", v) }
-
-    /** New transactions already in a showing notification and not seen in the app yet: the next alert adds to them. */
-    var alertIds: Set<String>
-        get() = prefs.getStringSet("alert_ids", emptySet())!!.toSet()
-        set(v) = prefs.edit { putStringSet("alert_ids", v) }
 
     /** Bill reminders (each bill's own switch decides; this is the whole channel). On by default. */
     var alertBills: Boolean
@@ -87,20 +70,6 @@ class SyncSettings(private val prefs: SharedPreferences) {
     var lastBackupName: String
         get() = prefs.getString("last_backup_name", "") ?: ""
         set(v) = prefs.edit { putString("last_backup_name", v) }
-
-    // ---- reading bank notifications ----------------------------------------------------------------------------------
-
-    /** Reading picked apps' notifications is on. Off by default; turning it off stops all reading. */
-    var notifReading: Boolean
-        get() = prefs.getBoolean("notif_reading", false)
-        set(v) = prefs.edit { putBoolean("notif_reading", v) }
-
-    /** The picked apps' package names, so the listener can drop every other notification without opening anything. */
-    var notifPackages: Set<String>
-        get() = prefs.getStringSet("notif_packages", emptySet())!!.toSet()
-        set(v) = prefs.edit { putStringSet("notif_packages", v) }
-
-    fun alertSettings() = net.darkrelay.deaddropfinance.domain.Alerts.Settings(alertSpending, alertLowOrOverspent, alertSafeToSpend, alertAmountsOnLockScreen)
 
     /** Every key that is set (the upgrade cleanup looks for old ones). */
     fun keys(): Set<String> = prefs.all.keys.toSet()

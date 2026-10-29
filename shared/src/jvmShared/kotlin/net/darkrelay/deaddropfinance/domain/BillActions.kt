@@ -9,18 +9,16 @@ import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.MetaEntity
-import net.darkrelay.deaddropfinance.data.NotifAppEntity
 import net.darkrelay.deaddropfinance.data.PaymentMethod
 import net.darkrelay.deaddropfinance.data.SortedBy
 import net.darkrelay.deaddropfinance.data.SubscriptionEntity
 import net.darkrelay.deaddropfinance.data.SubscriptionStatus
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionLineEntity
-import net.darkrelay.deaddropfinance.data.TransactionSource
 
 /**
- * Everything the bill, payday, subscription and notification screens change. Each write goes through BudgetStore with
- * its change log rows (the notification apps table is this phone's own and isn't logged).
+ * Everything the bill, payday and subscription screens change. Each write goes through BudgetStore with its change
+ * log rows.
  */
 class BillActions(
     private val store: BudgetStore,
@@ -150,7 +148,7 @@ class BillActions(
     }
 
     /**
-     * CSV import and notifications: [txIds] that pay a bill are counted toward its open cycle. A cycle
+     * CSV import: [txIds] that pay a bill are counted toward its open cycle. A cycle
      * already ticked paid by hand takes the transaction instead of a second payment. Returns how many were counted.
      */
     suspend fun matchPayments(txIds: Collection<String>): Int {
@@ -232,88 +230,7 @@ class BillActions(
         return id
     }
 
-    // ---- notification apps (this phone's own) ----------------------------------------------------------------------
-
-    suspend fun pickApp(pkg: String, label: String, accountId: String?) {
-        val old = dao.notifApp(pkg)
-        dao.upsertNotifApp(old?.copy(label = label, accountId = accountId, enabled = true) ?: NotifAppEntity(pkg, label, accountId))
-    }
-
-    suspend fun dropApp(pkg: String) = dao.deleteNotifApp(pkg)
-
-    suspend fun teach(pkg: String, t: NotifParse.Template) {
-        val a = dao.notifApp(pkg) ?: return
-        val ts = NotifParse.decode(a.templates).filter { it.deposit != t.deposit } + t
-        dao.upsertNotifApp(a.copy(templates = NotifParse.encode(ts)))
-    }
-
-    suspend fun forget(pkg: String) { dao.notifApp(pkg)?.let { dao.upsertNotifApp(it.copy(templates = "")) } }
-
     companion object {
         const val META_PAYDAY = "payday.next"
-    }
-}
-
-/**
- * A parsed bank notification becomes a pending transaction right away (FEATURES.md, Live spend alerts): money out in
- * To sort with its suggestion (or a bought parked buy's charge), or a deposit, an ordinary transaction (payday is
- * marked by hand only, 1.3.1). A CSV import later matches the real record to it (never a second one). Only the parsed
- * result is kept.
- */
-class NotifLog(
-    private val store: BudgetStore,
-    private val actions: BudgetActions = BudgetActions(store),
-    private val today: () -> LocalDate = { LocalDate.now() },
-    private val clock: () -> Long = System::currentTimeMillis,
-) {
-    data class Logged(val txId: String?, val duplicate: Boolean, val noAccount: Boolean = false)
-
-    suspend fun log(pkg: String, p: NotifParse.Parsed): Logged {
-        val dao = store.dao
-        val app = dao.notifApp(pkg) ?: return Logged(null, duplicate = false, noAccount = true)
-        val account = app.accountId?.let { dao.account(it) }?.takeIf { !it.deleted } ?: return Logged(null, duplicate = false, noAccount = true)
-        val signed = if (p.deposit) p.amount else -p.amount
-        val payee = p.payee.ifBlank { app.label }
-        val now = clock()
-        // the same notification posted twice (an update, a repeat) is logged once
-        val dup = dao.transactionsNow().any {
-            it.source == TransactionSource.NOTIFICATION && it.accountId == account.id && it.amount == signed &&
-                Payees.clean(it.payee) == Payees.clean(payee) && now - it.createdAt < DUPLICATE_MS
-        }
-        dao.upsertNotifApp(app.copy(lastAmount = p.amount, lastPayee = payee, lastDeposit = p.deposit, lastAt = now))
-        if (dup) return Logged(null, duplicate = true)
-        val id = store.write {
-            val t = put(
-                null,
-                TransactionEntity(
-                    accountId = account.id, date = today(), payee = payee, amount = signed, pending = true, importDescription = p.payee.ifBlank { null },
-                    source = TransactionSource.NOTIFICATION, createdAt = now, updatedAt = now,
-                ),
-            )
-            put(null, TransactionLineEntity(transactionId = t.id, bucket = if (account.onBudget) LineBucket.UNSORTED else LineBucket.OFF_BUDGET, amount = signed, createdAt = now, updatedAt = now))
-            t.id
-        }
-        // a deposit into the budget is an ordinary transaction; anything else may be a parked buy's charge or a bill payment
-        if (!(p.deposit && account.onBudget)) {
-            ParkedBuys(store, actions, today, clock).matchCharges(listOf(id))
-            BillActions(store, actions, today).matchPayments(listOf(id))
-        }
-        return Logged(id, duplicate = false)
-    }
-
-    /** A notification entry the bank never brought in, kept as real: it stops being pending (and flagged). */
-    suspend fun keep(txId: String) = store.write {
-        val t = store.dao.transaction(txId) ?: return@write
-        if (t.pending) put(t, t.copy(pending = false, updatedAt = now))
-    }
-
-    companion object {
-        const val DUPLICATE_MS = 10L * 60 * 1000
-        /** A logged notification no import has matched after this many days is flagged. */
-        const val STALE_DAYS = 7L
-
-        fun stale(b: Budget, today: LocalDate): List<TransactionEntity> = b.transactions.filter {
-            it.source == TransactionSource.NOTIFICATION && it.pending && java.time.temporal.ChronoUnit.DAYS.between(it.date, today) >= STALE_DAYS
-        }
     }
 }

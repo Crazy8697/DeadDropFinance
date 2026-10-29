@@ -4,7 +4,7 @@ import androidx.room.Transactor
 import androidx.room.useWriterConnection
 import net.darkrelay.deaddropfinance.data.AppDatabase
 
-/** libsodium on the desktop's JVM (tests only for now: the desktop program doesn't sync yet and doesn't ship it). */
+/** libsodium on the desktop's JVM: lazysodium-java, with libsodium for Windows inside its jar (desktop 0.10.0). */
 internal fun newSodium(): com.goterl.lazysodium.Sodium = com.goterl.lazysodium.SodiumJava()
 
 /** One database transaction with plain SQL, on the writer connection (as the desktop's backup restore writes). */

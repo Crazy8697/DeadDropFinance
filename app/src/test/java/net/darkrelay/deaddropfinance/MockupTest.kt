@@ -28,6 +28,10 @@ class MockupTest {
         assertFalse("no Help screen", html.contains(">Help<"))
         // bank sync was removed in 1.3.0: no screen, switch or warning of it is left
         for (t in listOf("SimpleFIN", "Bank sync", "Last sync", "actually negative")) assertFalse(t, html.contains(t))
+        // the bank notification reader and its spend alerts were removed in 1.5.0
+        for (t in listOf("Read bank notifications", "notification access", "New spending", "Envelope low or overspent", "Not imported after a week")) {
+            assertFalse(t, html.contains(t))
+        }
     }
 
     @Test fun itIsSelfContained() {

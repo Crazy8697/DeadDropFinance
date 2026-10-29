@@ -90,19 +90,12 @@ interface BudgetDao {
     @Query("SELECT * FROM parked_buy WHERE id = :id")
     suspend fun parkedBuy(id: String): ParkedBuyEntity?
 
-    @Query("SELECT * FROM notif_app ORDER BY label")
-    fun notifApps(): Flow<List<NotifAppEntity>>
+    /** The bank notification reader's apps (reader removed in 1.5.0): only counted and emptied by the upgrade cleanup. */
+    @Query("SELECT COUNT(*) FROM notif_app")
+    suspend fun notifAppCount(): Int
 
-    @Query("SELECT * FROM notif_app ORDER BY label")
-    suspend fun notifAppsNow(): List<NotifAppEntity>
-
-    @Query("SELECT * FROM notif_app WHERE package_name = :pkg")
-    suspend fun notifApp(pkg: String): NotifAppEntity?
-
-    @Upsert suspend fun upsertNotifApp(e: NotifAppEntity)
-
-    @Query("DELETE FROM notif_app WHERE package_name = :pkg")
-    suspend fun deleteNotifApp(pkg: String)
+    @Query("DELETE FROM notif_app")
+    suspend fun clearNotifApps()
 
     @Query("SELECT * FROM account WHERE deleted = 0")
     suspend fun accountsNow(): List<AccountEntity>

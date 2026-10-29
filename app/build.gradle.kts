@@ -310,6 +310,10 @@ dependencies {
     // Receipt text recognition on the phone: Tesseract OCR, Leptonica, libjpeg and libpng, wrapped for Android.
     // No network code and no permissions (checked in the AAR); the English model is in assets/tessdata.
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
+    // Scan QR code (1.5.0): ZXing Android Embedded's camera scanner, open source and with no Google Play services, on
+    // ZXing's core decoder. Its own dependency on an older core is replaced by the current one (fine from Android 7 up).
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }
+    implementation("com.google.zxing:core:3.5.3")
 
     // test only, never packaged into the app
     testImplementation("junit:junit:4.13.2")

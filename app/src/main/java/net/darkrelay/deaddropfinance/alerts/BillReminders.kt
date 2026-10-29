@@ -78,7 +78,7 @@ class BillReminderWorker(context: Context, params: WorkerParameters) : Coroutine
             settings.reminded = sent.filter { k -> Regex("""\d{4}-\d{2}-\d{2}""").find(k)?.value?.let { LocalDate.parse(it).isAfter(today.minusDays(60)) } ?: false }.toSet()
         }
 
-        // each kind has its own range (4096 each), apart from spend alerts (8001 to 8003) and the reading prompt (30000 up)
+        // each kind has its own range (4096 each)
         private const val ID_BILLS = 10_000
         private const val ID_AUTOPAY = 20_000
     }

@@ -119,8 +119,10 @@ enum class TransactionKind { NORMAL, TRANSFER, BONUS }
 const val BONUS_ACCOUNT_ID = ""
 
 /**
- * NOTIFICATION: logged from a bank or wallet app's notification (pending until the bank's record is imported). SYNC: came
- * in through bank sync, removed in 1.3.0; such rows stay as ordinary transactions and nothing new gets it.
+ * NOTIFICATION: logged from a bank or wallet app's notification by the notification reader, removed in 1.5.0. SYNC: came
+ * in through bank sync, removed in 1.3.0. Rows with either stay as ordinary transactions (a NOTIFICATION row keeps its
+ * pending mark until an import posts it or the user unticks it), and nothing new gets either. Both values stay so old
+ * rows still read.
  */
 enum class TransactionSource { MANUAL, CSV, SYNC, NOTIFICATION }
 
@@ -378,8 +380,9 @@ data class ParkedBuyEntity(
 }
 
 /**
- * A bank or wallet app whose notifications the user lets the app read (this phone's own, not change-logged). Only
- * the parsed result is kept ([lastAmount], [lastPayee]); the notification text never is.
+ * The bank notification reader's picked apps (this phone's own, not change-logged). The reader was removed in 1.5.0:
+ * this entity is kept only so the database schema doesn't change, and the table is emptied on upgrade (1.5.0,
+ * ReaderRemoval). Nothing reads or writes it otherwise.
  */
 @Entity(tableName = "notif_app")
 data class NotifAppEntity(
@@ -388,7 +391,7 @@ data class NotifAppEntity(
     /** The account its spending and deposits are logged in. */
     @ColumnInfo(name = "account_id") val accountId: String? = null,
     val enabled: Boolean = true,
-    /** How this app's notifications map to an amount and a payee, learned when the user confirmed one (NotifParse). */
+    /** How this app's notifications mapped to an amount and a payee, learned when the user confirmed one. */
     val templates: String = "",
     @ColumnInfo(name = "last_amount") val lastAmount: Long? = null,
     @ColumnInfo(name = "last_payee") val lastPayee: String? = null,
