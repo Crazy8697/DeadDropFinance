@@ -2,6 +2,7 @@ package net.darkrelay.deaddropfinance
 
 import android.app.Application
 import java.io.File
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import net.darkrelay.deaddropfinance.data.BankSyncCleanup
@@ -36,12 +37,39 @@ class DdfApp : Application() {
     private var syncLifecycle: net.darkrelay.deaddropfinance.serversync.SyncLifecycle? = null
     private val syncScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
 
+    /**
+     * Stay logged in off (1.6.0): the app is closing (Back out of it, or it was swiped away and Android said so), so it
+     * logs out, with a few seconds for the server. If Android stops the app without a word, [openingCheck] finishes it
+     * on the next open.
+     */
+    fun closingSync() {
+        val s = serverSync ?: return
+        syncScope.launch { kotlinx.coroutines.withTimeoutOrNull(6_000) { s.closing() } }
+    }
+
+    /** On opening, before anything is shown: a log out the last close didn't finish (Stay logged in off). */
+    suspend fun openingCheck(store: net.darkrelay.deaddropfinance.data.BudgetStore) {
+        val s = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { serverSync(store) }
+        kotlinx.coroutines.withTimeoutOrNull(6_000) { s.openingCheck() }
+    }
+
+    /** This phone's recovery keys (1.6.0): every backup's key, in SecretStore. */
+    val recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys by lazy {
+        net.darkrelay.deaddropfinance.backup.RecoveryKeys(net.darkrelay.deaddropfinance.serversync.PhoneRecoveryStore { secrets() })
+    }
+
     /** Call on the main thread (it watches the app come and go). */
     fun serverSync(store: net.darkrelay.deaddropfinance.data.BudgetStore): net.darkrelay.deaddropfinance.serversync.ServerSync =
         serverSync ?: synchronized(this) {
             serverSync ?: net.darkrelay.deaddropfinance.serversync.ServerSync(
                 store, net.darkrelay.deaddropfinance.serversync.ServerPrefs(this),
                 net.darkrelay.deaddropfinance.serversync.ServerKeyVault { secrets() }, syncScope,
+                transportFor = { url ->
+                    net.darkrelay.deaddropfinance.serversync.LocalNetworkTransport(net.darkrelay.deaddropfinance.serversync.HttpTransport(url)) {
+                        net.darkrelay.deaddropfinance.serversync.LocalNetwork.allowed(this)
+                    }
+                },
+                recovery = recoveryKeys,
             ).also { s ->
                 serverSync = s
                 syncLifecycle = net.darkrelay.deaddropfinance.serversync.SyncLifecycle(s, syncScope).also { it.attach() }
@@ -49,10 +77,10 @@ class DdfApp : Application() {
         }
 
     /**
-     * Before a login replaces this phone's budget with the server's: an encrypted backup of it (the phone's backup
-     * format, opened with the account password) in Downloads/DeadDropFinance. Returns where it went.
+     * Before a login or QR pairing replaces this phone's budget with the server's: an encrypted backup of it (the
+     * phone's backup format, opened with this phone's recovery key, 1.6.0) in Downloads/DeadDropFinance. Returns where it went.
      */
-    suspend fun backupBeforeServer(store: net.darkrelay.deaddropfinance.data.BudgetStore, passphrase: CharArray): String =
+    suspend fun backupBeforeServer(store: net.darkrelay.deaddropfinance.data.BudgetStore, key: ByteArray): String =
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val name = "deaddrop-before-server-${java.time.LocalDate.now()}-${System.currentTimeMillis() % 100000}.ddfbak"
             val values = android.content.ContentValues().apply {
@@ -65,13 +93,11 @@ class DdfApp : Application() {
                 ?: throw java.io.IOException("The backup couldn't be saved to Downloads, so nothing was replaced.")
             try {
                 (contentResolver.openOutputStream(uri) ?: throw java.io.IOException("The backup couldn't be saved to Downloads, so nothing was replaced."))
-                    .use { backups(store).write(it, passphrase) }
+                    .use { backups(store).write(it, key) }
                 contentResolver.update(uri, android.content.ContentValues().apply { put(android.provider.MediaStore.Downloads.IS_PENDING, 0) }, null, null)
             } catch (e: Exception) {
                 runCatching { contentResolver.delete(uri, null, null) }
                 throw e
-            } finally {
-                passphrase.fill(' ')
             }
             "Downloads/DeadDropFinance/$name"
         }

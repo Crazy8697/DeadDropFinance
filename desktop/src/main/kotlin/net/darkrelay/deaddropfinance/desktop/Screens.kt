@@ -510,6 +510,13 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Panel("General", "Stored in your user folder. Nothing is written next to the program.", Modifier.weight(1f)) {
                 ToggleRow("Check for updates at startup", "Silent when you are already current", shell.checkAtStartup, "setting.checkUpdates", shell.onCheckAtStartup)
+                shell.hello?.let { h ->
+                    ToggleRow("Windows Hello unlock", "Asks for Windows Hello each time the program opens. Off by default.", h.enabled, "setting.hello") { on ->
+                        val hwnd = shell.windowHandle()
+                        shell.run { h.set(on, hwnd) }
+                    }
+                    h.message?.let { T(it, 12.sp, C.Dim, modifier = Modifier.padding(top = 4.dp).testTag("hello.message")) }
+                }
             }
             Panel("Budget", "The phone app's budget settings, for this computer's budget.", Modifier.weight(1f)) {
                 val start = model.budget?.budgetStart
@@ -518,9 +525,9 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
             }
         }
         Spacer(Modifier.height(16.dp))
-        Panel("Backup and restore", "One encrypted file with this computer's budget, opened with a password you choose. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
+        Panel("Backup and restore", "One encrypted file with this computer's budget, opened with its recovery key. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Btn("Back up...", { model.dialog = Dialog.Backup }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
+                Btn("Back up...", { model.startBackup() }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
                 Btn("Restore...", { if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
             }
         }

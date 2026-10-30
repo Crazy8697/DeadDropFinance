@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +105,7 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.ImportCsv -> ImportDialog(model, shell, b, d)
         is Dialog.Backup -> BackupDialog(model, shell)
         is Dialog.Restore -> RestoreDialog(model, shell, d)
+        is Dialog.ShowRecoveryKey -> RecoveryKeyDialog(model, d)
         is Dialog.ServerDialog -> {}   // DesktopApp shows these, with the server
     }
 }
@@ -400,56 +402,91 @@ private fun ImportDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Imp
 /** Backup: the password twice (the phone's rule), the lost-password warning once, then where to save. */
 @Composable
 fun BackupDialog(model: AppModel, shell: Shell) {
-    var pass by remember { mutableStateOf("") }
-    var again by remember { mutableStateOf("") }
-    var tried by remember { mutableStateOf(false) }
-    val problem = backupPasswordProblem(pass, again)
     val close = { model.dialog = null }
     Modal("Back up", 470.dp, close, "dialog.backup", footer = {
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
         Btn("Choose where to save", {
-            tried = true
-            if (problem == null) {
-                val f = shell.pickBackupSave(net.darkrelay.deaddropfinance.backup.DesktopBackups.fileName(model.today()))
-                if (f != null) {
-                    val p = pass
-                    shell.run { if (model.backup(f, p)) model.dialog = null }
-                }
-            }
+            val f = shell.pickBackupSave(net.darkrelay.deaddropfinance.backup.DesktopBackups.fileName(model.today()))
+            if (f != null) shell.run { if (model.backup(f)) model.dialog = null }
         }, tag = "dialog.save")
     }) {
-        T("One encrypted file with this computer's budget. It opens only with the password you choose here.", 13.sp, C.Dim)
-        Field("Backup password", pass, { pass = it }, tag = "f.password", masked = true)
-        Field("Password again", again, { again = it }, tag = "f.again", masked = true)
-        if (tried && problem != null) T(problem, 12.sp, C.Bad, modifier = Modifier.testTag("f.problem"))
-        T("There is no way to recover a lost password. Without it, the backup can't be opened, and nothing keeps a copy of it.", 11.5.sp, C.Warn, modifier = Modifier.testTag("lostPassword"))
+        T("One encrypted file with this computer's budget, encrypted with its recovery key (the account's, once logged in to a server, so it opens on any of the account's devices).", 13.sp, C.Dim)
+        T("It opens only with that recovery key. Lose the key and the backup can't be opened, by anyone.", 11.5.sp, C.Warn, modifier = Modifier.testTag("lostKey"))
     }
 }
 
-/** Restore: the backup's password, then a confirmation before the budget is replaced. */
+/**
+ * The recovery key (0.11.0), shown once: in groups, with Copy and "I saved it". It isn't shown again after that, so
+ * closing this any other way shows it again next time.
+ */
+@Composable
+fun RecoveryKeyDialog(model: AppModel, d: Dialog.ShowRecoveryKey) {
+    val keys = model.recoveryKeys
+    val key = keys?.toShow()
+    if (keys == null || key == null) { LaunchedEffect(Unit) { model.dialog = d.next }; return }
+    val text = remember(key.contentHashCode()) { net.darkrelay.deaddropfinance.backup.RecoveryKey.format(key) }
+    var copied by remember { mutableStateOf(false) }
+    val later = { model.dialog = null }
+    Modal("Your recovery key", 560.dp, later, "dialog.recoveryKey", footer = {
+        Btn("Copy", {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+            copied = true
+        }, ghost = true, tag = "key.copy")
+        Btn("I saved it", { keys.confirmSaved(); model.dialog = d.next }, tag = "key.saved")
+    }) {
+        T("Every backup is encrypted with this key. Save it somewhere safe, away from this computer: a password manager, or written down.", 13.sp, C.Dim)
+        Box(Modifier.fillMaxWidth().padding(vertical = 10.dp).background(C.Panel2).border(1.dp, C.Line2).padding(14.dp)) {
+            T(text.split("-").chunked(7).joinToString("\n") { it.joinToString("  ") }, 16.sp, weight = FontWeight.Bold, spacing = 1.2.sp,
+                modifier = Modifier.testTag("key.text"))
+        }
+        if (copied) T("Copied. Paste it where you keep it, then clear the clipboard.", 12.sp, C.Good, modifier = Modifier.testTag("key.copied"))
+        T("This is the only time it is shown. Lose it and the backups made with it are gone: nobody can open them, not even the server.", 12.sp, C.Warn, modifier = Modifier.testTag("key.warning"))
+    }
+}
+
+/** Restore: the backup's recovery key (or, for one made before 0.11.0, its password), then a confirmation before the budget is replaced. */
 @Composable
 fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
-    var pass by remember { mutableStateOf("") }
+    var secret by remember { mutableStateOf("") }
+    var problem by remember { mutableStateOf<String?>(null) }
     var confirming by remember { mutableStateOf(d.confirm) }
+    val kind = remember(d.file) { model.backupKind(d.file) }
+    val withKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java
     val close = { model.dialog = null }
-    if (!confirming) {
+    fun parsed(): net.darkrelay.deaddropfinance.backup.BackupSecret? =
+        if (withKey) runCatching { net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(secret)) }
+            .onFailure { problem = it.message }.getOrNull()
+        else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(secret.toCharArray())
+    if (kind == null) {
+        Modal("Restore", 470.dp, close, "dialog.restore", footer = { Btn("Close", close, tag = "dialog.cancel") }) {
+            T(d.file.name, 13.5.sp, modifier = Modifier.testTag("restore.file"))
+            T("That isn't a Dead Drop Finance backup file, or it was made by a newer version. Nothing was changed.", 13.sp, C.Bad, modifier = Modifier.testTag("restore.notBackup"))
+        }
+    } else if (!confirming) {
         Modal("Restore", 470.dp, close, "dialog.restore", footer = {
             Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Next", { if (pass.isNotEmpty()) confirming = true }, enabled = pass.isNotEmpty(), tag = "dialog.save")
+            Btn("Next", { problem = null; if (parsed() != null) confirming = true }, enabled = secret.isNotEmpty(), tag = "dialog.save")
         }) {
             T(d.file.name, 13.5.sp, modifier = Modifier.testTag("restore.file"))
-            Field("That backup's password", pass, { pass = it }, tag = "f.password", masked = true)
+            if (withKey) {
+                Field("Recovery key", secret, { secret = it }, placeholder = "XXXX-XXXX-...", tag = "f.key")
+                T("The recovery key this backup was made with: 14 groups of 4 letters and digits.", 11.5.sp, C.Dim2)
+            } else {
+                Field("That backup's password", secret, { secret = it }, tag = "f.password", masked = true)
+                T("This backup was made before 0.11.0, so it opens with the password it was made with.", 11.5.sp, C.Dim2, modifier = Modifier.testTag("restore.old"))
+            }
+            problem?.let { T(it, 12.sp, C.Bad, modifier = Modifier.testTag("f.problem")) }
         }
     } else {
         Modal("Replace this budget?", 470.dp, close, "dialog.confirmRestore", footer = {
             Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
             Btn("Replace it", {
-                val p = pass
-                shell.run { model.restore(d.file, p); model.dialog = null }
+                val s = parsed()
+                if (s != null) shell.run { model.restore(d.file, s); model.dialog = null }
             }, tag = "dialog.confirm")
         }) {
             T("Everything in this computer's budget is replaced with the backup in ${d.file.name}.", 13.5.sp)
-            T("A copy of the current budget is kept until the restore has been checked. A wrong password or a damaged file changes nothing.", 12.sp, C.Dim)
+            T("A copy of the current budget is kept until the restore has been checked. A wrong key or password, or a damaged file, changes nothing.", 12.sp, C.Dim)
         }
     }
 }

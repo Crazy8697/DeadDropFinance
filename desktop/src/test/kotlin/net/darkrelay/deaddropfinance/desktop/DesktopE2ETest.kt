@@ -69,6 +69,7 @@ class DesktopE2ETest {
         override var lastSyncedAt = 0L
         override var conflictsSeenAt = 0L
         override var revoked = false
+        override var stayLoggedIn = true
         val pins = mutableMapOf<String, String>()
         override fun pinned(url: String) = pins[url]
         override fun pin(url: String, keyHex: String) { pins[url] = keyHex }
@@ -127,7 +128,10 @@ class DesktopE2ETest {
             val d = model(dDir, own = true).also { models += it }
             val dNet = Cuttable(HttpTransport(url))
             val dSync = ServerSync((d.engine!!.opened as DesktopDatabase.Opened.Ok).store, DesktopSyncPrefs(dDir), DesktopKeyVault(dDir, TestProtector), scope,
-                transportFor = { dNet }, kind = "desktop", sendDelayMs = 60_000)
+                transportFor = { dNet }, kind = "desktop", sendDelayMs = 60_000,
+                // 0.11.0: its own budget's backup before the login uses its recovery key (made and saved first)
+                recovery = net.darkrelay.deaddropfinance.backup.RecoveryKeys(net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore())
+                    .also { d.recoveryKeys = it; it.ensure(); it.confirmSaved() })
             val desk = ServerModel(dSync, d, scope, File(dDir, "Downloads"), defaultDeviceName = "E2E desktop").also { d.server = it }
             assertTrue(desk.connect(url), desk.error)
             assertEquals(a.sync.fingerprint, desk.contacted!!.second)
@@ -142,13 +146,13 @@ class DesktopE2ETest {
             assertTrue(desk.newPairingCode(), desk.error)
             val qr = assertNotNull(desk.pairing).qr
             val p = Phone(model(tmp.newFolder("P")).also { models += it }, scope)
-            assertNull(p.sync.pair(PairingQr.parse(qr)!!, "E2E phone P", null) { error("nothing to back up") })
+            assertNull(p.sync.pair(PairingQr.parse(qr)!!, "E2E phone P") { error("nothing to back up") })
             assertEquals(SyncStatus.State.SYNCED, p.sync.status.value.state, p.sync.status.value.message)
             assertEquals(names(d), names(p.model))
             val again = Phone(model(tmp.newFolder("Q")).also { models += it }, scope)
-            assertEquals(ServerClient.PAIR_REFUSED, assertFailsWith<ServerException> { again.sync.pair(PairingQr.parse(qr)!!, "Again", null) { "" } }.message)
+            assertEquals(ServerClient.PAIR_REFUSED, assertFailsWith<ServerException> { again.sync.pair(PairingQr.parse(qr)!!, "Again") { "" } }.message)
             val forged = PairingQr.parse(PairingQr.encode(url, Box.fingerprint(Box.keyPair().publicKey), PairingQr.parse(qr)!!.code))!!
-            assertEquals(ServerClient.QR_MISMATCH, assertFailsWith<ServerException> { again.sync.pair(forged, "Forged", null) { "" } }.message)
+            assertEquals(ServerClient.QR_MISMATCH, assertFailsWith<ServerException> { again.sync.pair(forged, "Forged") { "" } }.message)
 
             // 4. edits both ways: the desktop's window is open, so it edits; minimized, the phone does
             desk.shown()

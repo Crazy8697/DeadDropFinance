@@ -58,18 +58,29 @@ fun main(args: Array<String>) {
         var checkAtStartup by remember { mutableStateOf(settings.checkUpdatesAtStartup) }
         var model by remember { mutableStateOf(AppModel(null)) }
         val scope = rememberCoroutineScope()
+        // Windows Hello unlock (0.11.0): off unless turned on in Settings; never in the smoke test
+        val hello = remember { HelloLock(settings).takeIf { smoke == null } }
+        var helloTried by remember { mutableStateOf(false) }
         updates.onChange = { update = it }
 
         LaunchedEffect(Unit) {
             val e = withContext(Dispatchers.IO) { engine.await() }
             val m = AppModel(e)
             withContext(Dispatchers.IO) { m.refresh() }
+            // the recovery key (0.11.0): every backup's key, DPAPI-protected in the data folder
+            val keys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(DesktopRecoveryStore(settings.dir))
+            if (smoke == null) m.recoveryKeys = keys
             // server sync (0.10.0): the phone's own sync code on this budget; its settings and key in the data folder
             val ok = e.opened as? net.darkrelay.deaddropfinance.data.DesktopDatabase.Opened.Ok
             if (ok != null && smoke == null) {
-                val sync = net.darkrelay.deaddropfinance.serversync.ServerSync(ok.store, DesktopSyncPrefs(settings.dir), DesktopKeyVault(settings.dir), syncScope, kind = "desktop")
+                val sync = net.darkrelay.deaddropfinance.serversync.ServerSync(ok.store, DesktopSyncPrefs(settings.dir), DesktopKeyVault(settings.dir), syncScope,
+                    kind = "desktop", recovery = keys)
                 m.server = ServerModel(sync, m, syncScope)
+                // Stay logged in off (0.11.0): a close that didn't finish logging out is finished before anything shows
+                withContext(Dispatchers.IO) { m.server!!.openingCheck() }
             }
+            // a recovery key made here but not confirmed as saved is shown again
+            if (smoke == null) m.showRecoveryKeyIfNew()
             model = m
         }
 
@@ -121,6 +132,8 @@ fun main(args: Array<String>) {
                 onOpenDataFolder = { openFile(settings.dir) },
                 onLicenses = if (installed) ({ openFile(File(installDir(), "THIRD-PARTY-NOTICES.md")) }) else null,
                 onExit = ::quit,
+                hello = hello,
+                windowHandle = { runCatching { window.windowHandle }.getOrDefault(0L) },
                 run = { block -> scope.launch(Dispatchers.IO) { block() } },
                 pickCsv = {
                     val d = FileDialog(window, "Import CSV", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".csv") }; file = "*.csv"; isVisible = true }
@@ -135,7 +148,23 @@ fun main(args: Array<String>) {
                     d.file?.let { File(d.directory, it) }
                 },
             )
-            DesktopApp(model, shell)
+            if (hello != null && hello.locked) {
+                // nothing of the budget shows until Windows Hello says it's you; it asks once on its own, then on Unlock
+                LaunchedEffect(Unit) {
+                    if (!helloTried) {
+                        helloTried = true
+                        delay(300)
+                        val hwnd = runCatching { window.windowHandle }.getOrDefault(0L)
+                        withContext(Dispatchers.IO) { hello.unlock(hwnd) }
+                    }
+                }
+                HelloLockScreen(hello, onUnlock = {
+                    val hwnd = runCatching { window.windowHandle }.getOrDefault(0L)
+                    scope.launch(Dispatchers.IO) { hello.unlock(hwnd) }
+                }, onExit = ::quit)
+            } else {
+                DesktopApp(model, shell)
+            }
             if (smoke != null) {
                 LaunchedEffect(Unit) {
                     delay(1500)

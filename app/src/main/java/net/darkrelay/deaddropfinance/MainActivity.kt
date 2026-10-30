@@ -126,6 +126,14 @@ class MainActivity : ComponentActivity() {
     }
     private val alerts by lazy { net.darkrelay.deaddropfinance.alerts.SpendAlerts(this) }
 
+    /** Server reach (1.6.0): the local network permission, asked for when Connect or a QR pairing is tapped. */
+    private var localNetworkDone: ((Boolean) -> Unit)? = null
+    private val localNetworkPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        val done = localNetworkDone ?: return@registerForActivityResult
+        localNetworkDone = null
+        done(ok)
+    }
+
     /** Scan QR code (1.5.0): the camera is asked for only when Scan is tapped; a refusal falls back to typing. */
     private var scanDone: ((net.darkrelay.deaddropfinance.ui.QrScan) -> Unit)? = null
     private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -175,7 +183,10 @@ class MainActivity : ComponentActivity() {
         locked = app.lock.locked
         app.lock.onLockedChanged = { locked = it; if (it) promptUnlock() }
         lifecycleScope.launch {
-            opened = withContext(Dispatchers.IO) { app.open() }
+            val o = withContext(Dispatchers.IO) { app.open() }
+            // Stay logged in off (1.6.0): a close that didn't finish logging out is finished before anything shows
+            if (o is DatabaseOpener.Opened.Ok) withContext(Dispatchers.IO) { app.openingCheck(o.store) }
+            opened = o
             settings = withContext(Dispatchers.IO) { app.settings() }
         }
         setContent {
@@ -205,6 +216,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (locked) promptUnlock()
+    }
+
+    override fun onDestroy() {
+        // closing the app (not a rotation): with Stay logged in off, it logs out (1.6.0)
+        if (isFinishing && !isChangingConfigurations) app.closingSync()
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -412,21 +429,35 @@ class MainActivity : ComponentActivity() {
             }
         }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/') ?: "the file"
 
-        override suspend fun writeBackup(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
+        override val recoveryKeys get() = app.recoveryKeys
+
+        override suspend fun writeBackup(uri: Uri) = withContext(Dispatchers.IO) {
             val store = (opened as DatabaseOpener.Opened.Ok).store
+            val key = app.recoveryKeys.current() ?: throw IllegalStateException("no recovery key yet")
             val out = contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("can't write there")
-            try { app.backups(store).write(out, passphrase) } finally { passphrase.fill(' ') }
+            app.backups(store).write(out, key)
         }
 
-        override suspend fun backupBeforeServer(passphrase: CharArray): String {
+        override suspend fun backupBeforeServer(key: ByteArray): String {
             val store = (opened as DatabaseOpener.Opened.Ok).store
-            return app.backupBeforeServer(store, passphrase)
+            return app.backupBeforeServer(store, key)
         }
 
-        override suspend fun restoreBackup(uri: Uri, passphrase: CharArray) = withContext(Dispatchers.IO) {
+        override suspend fun backupKind(uri: Uri) = withContext(Dispatchers.IO) {
+            runCatching { contentResolver.openInputStream(uri)?.use { net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(it.readNBytes(7)) } }.getOrNull()
+        }
+
+        override suspend fun restoreBackup(uri: Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret) = withContext(Dispatchers.IO) {
             val store = (opened as DatabaseOpener.Opened.Ok).store
             val input = contentResolver.openInputStream(uri) ?: throw net.darkrelay.deaddropfinance.backup.BackupException("That file couldn't be opened.")
-            try { input.use { app.backups(store).restore(it, passphrase) } } finally { passphrase.fill(' ') }
+            input.use { app.backups(store).restore(it, opener) }
+        }
+
+        override fun copySecret(text: String) {
+            // marked sensitive, so Android doesn't show it in the clipboard preview (Android 13 and up)
+            val clip = android.content.ClipData.newPlainText("Recovery key", text)
+            clip.description.extras = android.os.PersistableBundle().apply { putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true) }
+            getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(clip)
         }
 
         override fun sweepReceiptFiles(keep: Set<String>) {
@@ -438,6 +469,12 @@ class MainActivity : ComponentActivity() {
             scanDone = onResult
             if (checkSelfPermission(android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) launchQrScanner()
             else cameraPermission.launch(android.Manifest.permission.CAMERA)
+        }
+
+        override fun requestLocalNetwork(done: (Boolean) -> Unit) {
+            if (net.darkrelay.deaddropfinance.serversync.LocalNetwork.allowed(this@MainActivity)) { done(true); return }
+            localNetworkDone = done
+            localNetworkPermission.launch(net.darkrelay.deaddropfinance.serversync.LocalNetwork.PERMISSION)
         }
 
         override fun requestNotifications(done: (Boolean) -> Unit) {

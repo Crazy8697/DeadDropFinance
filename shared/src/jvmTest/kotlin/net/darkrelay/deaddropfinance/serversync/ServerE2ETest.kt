@@ -7,6 +7,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore
+import net.darkrelay.deaddropfinance.backup.RecoveryKey
+import net.darkrelay.deaddropfinance.backup.RecoveryKeys
 import net.darkrelay.deaddropfinance.data.AccountType
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.DesktopDatabase
@@ -58,9 +61,11 @@ class ServerE2ETest {
         val prefs = ServerSyncTest.MemoryPrefs()
         val vault = ServerSyncTest.MemoryVault()
         val net = Cuttable(HttpTransport(url))
+        /** 1.6.0: its recovery key, made and saved, so a login over a budget of its own can back it up. */
+        val keys = RecoveryKeys(MemoryRecoveryKeyStore())
         var sync = start()
         val backups = mutableListOf<String>()
-        fun start() = ServerSync(store, prefs, vault, scope, transportFor = { net }, sendDelayMs = 60_000)
+        fun start() = ServerSync(store, prefs, vault, scope, transportFor = { net }, sendDelayMs = 60_000, recovery = keys)
         suspend fun picture(): String {
             val b = actions.snapshot()
             return "accounts=${b.accounts.map { it.name to b.accountBalance(it.id) }.sortedBy { it.first }} " +
@@ -90,13 +95,14 @@ class ServerE2ETest {
             val late = Device("Late", scope).also { opened += it }
             assertEquals(ServerException.Kind.REFUSED, assertFailsWith<ServerException> { late.sync.createAccount(url, code, "e2e2", pw, "Late") }.kind)
 
-            // 2. a second device with a budget of its own: backed up (with the password), then replaced by the server's
+            // 2. a second device with a budget of its own: backed up (under its recovery key, 1.6.0), then replaced by the server's
             val b = Device("B", scope).also { opened += it }
+            val own = b.keys.ensure().also { b.keys.confirmSaved() }
             b.actions.saveAccount(null, "Zzlocal Savings", AccountType.BANK, 5_00, day)
             assertEquals(ServerException.Kind.REFUSED, assertFailsWith<ServerException> { b.sync.login(url, "e2e", "wrong-password-e2e", "E2E desktop B") { "" } }.kind)
-            val saved = b.sync.login(url, "E2E", pw, "E2E desktop B") { p -> b.backups += String(p); "test-backup" }
+            val saved = b.sync.login(url, "E2E", pw, "E2E desktop B") { k -> b.backups += RecoveryKey.id(k); "test-backup" }
             assertEquals("test-backup", saved)
-            assertEquals(listOf(pw), b.backups)
+            assertEquals(listOf(RecoveryKey.id(own)), b.backups.distinct())
             assertEquals(a.picture(), b.picture())
             assertFalse(b.picture().contains("Zzlocal"))
 

@@ -29,7 +29,13 @@ Download `DeadDropFinance-Setup.exe` from the newest `desktop-v` release on the
 - Server sync (0.10.0), only once you log in: `server.properties` (the address, the server's pinned public key, this
   computer's id and name on the server, the username and where sync is up to; nothing secret) and `server-device.key`
   (this computer's own server key, protected by Windows DPAPI). The password is never kept. A login on a computer with a
-  budget of its own first saves an encrypted backup of it to `Downloads\DeadDropFinance`, opened with the account password.
+  budget of its own first saves an encrypted backup of it to `Downloads\DeadDropFinance`, opened with its recovery key.
+- The recovery key (0.11.0), which encrypts every backup: `recovery.key`, protected by Windows DPAPI, never in plain
+  text. It is shown once. Its copies for the account's other devices go through your server sealed to each device's
+  key; the server can't open them. A backup made before 0.11.0 still restores with its password.
+- Windows Hello unlock (0.11.0): a Settings option, off by default, kept in `settings.properties`. While on, the
+  program opens locked until Windows Hello passes. If Hello later stops working on the computer, set
+  `hello_unlock=false` in `settings.properties` to open the program without it.
 - Network: GitHub, for the update check and an update's download, and, once you log in, your own Dead Drop server at
   the address you typed (every request and reply a libsodium envelope, the server's key pinned on first contact). The check is an anonymous GET of the repo's
   release list a few seconds after startup (Help > Check for updates at startup turns it off) or from

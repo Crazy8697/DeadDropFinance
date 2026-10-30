@@ -39,6 +39,7 @@ import com.google.zxing.common.BitMatrix
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import kotlinx.coroutines.delay
+import net.darkrelay.deaddropfinance.serversync.ServerSync
 import net.darkrelay.deaddropfinance.serversync.SyncStatus
 
 /** The Add a phone QR code's modules (ZXing core), with the quiet zone the scanners want. */
@@ -111,7 +112,10 @@ fun SyncBanners(model: AppModel, server: ServerModel) {
     }
 }
 
-/** Settings > Server: connect, check the fingerprint and log in; then the connection, its devices, Add a phone and Log out. */
+/**
+ * Settings > Server: connect, check the fingerprint, then log in or create the account (0.11.0); then the connection, its
+ * devices, Add a phone, Change password and Log out.
+ */
 @Composable
 fun ServerPanel(model: AppModel, server: ServerModel?, shell: Shell) {
     Panel("Server", "Your own Dead Drop server keeps the budget in step across your devices. Everything between this computer and it is encrypted.", Modifier.fillMaxWidth().testTag("serverPanel")) {
@@ -136,29 +140,62 @@ private fun LoginForm(model: AppModel, server: ServerModel, shell: Shell) {
         T("The same address the phone app uses. Port 5090 is used when none is given.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 6.dp))
         return
     }
+    var create by remember { mutableStateOf(false) }
+    var code by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
     var name by remember { mutableStateOf(server.defaultDeviceName) }
+    var stay by remember { mutableStateOf(true) }
     var localData by remember { mutableStateOf(false) }
     LaunchedEffect(contacted) { localData = server.hasLocalData() }
     Kv("Server", contacted.first)
     Kv("Key fingerprint", ServerModel.groups(contacted.second), tag = "server.fingerprint")
-    T("It must match the fingerprint the phone app shows under More > Server, or the one in the server's setup-code.txt. This computer remembers it and refuses a different one later.",
+    T("It must match the fingerprint in the server's setup-code.txt (or its start line), or the one the phone app shows under More > Server. This computer remembers it and refuses a different one later.",
         11.5.sp, C.Dim2, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 10.dp)) {
+        Btn("Log in", { create = false; server.error = null }, ghost = create, small = true, tag = "server.mode.login")
+        Btn("Create the account", { create = true; server.error = null }, ghost = !create, small = true, tag = "server.mode.create")
+    }
+    if (create) {
+        T("The first device makes the account with the server's one-time setup code. This computer's budget becomes the server's copy.", 12.sp, C.Dim, modifier = Modifier.padding(bottom = 8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Field("Setup code", code, { code = it }, Modifier.weight(1f), placeholder = "XXXX-XXXX", tag = "server.setupCode")
+            Field("Username", user, { user = it }, Modifier.weight(1f), tag = "server.username")
+            Field("This computer's name", name, { name = it }, Modifier.weight(1f), tag = "server.name")
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Field("Password", pass, { pass = it }, Modifier.weight(1f), tag = "server.password", masked = true)
+            Field("Password again", again, { again = it }, Modifier.weight(1f), tag = "server.again", masked = true)
+        }
+        T("At least ${ServerSync.MIN_PASSWORD} characters. The password is never kept on this computer. There is no password reset on the server: a logged-in device can set a new one under Settings > Server.",
+            11.5.sp, C.Dim2, modifier = Modifier.padding(top = 6.dp))
+        T("Creating the account shows the account's recovery key once. Every backup opens only with it.", 11.5.sp, C.Warn, modifier = Modifier.padding(top = 4.dp))
+        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Btn("Create the account", {
+                val c = code; val u = user; val p = pass; val a = again; val n = name
+                shell.run { server.create(c, u, p, a, n) }
+            }, enabled = code.isNotBlank() && user.isNotBlank() && pass.isNotEmpty() && again.isNotEmpty() && !server.busy, tag = "server.create")
+            Btn("Cancel", { server.contacted = null; server.error = null }, ghost = true, tag = "server.cancel")
+        }
+        return
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Field("Username", user, { user = it }, Modifier.weight(1f), tag = "server.username")
         Field("Password", pass, { pass = it }, Modifier.weight(1f), tag = "server.password", masked = true)
         Field("This computer's name", name, { name = it }, Modifier.weight(1f), tag = "server.name")
     }
+    CheckRow("Stay logged in", "Off: closing the program logs this computer out, and the next open asks for the login again.", stay, true, "server.stay",
+        Modifier.padding(top = 8.dp)) { stay = it }
     T("The password is never kept on this computer.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 6.dp))
     if (localData) {
-        T("This computer has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads\\DeadDropFinance, encrypted with the account password.",
+        T("This computer has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads\\DeadDropFinance, encrypted with this computer's recovery key.",
             12.sp, C.Warn, modifier = Modifier.padding(top = 6.dp).testTag("server.localData"))
     }
     Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Btn("Log in", {
-            if (localData) model.dialog = Dialog.ConfirmLogin(user, pass, name)
-            else { val u = user; val p = pass; val n = name; shell.run { server.login(u, p, n) } }
+            val u = user; val p = pass; val n = name; val st = stay
+            shell.run { server.startLogin(u, p, n, st) }
         }, enabled = user.isNotBlank() && pass.isNotEmpty() && !server.busy, tag = "server.login")
         Btn("Cancel", { server.contacted = null; server.error = null }, ghost = true, tag = "server.cancel")
     }
@@ -173,12 +210,14 @@ private fun Connected(model: AppModel, server: ServerModel, shell: Shell) {
     Kv("Key fingerprint", ServerModel.groups(sync.fingerprint ?: ""), tag = "server.fingerprint")
     Kv("Username", sync.username ?: "Paired with a code")
     Kv("This computer", sync.deviceName ?: "")
+    Kv("Stay logged in", if (sync.stayLoggedIn) "Yes" else "No: closing the program logs out", tag = "server.stayValue")
     Kv("Status", ServerModel.pillText(s) + if (s.lastSyncedAt > 0 && s.state != SyncStatus.State.SYNCED) ", last synced ${ServerModel.clockTime(s.lastSyncedAt)}" else "",
         last = true, tag = "server.status")
     s.message?.let { T(it, 12.sp, if (s.state == SyncStatus.State.ERROR) C.Bad else C.Dim, modifier = Modifier.padding(top = 6.dp)) }
     Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Btn("Sync now", { server.syncNow() }, ghost = true, small = true, tag = "server.syncNow")
         Btn("Add a phone", { model.dialog = Dialog.AddPhone }, small = true, tag = "server.addPhone")
+        Btn("Change password", { model.dialog = Dialog.ChangePassword }, ghost = true, small = true, tag = "server.changePassword")
         Btn("Log out", { model.dialog = Dialog.Logout }, ghost = true, small = true, tag = "server.logout")
     }
     Spacer(Modifier.height(16.dp))
@@ -199,17 +238,18 @@ private fun Connected(model: AppModel, server: ServerModel, shell: Shell) {
     T("Removing a device deletes its key on the server, so it can't sync again until it logs in. Use it for a lost phone.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 6.dp))
 }
 
-/** The server's dialogs: confirm a login that replaces this budget, Add a phone, take over, remove a device, log out. */
+/** The server's dialogs: confirm a login that replaces this budget, Add a phone, take over, remove a device, log out, change the password. */
 @Composable
 fun ServerDialog(model: AppModel, server: ServerModel, shell: Shell, d: Dialog) {
     val close = { model.dialog = null }
     when (d) {
         is Dialog.ConfirmLogin -> Modal("Replace this computer's budget?", 470.dp, close, "dialog.confirmLogin", footer = {
             Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Back up and log in", { close(); shell.run { server.login(d.username, d.pass, d.name) } }, tag = "dialog.confirm")
+            Btn("Back up and log in", { close(); shell.run { server.login(d.username, d.pass, d.name, d.stay) } }, tag = "dialog.confirm")
         }) {
-            T("If the server has a budget, it replaces the one on this computer. A backup of this computer's budget is saved first, to Downloads\\DeadDropFinance, encrypted with the account password.", 13.sp)
+            T("If the server has a budget, it replaces the one on this computer. A backup of this computer's budget is saved first, to Downloads\\DeadDropFinance, encrypted with this computer's recovery key.", 13.sp)
         }
+        is Dialog.ChangePassword -> ChangePasswordDialog(server, shell, close)
         is Dialog.TakeOver -> Modal("Take over editing?", 470.dp, close, "dialog.takeOver", footer = {
             Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
             Btn("Take over", { close(); shell.run { server.takeOver() } }, tag = "dialog.confirm")
@@ -234,6 +274,23 @@ fun ServerDialog(model: AppModel, server: ServerModel, shell: Shell, d: Dialog) 
         }
         is Dialog.AddPhone -> AddPhoneDialog(server, shell, close)
         else -> {}
+    }
+}
+
+@Composable
+private fun ChangePasswordDialog(server: ServerModel, shell: Shell, close: () -> Unit) {
+    var pass by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    Modal("Change the account password", 470.dp, close, "dialog.changePassword", footer = {
+        Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
+        Btn("Change password", { val p = pass; val a = again; shell.run { if (server.changePassword(p, a)) close() } },
+            enabled = pass.isNotEmpty() && again.isNotEmpty() && !server.busy, tag = "dialog.confirm")
+    }) {
+        T("This computer is logged in, so the old password isn't needed. Your other devices stay logged in; the new password is for the next login.", 13.sp, C.Dim)
+        Field("New password", pass, { pass = it }, tag = "pw.new", masked = true)
+        Field("New password again", again, { again = it }, tag = "pw.again", masked = true)
+        T("At least ${ServerSync.MIN_PASSWORD} characters. There is no password reset on the server, so keep it somewhere safe.", 11.5.sp, C.Dim2)
+        server.error?.let { T(it, 12.sp, C.Bad, modifier = Modifier.testTag("pw.error")) }
     }
 }
 

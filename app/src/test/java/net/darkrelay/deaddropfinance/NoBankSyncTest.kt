@@ -30,6 +30,7 @@ class NoBankSyncTest {
     @Test fun onlyTheUpdaterAndServerSyncTalkToTheNetwork() {
         val net = listOf("HttpURLConnection", "HttpsURLConnection", "openConnection", "java.net.URL", "java.net.Socket", "okhttp")
         val users = code.filter { f -> net.any { f.readText().contains(it) } }.map { it.name }.toSet()
-        assertEquals(setOf("UpdateClient.kt", "UpdateDownloader.kt", "HttpTransport.kt"), users)
+        // plus ServerReachTest (1.6.0), a shared test whose stand-in server is a socket on the computer's own loopback
+        assertEquals(setOf("UpdateClient.kt", "UpdateDownloader.kt", "HttpTransport.kt", "ServerReachTest.kt"), users)
     }
 }

@@ -64,6 +64,10 @@ class Shell(
     val pickBackupSave: (suggested: String) -> java.io.File? = { null },
     /** Asks for a backup file to restore; null when cancelled. */
     val pickBackupOpen: () -> java.io.File? = { null },
+    /** Windows Hello unlock (0.11.0); null where there is none (the tests that don't use it). */
+    val hello: HelloLock? = null,
+    /** The program window's handle, for Windows Hello's prompt; 0 when there's no window. */
+    val windowHandle: () -> Long = { 0L },
 )
 
 @Composable
@@ -103,6 +107,7 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                 is Dialog.ServerDialog -> if (server != null) ServerDialog(model, server, shell, d)
                 is Dialog.Backup -> BackupDialog(model, shell)
                 is Dialog.Restore -> RestoreDialog(model, shell, d)
+                is Dialog.ShowRecoveryKey -> RecoveryKeyDialog(model, d)
                 else -> model.budget?.let { b -> DialogHost(model, shell, b, d) }
             }
         }
@@ -115,7 +120,7 @@ fun DesktopApp(model: AppModel, shell: Shell) {
 private fun MenuStrip(model: AppModel, shell: Shell) {
     Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF0D1217)).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Menu("File") { close ->
-            MenuItem("Back up...", enabled = model.budget != null) { close(); model.dialog = Dialog.Backup }
+            MenuItem("Back up...", enabled = model.budget != null) { close(); model.startBackup() }
             MenuItem("Restore...", enabled = model.budget != null) { close(); if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
             MenuItem("Exit") { close(); shell.onExit() }
         }

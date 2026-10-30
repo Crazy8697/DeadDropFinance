@@ -56,6 +56,7 @@ class ServerSyncTest {
         override var lastSyncedAt = 0L
         override var conflictsSeenAt = 0L
         override var revoked = false
+        override var stayLoggedIn = true
         val pins = mutableMapOf<String, String>()
         override fun pinned(url: String) = pins[url]
         override fun pin(url: String, keyHex: String) { pins[url] = keyHex }
@@ -77,11 +78,14 @@ class ServerSyncTest {
         val prefs = MemoryPrefs()
         val vault = MemoryVault()
         var backups = mutableListOf<String>()
+        val keys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore())
         var sync = newSync()
-        fun newSync() = ServerSync(store, prefs, vault, scope, transportFor = { fake.transport() }, sendDelayMs = 60_000)
+        fun newSync() = ServerSync(store, prefs, vault, scope, transportFor = { fake.transport() }, sendDelayMs = 60_000, recovery = keys)
         fun create() = runBlocking { sync.createAccount("server.example", "test-code", "tester", pw, "Test phone") }
         fun login(name: String = "Test phone 2") = runBlocking {
-            sync.login("server.example", "tester", pw, name) { p -> backups += String(p); "Downloads/test-backup.ddfbak" }
+            // the screen makes and shows the recovery key first when it's needed (1.6.0)
+            if (sync.needsRecoveryKeyFirst()) keys.ensure()
+            sync.login("server.example", "tester", pw, name) { k -> backups += net.darkrelay.deaddropfinance.backup.RecoveryKey.id(k); "Downloads/test-backup.ddfbak" }
         }
     }
 
@@ -133,7 +137,9 @@ class ServerSyncTest {
         val b = Phone("B"); b.fill("Zzlocal")
         val where = b.login()
         assertEquals("Downloads/test-backup.ddfbak", where)
-        assertEquals(listOf(pw), b.backups, "the backup is encrypted with the account password, made before anything is replaced")
+        assertEquals(1, b.backups.size, "the backup is made before anything is replaced")
+        assertTrue(b.backups.single() in (b.keys.old() + listOfNotNull(b.keys.current())).map(net.darkrelay.deaddropfinance.backup.RecoveryKey::id),
+            "the backup is encrypted with this device's own recovery key")
         assertEquals(a.picture(), b.picture())
         assertFalse(b.picture().contains("Zzlocal"))
         assertEquals(0, queued(b), "the old budget's changes are never sent")
@@ -401,7 +407,7 @@ class ServerSyncTest {
         val desk = Phone("D"); desk.fill("Sample"); desk.create()
         val (_, qr) = desk.sync.newPairingCode()
         val phone = Phone("P")
-        assertNull(phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", null) { error("nothing to back up") })
+        assertNull(phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet") { error("nothing to back up") })
         assertTrue(phone.sync.connected)
         assertEquals(SyncStatus.State.SYNCED, phone.sync.status.value.state, phone.sync.status.value.message)
         assertEquals("Test tablet", server.devices[phone.prefs.deviceId]!!.name)
@@ -420,20 +426,23 @@ class ServerSyncTest {
         val desk = Phone("D"); desk.fill("Sample"); desk.create()
         val (_, qr) = desk.sync.newPairingCode()
         val phone = Phone("P"); phone.fill("Zzlocal")
-        assertFailsWith<IllegalStateException> { phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", null) { "x" } }
+        // with a budget of its own and no recovery key yet, the key comes first (the screen makes and shows it)
+        assertTrue(phone.sync.needsRecoveryKeyFirst())
+        assertFailsWith<IllegalStateException> { phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet") { "x" } }
         assertFalse(phone.sync.connected)
-        val where = phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet", "backup-pass-test") { p -> phone.backups += String(p); "Downloads/test-backup.ddfbak" }
+        val own = phone.keys.ensure()
+        val where = phone.sync.pair(PairingQr.parse(qr)!!, "Test tablet") { k -> phone.backups += net.darkrelay.deaddropfinance.backup.RecoveryKey.id(k); "Downloads/test-backup.ddfbak" }
         assertEquals("Downloads/test-backup.ddfbak", where)
-        assertEquals(listOf("backup-pass-test"), phone.backups)
+        assertEquals(listOf(net.darkrelay.deaddropfinance.backup.RecoveryKey.id(own)), phone.backups)
         assertEquals(desk.picture(), phone.picture())
     }
 
     @Test fun aUsedOrExpiredPairingCodeIsRefused() = runBlocking<Unit> {
         val desk = Phone("D"); desk.fill("Sample"); desk.create()
         val (_, qr) = desk.sync.newPairingCode()
-        Phone("P1").sync.pair(PairingQr.parse(qr)!!, "First tablet", null) { "x" }
+        Phone("P1").sync.pair(PairingQr.parse(qr)!!, "First tablet") { "x" }
         val second = Phone("P2")
-        val used = assertFailsWith<ServerException> { second.sync.pair(PairingQr.parse(qr)!!, "Second tablet", null) { "x" } }
+        val used = assertFailsWith<ServerException> { second.sync.pair(PairingQr.parse(qr)!!, "Second tablet") { "x" } }
         assertEquals(ServerException.Kind.REFUSED, used.kind)
         assertEquals(ServerClient.PAIR_REFUSED, used.message)
         assertFalse(second.sync.connected)
@@ -442,7 +451,7 @@ class ServerSyncTest {
         val (_, late) = desk.sync.newPairingCode()
         val now = System.currentTimeMillis()
         server.clock = { now + 11 * 60_000 }
-        assertEquals(ServerException.Kind.REFUSED, assertFailsWith<ServerException> { Phone("P3").sync.pair(PairingQr.parse(late)!!, "Late tablet", null) { "x" } }.kind)
+        assertEquals(ServerException.Kind.REFUSED, assertFailsWith<ServerException> { Phone("P3").sync.pair(PairingQr.parse(late)!!, "Late tablet") { "x" } }.kind)
     }
 
     @Test fun aQrCodeWhoseFingerprintDoesNotMatchTheServerIsRefused() = runBlocking<Unit> {
@@ -450,7 +459,7 @@ class ServerSyncTest {
         val (code, _) = desk.sync.newPairingCode()
         val forged = PairingQr.encode("server.example", Box.fingerprint(Box.keyPair().publicKey), code.code)
         val phone = Phone("P")
-        val e = assertFailsWith<ServerException> { phone.sync.pair(PairingQr.parse(forged)!!, "Test tablet", null) { "x" } }
+        val e = assertFailsWith<ServerException> { phone.sync.pair(PairingQr.parse(forged)!!, "Test tablet") { "x" } }
         assertEquals(ServerException.Kind.KEY_CHANGED, e.kind)
         assertEquals(ServerClient.QR_MISMATCH, e.message)
         assertFalse(phone.sync.connected)

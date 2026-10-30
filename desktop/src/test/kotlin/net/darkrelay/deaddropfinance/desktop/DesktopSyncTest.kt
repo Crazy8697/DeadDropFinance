@@ -62,7 +62,8 @@ class DesktopSyncTest {
         val prefs = DesktopSyncPrefs(dir)
         val vault = DesktopKeyVault(dir, TestProtector)
         val store = (model.engine!!.opened as DesktopDatabase.Opened.Ok).store
-        val sync = ServerSync(store, prefs, vault, scope, transportFor = { fake.transport() }, kind = kind, sendDelayMs = 60_000)
+        val keys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(DesktopRecoveryStore(dir, TestProtector)).also { model.recoveryKeys = it }
+        val sync = ServerSync(store, prefs, vault, scope, transportFor = { fake.transport() }, kind = kind, sendDelayMs = 60_000, recovery = keys)
         val downloads: File = File(dir, "Downloads")
         val server = ServerModel(sync, model, scope, downloads, defaultDeviceName = "Test desktop").also { model.server = it }
     }
@@ -98,6 +99,11 @@ class DesktopSyncTest {
         val d = desktop()
         runBlocking {
             assertTrue(d.server.connect("server.example"), d.server.error)
+            // Log in's button: this computer has a budget and no recovery key, so the key is made and shown first
+            d.server.startLogin("tester", pw, "Test desktop", true)
+            assertTrue(d.model.dialog is Dialog.ShowRecoveryKey, d.model.dialog.toString())
+            d.keys.confirmSaved()
+            d.model.dialog = null
             assertTrue(d.server.login("tester", pw, "Test desktop"), d.server.error)
         }
         return p to d
@@ -108,13 +114,14 @@ class DesktopSyncTest {
         until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
         assertEquals(accounts(p), accounts(d), "the server's budget replaced this one")
         assertFalse(accounts(d).contains("Checking"))
-        // the backup: Downloads\DeadDropFinance, the shared format, opened with the account password
+        // the backup: Downloads\DeadDropFinance, the shared format, opened with this computer's own recovery key
         val backup = d.downloads.resolve("DeadDropFinance").listFiles()!!.single()
         assertTrue(backup.name.endsWith(".ddfbak"))
         assertTrue(d.model.message!!.first.contains(backup.absolutePath))
         val check = SampleBudget.empty(tmp.newFolder()).also { models += it }
         val ok = check.engine!!.opened as DesktopDatabase.Opened.Ok
-        val s = runBlocking { backup.inputStream().use { DesktopBackups(ok.store.db, ok.file, "test").restore(it, pw.toCharArray()) } }
+        val own = d.keys.old().singleOrNull() ?: d.keys.current()!!
+        val s = runBlocking { backup.inputStream().use { DesktopBackups(ok.store.db, ok.file, "test").restore(it, net.darkrelay.deaddropfinance.backup.BackupSecret.Key(own)) } }
         assertTrue(s.accounts >= 4, "the backup holds this computer's own accounts")
         runBlocking { check.refresh() }
         assertTrue(check.budget!!.accounts.any { it.name == "Checking" })
@@ -167,7 +174,7 @@ class DesktopSyncTest {
         val (_, d) = loggedIn()
         assertFalse(d.model.canRestore())
         assertTrue(d.model.message!!.first.startsWith("Log out of the server"))
-        assertFalse(runBlocking { d.model.restore(File(d.dir, "none.ddfbak"), "whatever") })
+        assertFalse(runBlocking { d.model.restore(File(d.dir, "none.ddfbak"), net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword("whatever".toCharArray())) })
         runBlocking { d.server.logout() }
         assertTrue(d.model.canRestore())
     }
@@ -205,7 +212,7 @@ class DesktopSyncTest {
         assertEquals(p.qr, QRCodeReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(w, w, px)))).text)
         // a phone redeems it once
         val phone2 = desktop(filled = false).let { Device(it.dir, it.model, "phone") }
-        runBlocking { phone2.sync.pair(info, "Test tablet", null) { error("nothing to back up") } }
+        runBlocking { phone2.sync.pair(info, "Test tablet") { error("nothing to back up") } }
         assertTrue(phone2.sync.connected)
     }
 
@@ -226,6 +233,8 @@ class DesktopSyncTest {
         compose.waitForIdle()
         tag("server.fingerprint").assertExists()
         compose.waitUntil(10_000) { runCatching { tag("server.localData").assertExists() }.isSuccess }
+        // the recovery key, made and saved first (the panel's Log in shows it; here it's done directly)
+        d.keys.ensure(); d.keys.confirmSaved()
         runBlocking { d.server.login("tester", pw, "Test desktop") }
         until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
         compose.waitForIdle()

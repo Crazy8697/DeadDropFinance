@@ -36,12 +36,45 @@ class ServerPrefs(private val prefs: SharedPreferences) : SyncPrefs {
     override var lastSyncedAt: Long get() = prefs.getLong("last_synced_at", 0); set(v) = prefs.edit { putLong("last_synced_at", v) }
     override var conflictsSeenAt: Long get() = prefs.getLong("conflicts_seen_at", 0); set(v) = prefs.edit { putLong("conflicts_seen_at", v) }
     override var revoked: Boolean get() = prefs.getBoolean("revoked", false); set(v) = prefs.edit { putBoolean("revoked", v) }
+    /** Stay logged in (1.6.0), from the Log in screen; missing means on. */
+    override var stayLoggedIn: Boolean get() = prefs.getBoolean("stay_logged_in", true); set(v) = prefs.edit { putBoolean("stay_logged_in", v) }
 
     override fun pinned(url: String): String? = str("pin:$url")
     override fun pin(url: String, keyHex: String) = setStr("pin:$url", keyHex)
 
     companion object {
         const val FILE = "server"
+    }
+}
+
+/**
+ * This phone's recovery keys (1.6.0), in SecretStore (wrapped by its own Keystore key), never in the database,
+ * SharedPreferences or a backup: the current key, earlier ones kept for older backups, and whether the current one still
+ * waits for "I saved it".
+ */
+class PhoneRecoveryStore(private val secrets: () -> net.darkrelay.deaddropfinance.data.SecretStore) : net.darkrelay.deaddropfinance.backup.RecoveryKeyStore {
+    override fun current(): ByteArray? = secrets().get(CURRENT)?.unhex()
+
+    override fun old(): List<ByteArray> = secrets().get(OLD)?.split(',')?.filter { it.isNotBlank() }?.map { it.unhex() } ?: emptyList()
+
+    @Synchronized override fun setCurrent(key: ByteArray, unconfirmed: Boolean) {
+        val s = secrets()
+        val cur = s.get(CURRENT)
+        val old = (s.get(OLD)?.split(',')?.filter { it.isNotBlank() } ?: emptyList()).toMutableList()
+        if (cur != null && cur != key.hex() && cur !in old) old += cur
+        if (old.isNotEmpty()) s.put(OLD, old.joinToString(","))
+        s.put(CURRENT, key.hex())
+        s.put(UNCONFIRMED, if (unconfirmed) "1" else "0")
+    }
+
+    override fun unconfirmed(): Boolean = secrets().get(UNCONFIRMED) == "1"
+
+    override fun confirm() = secrets().put(UNCONFIRMED, "0")
+
+    companion object {
+        const val CURRENT = "recovery_key"
+        const val OLD = "recovery_key_old"
+        const val UNCONFIRMED = "recovery_key_unconfirmed"
     }
 }
 

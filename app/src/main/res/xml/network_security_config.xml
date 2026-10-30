@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security (1.6.0). Plain HTTP is for server sync only: the app talks to the user's own Dead Drop server on
+  their home network or tailnet (the 10, 172.16 to 31, 192.168 and 100.64 to 127 ranges), and every request and
+  reply is a libsodium envelope, so only ciphertext crosses the network.
+
+  This config can't name IP ranges (a domain entry is a host name or one exact address), so plain HTTP stays allowed
+  in base-config, the documented way to allow it for addresses that can't be listed. What must stay HTTPS is named
+  instead: the update check and its download (GitHub and its download host) refuse plain HTTP here.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>

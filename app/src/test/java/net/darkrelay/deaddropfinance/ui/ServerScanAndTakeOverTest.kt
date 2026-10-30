@@ -6,8 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import net.darkrelay.deaddropfinance.BuildConfig
 import net.darkrelay.deaddropfinance.serversync.PairingQr
@@ -43,14 +46,20 @@ class ServerScanAndTakeOverTest {
     private val qr = PairingQr.Info("http://server.example:5090", "0a1b2c3d4e5f6a7b", "K7QM-4XTP")
     private var ui by mutableStateOf(ServerUi())
     private var scans = 0
-    private var paired: Pair<String, String?>? = null
+    private var paired: String? = null
+    private var loggedIn: List<Any>? = null
+    private var newPassword: String? = null
 
-    private fun show() = compose.setContent {
+    private fun show(connected: Boolean = false, stay: Boolean = true) = compose.setContent {
         ServerScreen(
-            ui, SyncStatus(SyncStatus.State.NOT_CONNECTED), ServerInfo(null, null, null, null, null), connected = false,
-            onBack = {}, onContact = {}, onMode = {}, onCreate = { _, _, _, _ -> }, onLogin = { _, _, _ -> },
+            ui, SyncStatus(if (connected) SyncStatus.State.SYNCED else SyncStatus.State.NOT_CONNECTED),
+            if (connected) ServerInfo("http://server.example:5090", "0a1b2c3d4e5f6a7b", "tester", "Test phone", "d1") else ServerInfo(null, null, null, null, null),
+            connected = connected,
+            onBack = {}, onContact = {}, onMode = { ui = ui.copy(createMode = it) }, onCreate = { _, _, _, _ -> },
+            onLogin = { u, p, n, st -> loggedIn = listOf(u, p, n, st) },
             onSyncNow = {}, onRevoke = {}, onLogout = {},
-            onScan = { scans++ }, onPair = { name, pass -> paired = name to pass }, onCancelScan = { ui = ui.copy(scanned = null) },
+            onScan = { scans++ }, onPair = { name -> paired = name }, onCancelScan = { ui = ui.copy(scanned = null) },
+            onChangePassword = { newPassword = it }, stayLoggedIn = stay,
         )
     }
 
@@ -82,20 +91,72 @@ class ServerScanAndTakeOverTest {
         compose.onNodeWithText("http://server.example:5090").assertIsDisplayed()
         compose.onNodeWithText("0a1b 2c3d 4e5f 6a7b").assertIsDisplayed()
         compose.onNodeWithText("Pair this phone").performClick()
-        assertEquals("Phone" to null, paired)
+        assertEquals("Phone", paired)
     }
 
-    @Test fun pairingOverABudgetOfItsOwnAsksForABackupPasswordFirst() {
+    @Test fun pairingOverABudgetOfItsOwnConfirmsAndAsksForNoPassword() {
         show()
         ui = ui.copy(scanned = qr, hasLocalData = true)
         compose.waitForIdle()
+        // 1.6.0: no backup password; the backup uses the phone's recovery key
+        compose.onNodeWithText("Backup password").assertDoesNotExist()
         compose.onNodeWithText("Pair this phone").performClick()
-        assertNull("not without a backup password", paired)
-        compose.onNodeWithText("Backup password").performTextInput("backup-pass-test")
-        compose.onNodeWithText("Backup password again").performTextInput("backup-pass-test")
-        compose.onNodeWithText("Pair this phone").performClick()
+        assertNull("not before the confirmation", paired)
         compose.onNodeWithText("Back up and pair").performClick()
-        assertEquals("Phone" to "backup-pass-test", paired)
+        assertEquals("Phone", paired)
+    }
+
+    @Test fun logInHasStayLoggedInOnByDefault() {
+        show()
+        ui = ui.copy(contactedUrl = "http://server.example:5090", contactedFingerprint = "0a1b2c3d4e5f6a7b", createMode = false)
+        compose.waitForIdle()
+        compose.onNodeWithText("Stay logged in").assertIsDisplayed()
+        compose.onNodeWithText("Username").performTextInput("tester")
+        compose.onNodeWithText("Password").performTextInput("test-pass-for-unit")
+        compose.onAllNodesWithText("Log in").onLast().performClick()
+        assertEquals(listOf("tester", "test-pass-for-unit", "Phone", true), loggedIn)
+        // unticked, the login carries it
+        compose.onNodeWithText("Stay logged in").performClick()
+        compose.onAllNodesWithText("Log in").onLast().performClick()
+        assertEquals(false, loggedIn!![3])
+    }
+
+    @Test fun createTheAccountHasNoStayLoggedInAndWarnsThereIsNoReset() {
+        show()
+        ui = ui.copy(contactedUrl = "http://server.example:5090", contactedFingerprint = "0a1b2c3d4e5f6a7b", createMode = true)
+        compose.waitForIdle()
+        compose.onNodeWithText("Stay logged in").assertDoesNotExist()
+        compose.onNodeWithText("Setup code").assertIsDisplayed()
+        compose.onNodeWithText("Password again").assertIsDisplayed()
+    }
+
+    @Test fun aLoggedInPhoneChangesThePasswordTypedTwice() {
+        show(connected = true, stay = false)
+        compose.onNodeWithText("No: closing the app logs out").assertExists()
+        compose.onNodeWithText("New password").performTextInput("new-test-pass-1")
+        compose.onNodeWithText("New password again").performTextInput("new-test-pass-2")
+        compose.onNodeWithText("Change password").performClick()
+        assertNull(newPassword)
+        compose.onNodeWithText("The two passwords don't match.").assertExists()
+        compose.onNodeWithText("New password again").performTextClearance()
+        compose.onNodeWithText("New password again").performTextInput("new-test-pass-1")
+        compose.onNodeWithText("Change password").performClick()
+        assertEquals("new-test-pass-1", newPassword)
+    }
+
+    @Test fun theRecoveryKeyIsShownInGroupsWithCopyAndISavedIt() {
+        val key = net.darkrelay.deaddropfinance.backup.RecoveryKey.generate()
+        var copied: String? = null
+        var saved = 0
+        compose.setContent { RecoveryKeyDialog(key, onCopy = { copied = it }, onSaved = { saved++ }) }
+        val text = net.darkrelay.deaddropfinance.backup.RecoveryKey.format(key)
+        val groups = text.split("-")
+        compose.onNodeWithText(groups.take(2).joinToString("  "), substring = true).assertExists()
+        compose.onNodeWithText("This is the only time it is shown", substring = true).assertExists()
+        compose.onNodeWithText("Copy").performClick()
+        assertEquals(text, copied)
+        compose.onNodeWithText("I saved it").performClick()
+        assertEquals(1, saved)
     }
 
     @Test fun cancelGoesBackToConnect() {

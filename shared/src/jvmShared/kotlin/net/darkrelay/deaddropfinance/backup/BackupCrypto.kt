@@ -17,6 +17,12 @@ import javax.crypto.spec.SecretKeySpec
 /** A backup that can't be read, with a plain reason for the screen. Nothing was changed when it's thrown. */
 class BackupException(message: String) : Exception(message)
 
+/** What opens a backup: the recovery key (format 2, from 1.6.0) or, for one made before 1.6.0, its password (format 1). */
+sealed class BackupSecret {
+    class OldPassword(val chars: CharArray) : BackupSecret()
+    class Key(val key: ByteArray) : BackupSecret()
+}
+
 /**
  * The backup file's encryption. A key is made from the backup password (PBKDF2 with HMAC-SHA256, a random salt and
  * [ITERATIONS] rounds); the contents are cut into chunks, each sealed with AES-256-GCM. Every chunk's nonce carries
@@ -25,15 +31,23 @@ class BackupException(message: String) : Exception(message)
  *
  * File: "DDFBAK", format 1, rounds (4 bytes), salt (16), nonce prefix (8), then chunks of [last flag (1), length (4),
  * sealed bytes]. The password is never stored.
+ *
+ * Format 2 (1.6.0), every new backup: the key comes from the recovery key instead of a password (HMAC-SHA256 of a
+ * label and a random salt, keyed with the recovery key; it is already 256 random bits, so no slow key stretching).
+ * File: "DDFBAK", format 2, key id (16 bytes, RecoveryKey.id, so a different key is named as such), salt (16), nonce
+ * prefix (8), then the same chunks. Format 1 files still open with their password.
  */
 object BackupCrypto {
     private val MAGIC = "DDFBAK".toByteArray()
     private const val FORMAT: Byte = 1
+    private const val FORMAT_KEY: Byte = 2
+    private const val KEY_ID = 16
     private const val SALT = 16
     private const val PREFIX = 8
     private const val TAG_BITS = 128
     private const val CHUNK = 64 * 1024
     private const val HEADER = 6 + 1 + 4 + SALT + PREFIX
+    private const val HEADER_KEY = 6 + 1 + KEY_ID + SALT + PREFIX
 
     /** PBKDF2 rounds for a new backup. */
     const val ITERATIONS = 600_000
@@ -53,13 +67,47 @@ object BackupCrypto {
 
     private fun aad(header: ByteArray, last: Boolean) = header + byteArrayOf(if (last) 1 else 0)
 
-    /** Wraps [out]: what's written is encrypted under [passphrase]. Closing it writes the last chunk (and closes [out]). */
+    private fun keyFrom(recoveryKey: ByteArray, salt: ByteArray): SecretKeySpec {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(recoveryKey, "HmacSHA256"))
+        return SecretKeySpec(mac.doFinal("deaddrop backup v2".toByteArray() + salt), "AES")
+    }
+
+    private fun idBytes(recoveryKey: ByteArray) = RecoveryKey.id(recoveryKey).chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+    /** Which secret a backup file opens with, from its first 7 bytes; null when it isn't a backup (or is a newer format). */
+    fun kindOf(head: ByteArray): Class<out BackupSecret>? {
+        if (head.size < MAGIC.size + 1 || !head.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)) return null
+        return when (head[MAGIC.size]) {
+            FORMAT -> BackupSecret.OldPassword::class.java
+            FORMAT_KEY -> BackupSecret.Key::class.java
+            else -> null
+        }
+    }
+
+    /**
+     * Wraps [out]: what's written is encrypted under [passphrase] (format 1). Since 1.6.0 new backups use the recovery
+     * key ([encryptingWithKey]); this stays for the tests of older backups.
+     */
     fun encrypting(out: OutputStream, passphrase: CharArray, rounds: Int = ITERATIONS): OutputStream {
         val random = SecureRandom()
         val salt = ByteArray(SALT).also { random.nextBytes(it) }
         val prefix = ByteArray(PREFIX).also { random.nextBytes(it) }
         val header = ByteBuffer.allocate(HEADER).put(MAGIC).put(FORMAT).putInt(rounds).put(salt).put(prefix).array()
-        val k = key(passphrase, salt, rounds)
+        return sealing(out, header, key(passphrase, salt, rounds), prefix)
+    }
+
+    /** Wraps [out]: what's written is encrypted under the recovery key (format 2). Closing it writes the last chunk (and closes [out]). */
+    fun encryptingWithKey(out: OutputStream, recoveryKey: ByteArray): OutputStream {
+        require(recoveryKey.size == RecoveryKey.BYTES)
+        val random = SecureRandom()
+        val salt = ByteArray(SALT).also { random.nextBytes(it) }
+        val prefix = ByteArray(PREFIX).also { random.nextBytes(it) }
+        val header = ByteBuffer.allocate(HEADER_KEY).put(MAGIC).put(FORMAT_KEY).put(idBytes(recoveryKey)).put(salt).put(prefix).array()
+        return sealing(out, header, keyFrom(recoveryKey, salt), prefix)
+    }
+
+    private fun sealing(out: OutputStream, header: ByteArray, k: SecretKeySpec, prefix: ByteArray): OutputStream {
         out.write(header)
         return object : OutputStream() {
             private val buf = ByteArrayOutputStream(CHUNK)
@@ -99,22 +147,48 @@ object BackupCrypto {
         }
     }
 
+    /** A format 1 backup, opened with its password (as before 1.6.0). */
+    fun decrypting(input: InputStream, passphrase: CharArray): InputStream = decrypting(input, BackupSecret.OldPassword(passphrase))
+
     /**
-     * Wraps [input] to read a backup's contents. A file that isn't a backup, a wrong password, a changed byte or a
-     * file cut short throws BackupException as it's read.
+     * Wraps [input] to read a backup's contents: format 2 with the recovery key, format 1 with its password. A file that
+     * isn't a backup, the wrong key or password, a changed byte or a file cut short throws BackupException as it's read.
      */
-    fun decrypting(input: InputStream, passphrase: CharArray): InputStream {
+    fun decrypting(input: InputStream, opener: BackupSecret): InputStream {
         val din = DataInputStream(input)
-        val header = ByteArray(HEADER)
-        try { din.readFully(header) } catch (e: EOFException) { throw BackupException("That isn't a Dead Drop Finance backup file.") }
-        if (!header.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)) throw BackupException("That isn't a Dead Drop Finance backup file.")
-        if (header[MAGIC.size] != FORMAT) throw BackupException("This backup was made by a newer version of the app. Update the app, then restore.")
-        val bb = ByteBuffer.wrap(header, MAGIC.size + 1, HEADER - MAGIC.size - 1)
-        val rounds = bb.int
-        if (rounds !in ROUNDS_ALLOWED) throw BackupException("The backup file is damaged.")
-        val salt = ByteArray(SALT).also { bb.get(it) }
-        val prefix = ByteArray(PREFIX).also { bb.get(it) }
-        val k = key(passphrase, salt, rounds)
+        val start = ByteArray(MAGIC.size + 1)
+        try { din.readFully(start) } catch (e: EOFException) { throw BackupException("That isn't a Dead Drop Finance backup file.") }
+        if (!start.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)) throw BackupException("That isn't a Dead Drop Finance backup file.")
+        val format = start[MAGIC.size]
+        if (format != FORMAT && format != FORMAT_KEY) throw BackupException("This backup was made by a newer version of the app. Update the app, then restore.")
+        val rest = ByteArray((if (format == FORMAT) HEADER else HEADER_KEY) - start.size)
+        try { din.readFully(rest) } catch (e: EOFException) { throw BackupException("That isn't a Dead Drop Finance backup file.") }
+        val header = start + rest
+        val bb = ByteBuffer.wrap(header, MAGIC.size + 1, header.size - MAGIC.size - 1)
+        val k: SecretKeySpec
+        val prefix: ByteArray
+        val wrong: String
+        if (format == FORMAT) {
+            val pass = (opener as? BackupSecret.OldPassword)?.chars
+                ?: throw BackupException("This backup was made before 1.6.0: it opens with the password it was made with, not a recovery key.")
+            val rounds = bb.int
+            if (rounds !in ROUNDS_ALLOWED) throw BackupException("The backup file is damaged.")
+            val salt = ByteArray(SALT).also { bb.get(it) }
+            prefix = ByteArray(PREFIX).also { bb.get(it) }
+            k = key(pass, salt, rounds)
+            wrong = "Wrong password, or the backup file is damaged."
+        } else {
+            val rk = (opener as? BackupSecret.Key)?.key
+                ?: throw BackupException("This backup opens with a recovery key, not a password.")
+            val id = ByteArray(KEY_ID).also { bb.get(it) }
+            val salt = ByteArray(SALT).also { bb.get(it) }
+            prefix = ByteArray(PREFIX).also { bb.get(it) }
+            if (rk.size != RecoveryKey.BYTES || !id.contentEquals(idBytes(rk))) {
+                throw BackupException("That recovery key doesn't open this backup: it was made with a different key.")
+            }
+            k = keyFrom(rk, salt)
+            wrong = "The backup file is damaged."
+        }
         return object : InputStream() {
             private var cur = ByteArray(0)
             private var pos = 0
@@ -143,7 +217,7 @@ object BackupCrypto {
                 cur = try {
                     c.doFinal(sealed)
                 } catch (e: AEADBadTagException) {
-                    throw BackupException(if (index == 0) "Wrong password, or the backup file is damaged." else "The backup file is damaged.")
+                    throw BackupException(if (index == 0) wrong else "The backup file is damaged.")
                 }
                 index++
                 pos = 0

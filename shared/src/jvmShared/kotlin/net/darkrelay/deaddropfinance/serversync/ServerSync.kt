@@ -12,6 +12,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import net.darkrelay.deaddropfinance.backup.RecoveryKey
+import net.darkrelay.deaddropfinance.backup.RecoveryKeys
 import net.darkrelay.deaddropfinance.data.BudgetStore
 import net.darkrelay.deaddropfinance.data.ReadOnlyException
 import net.darkrelay.deaddropfinance.data.Synced
@@ -37,6 +39,11 @@ interface SyncPrefs {
     var conflictsSeenAt: Long
     /** The server said this device was removed. */
     var revoked: Boolean
+    /**
+     * Stay logged in (1.6.0), from the Log in screen: true keeps this device logged in until Log out. False logs it out
+     * when the app or program closes, and the next open asks for the login again.
+     */
+    var stayLoggedIn: Boolean
     /** The key pinned on first contact with an address; kept after logging out, so a changed key is still noticed. */
     fun pinned(url: String): String?
     fun pin(url: String, keyHex: String)
@@ -79,6 +86,8 @@ class ServerSync(
     private val clock: () -> Long = System::currentTimeMillis,
     /** How long a run of writes settles before it's sent. */
     private val sendDelayMs: Long = 1_500,
+    /** This device's recovery keys (1.6.0); null leaves the account's key out (tests of sync alone). */
+    private val recovery: RecoveryKeys? = null,
 ) {
     private val mutex = Mutex()
     private val _status = MutableStateFlow(SyncStatus(if (connected) SyncStatus.State.SYNCING else SyncStatus.State.NOT_CONNECTED, lastSyncedAt = prefs.lastSyncedAt))
@@ -86,6 +95,9 @@ class ServerSync(
     private val _notices = MutableStateFlow<List<String>>(emptyList())
     /** Last-write-wins notes: a change made here was replaced by a newer one from another device. */
     val notices: StateFlow<List<String>> = _notices.asStateFlow()
+    private val _keyArrived = MutableStateFlow(false)
+    /** The account's recovery key reached this device through the server (1.6.0): its backups now use it. */
+    val recoveryKeyArrived: StateFlow<Boolean> = _keyArrived.asStateFlow()
 
     @Volatile private var foreground = false
     @Volatile private var holdsLock = false
@@ -111,6 +123,7 @@ class ServerSync(
     val deviceName: String? get() = prefs.deviceName
     val deviceId: String? get() = prefs.deviceId
     val fingerprint: String? get() = prefs.serverKey?.let { runCatching { Box.fingerprint(it.unhex()) }.getOrNull() }
+    val stayLoggedIn: Boolean get() = prefs.stayLoggedIn
 
     fun dismissNotice(n: String) { _notices.value = _notices.value - n }
 
@@ -130,54 +143,75 @@ class ServerSync(
         url to key
     }
 
-    /** Creates the server's account with its one-time setup code. This device's budget then goes up as the master copy. */
+    /**
+     * Creates the server's account with its one-time setup code. This device's budget then goes up as the master copy.
+     * The account's recovery key (1.6.0) is this device's own if it has one, or one made now, which the screen then
+     * shows once (RecoveryKeys.toShow).
+     */
     suspend fun createAccount(address: String, setupCode: String, username: String, pass: String, deviceName: String) {
         mutex.withLock {
             check(!connected) { "already connected" }
             val (url, key) = contact(address)
             val keys = Box.keyPair()
+            val keyId = recovery?.ensure()?.let(RecoveryKey::id)
             val r = withContext(Dispatchers.IO) {
-                ServerClient(transportFor(url), key.publicKey, keys, clock = clock).setup(setupCode.trim(), username.trim(), pass, deviceName.trim(), kind)
+                ServerClient(transportFor(url), key.publicKey, keys, clock = clock).setup(setupCode.trim(), username.trim(), pass, deviceName.trim(), kind, keyId)
             }
-            remember(url, key, keys, r, username.trim(), PHASE_UPLOAD)
+            remember(url, key, keys, r, username.trim(), PHASE_UPLOAD, stay = true)
         }
         syncNow()
     }
 
     /**
-     * Logs this device in. When the server holds a budget it replaces this device's; when this device has data of its
-     * own, [backup] saves it first (encrypted with the account password) and returns where. Returns that, or null.
+     * Before a login or QR pairing replaces this device's budget (1.6.0): true when it has a budget of its own but no
+     * recovery key yet. The screen then makes one (RecoveryKeys.ensure) and shows it before going on, since the backup
+     * made first is encrypted with it.
      */
-    suspend fun login(address: String, username: String, pass: String, deviceName: String, backup: suspend (CharArray) -> String): String? {
+    suspend fun needsRecoveryKeyFirst(): Boolean = recovery != null && recovery.current() == null && hasLocalData()
+
+    /**
+     * Logs this device in. When the server holds a budget it replaces this device's; when this device has data of its
+     * own, [backup] saves it first, encrypted with this device's recovery key (1.6.0; made and shown first, see
+     * [needsRecoveryKeyFirst]), and returns where. Returns that, or null. [stayLoggedIn] false: closing logs out.
+     */
+    suspend fun login(
+        address: String, username: String, pass: String, deviceName: String, stayLoggedIn: Boolean = true,
+        backup: suspend (ByteArray) -> String,
+    ): String? {
         var savedTo: String? = null
         mutex.withLock {
             check(!connected) { "already connected" }
             val (url, key) = contact(address)
-            if (hasLocalData()) savedTo = backup(pass.toCharArray())
+            if (hasLocalData()) savedTo = backup(backupKey())
             val keys = Box.keyPair()
             val r = withContext(Dispatchers.IO) {
                 ServerClient(transportFor(url), key.publicKey, keys, clock = clock).login(username.trim(), pass, deviceName.trim(), kind)
             }
-            remember(url, key, keys, r, username.trim(), PHASE_TAKEOVER)
+            remember(url, key, keys, r, username.trim(), PHASE_TAKEOVER, stayLoggedIn)
         }
         syncNow()
         return savedTo
     }
 
+    /** The key the backup before a login or pairing uses: this device's recovery key (it must have one by now). */
+    private fun backupKey(): ByteArray = recovery?.current()
+        ?: throw IllegalStateException("This device needs its recovery key first, so the backup of its budget can be opened later.")
+
     /**
      * Pairs this device from a QR code (1.5.0): the address, the key fingerprint it must match, and a one-time code
      * that's redeemed for this device's own key. Then as a login: when this device has data of its own, [backup] saves it
-     * first, encrypted with [backupPass], and the server's copy replaces it. Returns where the backup went, or null.
+     * first, encrypted with this device's recovery key (1.6.0), and the server's copy replaces it. Returns where the
+     * backup went, or null.
      */
-    suspend fun pair(qr: PairingQr.Info, deviceName: String, backupPass: String?, backup: suspend (CharArray) -> String): String? {
+    suspend fun pair(qr: PairingQr.Info, deviceName: String, backup: suspend (ByteArray) -> String): String? {
         var savedTo: String? = null
         mutex.withLock {
             check(!connected) { "already connected" }
             val (url, key) = contact(qr.serverUrl, qr.fingerprint)
-            if (hasLocalData()) savedTo = backup((backupPass ?: throw IllegalStateException("a backup password is needed first")).toCharArray())
+            if (hasLocalData()) savedTo = backup(backupKey())
             val keys = Box.keyPair()
             val r = withContext(Dispatchers.IO) { ServerClient(transportFor(url), key.publicKey, keys, clock = clock).pair(qr.code, deviceName.trim(), kind) }
-            remember(url, key, keys, r, null, PHASE_TAKEOVER)
+            remember(url, key, keys, r, null, PHASE_TAKEOVER, stay = true)
         }
         syncNow()
         return savedTo
@@ -191,7 +225,7 @@ class ServerSync(
         }
     }
 
-    private fun remember(url: String, key: ServerKeyInfo, keys: Box.KeyPair, r: PairReply, username: String?, phase: String) {
+    private fun remember(url: String, key: ServerKeyInfo, keys: Box.KeyPair, r: PairReply, username: String?, phase: String, stay: Boolean) {
         vault.save(keys.secretKey)
         prefs.serverUrl = url
         prefs.serverKey = key.publicKey.hex()
@@ -203,7 +237,10 @@ class ServerSync(
         prefs.pulledSeq = 0
         prefs.conflictsSeenAt = r.serverTime
         prefs.revoked = false
+        prefs.stayLoggedIn = stay
         keyChecked = true
+        // logged in with the account's key already here (this device made it, or logged in before): nothing to wait for
+        _keyArrived.value = false
     }
 
     /** This device has a budget of its own: an account, a transaction, a move, a bill, or an envelope of its own. */
@@ -304,6 +341,8 @@ class ServerSync(
                     }
                     pullAll(c)
                     pushAll(c)
+                    // the recovery key handoff never stops a sync: it tries again next time
+                    runCatching { handOffRecoveryKey(c) }.onFailure { if (it is CancellationException) throw it }
                     prefs.lastSyncedAt = clock()
                     publish(SyncStatus.State.SYNCED)
                 } catch (e: Exception) {
@@ -487,6 +526,65 @@ class ServerSync(
         }).distinct()
     }
 
+    // ---- the recovery key handoff (1.6.0)
+
+    /**
+     * The account's recovery key travels between its devices sealed: each device that holds it seals a copy to every
+     * other device's public key (crypto_box_seal), and the server keeps only those copies, which it can't open. A device
+     * that logs in takes the account's key from its copy (its own earlier key is kept for its older backups); a device
+     * holding it seals copies for the devices still waiting. An account made before 1.6.0 takes the first key offered.
+     */
+    private fun handOffRecoveryKey(c: ServerClient) {
+        val rk = recovery ?: return
+        var st = c.recoveryStatus()
+        val mine = rk.current()
+        if (st.keyId == null) {
+            if (mine == null) return
+            st = c.recoverySet(RecoveryKey.id(mine))
+        }
+        val accountId = st.keyId ?: return
+        if (mine == null || RecoveryKey.id(mine) != accountId) {
+            if (!st.mine) return
+            val (_, sealed) = c.recoveryGet()
+            val secret = vault.load() ?: return
+            val key = sealed?.let { Box.sealOpen(it, Box.publicKeyOf(secret), secret) } ?: return
+            if (key.size != RecoveryKey.BYTES || RecoveryKey.id(key) != accountId) return
+            rk.adopt(key)
+            _keyArrived.value = true
+            return
+        }
+        for (d in st.needing) c.recoveryPut(d.deviceId, accountId, Box.seal(mine, d.publicKey))
+    }
+
+    /** The screen showed that the account's key arrived. */
+    fun dismissKeyArrived() { _keyArrived.value = false }
+
+    // ---- password change (1.6.0)
+
+    /** Sets a new account password from this logged-in device (no old one needed). Other devices stay logged in. */
+    suspend fun changePassword(pass: String) {
+        require(pass.length >= MIN_PASSWORD) { "Use at least $MIN_PASSWORD characters." }
+        mutex.withLock { withContext(Dispatchers.IO) { client().changePassword(pass) } }
+    }
+
+    // ---- Stay logged in (1.6.0)
+
+    /**
+     * The app or program is closing: with Stay logged in off, this device logs out (lock let go, device removed on the
+     * server, its key deleted here). Returns true when it logged out.
+     */
+    suspend fun closing(): Boolean {
+        if (!connected || prefs.stayLoggedIn) return false
+        logout()
+        return true
+    }
+
+    /**
+     * On opening: with Stay logged in off and still logged in, the last close didn't finish logging out (the app was
+     * stopped first), so it's done now, before anything is shown, and the login is asked for again.
+     */
+    suspend fun openingCheck(): Boolean = closing()
+
     // ---- devices and logging out
 
     suspend fun devices(): List<DeviceInfo> = mutex.withLock { withContext(Dispatchers.IO) { client().devices() } }
@@ -507,13 +605,20 @@ class ServerSync(
                 if (connected && !prefs.revoked) runCatching {
                     val c = client()
                     if (prefs.phase == PHASE_READY) runCatching { pushAll(c) }
-                    runCatching { c.heartbeat(open = false) }
-                    c.revoke(prefs.deviceId!!)
+                    // one call (1.6.0): the lock let go and this device removed; an older server gets the two calls
+                    try {
+                        c.logout()
+                    } catch (e: ServerClient.RpcError) {
+                        if (e.code != "unknown_op") throw e
+                        runCatching { c.heartbeat(open = false) }
+                        c.revoke(prefs.deviceId!!)
+                    }
                 }
             }
             vault.delete()
             prefs.serverUrl = null; prefs.serverKey = null; prefs.deviceId = null; prefs.deviceName = null; prefs.username = null
-            prefs.phase = null; prefs.pushedSeq = 0; prefs.pulledSeq = 0; prefs.lastSyncedAt = 0; prefs.revoked = false
+            prefs.phase = null; prefs.pushedSeq = 0; prefs.pulledSeq = 0; prefs.lastSyncedAt = 0; prefs.revoked = false; prefs.stayLoggedIn = true
+            _keyArrived.value = false
             holdsLock = false; readOnlyBy = null; takenBy = null; keyChecked = false
             _notices.value = emptyList()
             publish(SyncStatus.State.NOT_CONNECTED)
@@ -547,6 +652,8 @@ class ServerSync(
         /** The server's lock lapses 120 s after its holder's last heartbeat; a heartbeat every 40 s keeps it. */
         const val HEARTBEAT_MS = 40_000L
         const val PAGE = 500
+        /** The account password's shortest length (the server's MIN_PASSWORD). */
+        const val MIN_PASSWORD = 8
         /** A change log row from the server has this before the server's device id, so it is never sent back. */
         const val REMOTE = "server:"
 

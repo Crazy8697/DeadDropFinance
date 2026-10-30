@@ -23,6 +23,7 @@ import org.junit.rules.TemporaryFolder
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -42,6 +43,7 @@ class AddAndBackupTest {
 
     private fun show() {
         made = SampleBudget.filled(tmp.newFolder("DeadDropFinance"))
+        m.recoveryKeys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore())
         val shell = Shell(run = { block -> runBlocking { block() } }, pickBackupSave = { saveTo }, pickBackupOpen = { openFrom })
         compose.setContent { DesktopApp(m, shell) }
         compose.waitForIdle()
@@ -51,6 +53,8 @@ class AddAndBackupTest {
 
     private fun tag(t: String): SemanticsNodeInteraction = compose.onNodeWithTag(t, useUnmergedTree = true)
     private fun b() = m.budget!!
+    private fun textOf(t: String): String =
+        tag(t).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString("") { it.text }
     private fun id(name: String) = made.ids.getValue(name)
     private fun pick(select: String, option: String) {
         tag(select).performClick()
@@ -253,27 +257,36 @@ class AddAndBackupTest {
 
     // ---- backup and restore ----
 
-    @Test fun backupAndRestoreThroughTheDialogs() {
+    @Test fun backupAndRestoreThroughTheDialogsWithTheRecoveryKey() {
         show()
         val before = b().accounts.map { it.name to b().accountBalance(it.id) }
         saveTo = tmp.root.resolve("sample-backup.ddfbak")
         tag("nav.SETTINGS").performClick()
         tag("settings.backup").performClick()
         compose.waitForIdle()
-        tag("lostPassword").assertExists()
-        tag("f.password").performTextInput("sample pass 1")
-        tag("f.again").performTextInput("sample pass 2")
-        save()
-        tag("f.problem").assertTextEquals("The two passwords don't match.")
-        assertFalse(saveTo!!.exists())
-        tag("f.again").performTextClearance()
-        tag("f.again").performTextInput("sample pass 1")
+        // the first backup makes the recovery key and shows it once, with Copy and I saved it
+        tag("dialog.recoveryKey").assertExists()
+        tag("key.warning").assertExists()
+        val key = assertNotNull(m.recoveryKeys!!.toShow())
+        val shown = net.darkrelay.deaddropfinance.backup.RecoveryKey.format(key)
+        assertEquals(shown.split("-"), textOf("key.text").split(Regex("\\s+")))
+        tag("key.saved").performClick()
+        compose.waitForIdle()
+        assertNull(m.recoveryKeys!!.toShow(), "never shown again")
+        tag("dialog.backup").assertExists()
+        tag("lostKey").assertExists()
         save()
         assertNull(m.dialog, m.message?.first)
         assertTrue(saveTo!!.isFile && saveTo!!.length() > 100)
         assertFalse(File(saveTo!!.path + ".part").exists())
+        // a second backup goes straight to where to save: the key was shown already
+        tag("settings.backup").performClick()
+        compose.waitForIdle()
+        tag("dialog.recoveryKey").assertDoesNotExist()
+        tag("dialog.backup").assertExists()
+        tag("dialog.cancel").performClick()
 
-        // change the budget, then restore: wrong password first
+        // change the budget, then restore: a typo, then a different key, change nothing
         tag("nav.ACCOUNTS").performClick()
         tag("newAccount").performClick()
         tag("f.name").performTextInput("Sample Later Account")
@@ -284,18 +297,50 @@ class AddAndBackupTest {
         tag("settings.restore").performClick()
         compose.waitForIdle()
         tag("restore.file").assertTextEquals("sample-backup.ddfbak")
+        tag("f.key").performTextInput(shown.dropLast(1) + (if (shown.last() == '2') '3' else '2'))
+        save()
+        assertTrue(textOf("f.problem").contains("typo"))
+        tag("f.key").performTextClearance()
+        tag("f.key").performTextInput(net.darkrelay.deaddropfinance.backup.RecoveryKey.format(net.darkrelay.deaddropfinance.backup.RecoveryKey.generate()))
+        save()
+        tag("dialog.confirm").performClick()
+        compose.waitForIdle()
+        assertTrue(m.message!!.second && m.message!!.first.contains("different key"), m.message?.first)
+        assertTrue(b().accounts.any { it.name == "Sample Later Account" }, "nothing replaced")
+        // the right key, confirmed
+        tag("settings.restore").performClick()
+        compose.waitForIdle()
+        tag("f.key").performTextInput(shown.lowercase())
+        save()
+        tag("dialog.confirmRestore").assertExists()
+        tag("dialog.confirm").performClick()
+        compose.waitForIdle()
+        assertFalse(m.message!!.second, m.message?.first)
+        assertEquals(before, b().accounts.map { it.name to b().accountBalance(it.id) })
+    }
+
+    @Test fun aBackupMadeBeforeTheRecoveryKeyRestoresWithItsPassword() {
+        show()
+        val before = b().accounts.map { it.name to b().accountBalance(it.id) }
+        val old = tmp.root.resolve("older-backup.ddfbak")
+        val ok = m.engine!!.opened as net.darkrelay.deaddropfinance.data.DesktopDatabase.Opened.Ok
+        runBlocking { old.outputStream().use { net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "test").write(it, "older pass 1".toCharArray(), rounds = 1_000) } }
+        runBlocking { m.actions!!.saveAccount(null, "Sample Later Account", net.darkrelay.deaddropfinance.data.AccountType.BANK, 0, SampleBudget.today); m.refresh() }
+        openFrom = old
+        tag("nav.SETTINGS").performClick()
+        tag("settings.restore").performClick()
+        compose.waitForIdle()
+        tag("restore.old").assertExists()
         tag("f.password").performTextInput("not the password")
         save()
         tag("dialog.confirm").performClick()
         compose.waitForIdle()
         assertTrue(m.message!!.second && m.message!!.first.contains("Wrong password"), m.message?.first)
         assertTrue(b().accounts.any { it.name == "Sample Later Account" }, "nothing replaced")
-        // the right password, confirmed
         tag("settings.restore").performClick()
         compose.waitForIdle()
-        tag("f.password").performTextInput("sample pass 1")
+        tag("f.password").performTextInput("older pass 1")
         save()
-        tag("dialog.confirmRestore").assertExists()
         tag("dialog.confirm").performClick()
         compose.waitForIdle()
         assertFalse(m.message!!.second, m.message?.first)
@@ -310,6 +355,7 @@ class AddAndBackupTest {
         tag("menuItem.Restore...").assertExists()
         tag("menuItem.Back up...").performClick()
         compose.waitForIdle()
-        tag("dialog.backup").assertExists()
+        // no recovery key yet: it's made and shown first
+        tag("dialog.recoveryKey").assertExists()
     }
 }

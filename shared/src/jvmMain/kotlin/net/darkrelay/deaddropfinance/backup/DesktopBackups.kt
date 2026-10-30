@@ -19,7 +19,8 @@ import org.json.JSONObject
 
 /**
  * Backup and restore for the desktop program (0.8.0), in the phone's backup format (app/.../backup/Backups.kt): one
- * file encrypted under a password with [BackupCrypto] (AES-256-GCM, key from the password by PBKDF2), holding a zip
+ * file encrypted with [BackupCrypto] (AES-256-GCM; from 0.11.0 under the recovery key, before that under a password
+ * whose backups still restore with it), holding a zip
  * with manifest.json and one tables/<table>.json per budget table. The desktop has no receipt photos and no phone
  * settings, so it writes neither and ignores both in a phone's backup. No key is stored anywhere: a lost password is a
  * lost backup.
@@ -37,8 +38,14 @@ class DesktopBackups(
 ) {
     data class Summary(val accounts: Int, val envelopes: Int, val transactions: Int)
 
-    /** Writes the backup to [out] (closed when done), encrypted under [passphrase]. */
-    suspend fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary {
+    /** Writes the backup to [out] (closed when done), encrypted under the recovery key (0.11.0). */
+    suspend fun write(out: OutputStream, recoveryKey: ByteArray): Summary = write(out) { BackupCrypto.encryptingWithKey(it, recoveryKey) }
+
+    /** A backup under a password, as before 0.11.0 (the tests of older backups). */
+    suspend fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary =
+        write(out) { BackupCrypto.encrypting(it, passphrase, rounds) }
+
+    private suspend fun write(out: OutputStream, encrypting: (OutputStream) -> OutputStream): Summary {
         // one consistent picture of the budget
         val (schema, rows) = db.useWriterConnection { c ->
             c.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {
@@ -49,7 +56,7 @@ class DesktopBackups(
                 v to names.associateWith { t -> usePrepared("SELECT * FROM `$t`") { s -> JSONArray().also { a -> while (s.step()) a.put(row(s, t)) } } }
             }
         }
-        ZipOutputStream(BackupCrypto.encrypting(out, passphrase, rounds)).use { zip ->
+        ZipOutputStream(encrypting(out)).use { zip ->
             val manifest = JSONObject()
                 .put("format", FORMAT_NAME).put("version", 1).put("schema", schema).put("app", appVersion).put("createdAt", clock())
                 .put("tables", JSONArray(rows.keys.sorted())).put("photos", 0)
@@ -86,12 +93,15 @@ class DesktopBackups(
 
     private fun summary(rows: Map<String, JSONArray>) = Summary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"))
 
-    /** Reads and checks a backup without changing anything. Throws BackupException when it can't be used. */
-    fun read(input: InputStream, passphrase: CharArray, currentSchema: Int): Map<String, JSONArray> {
+    fun read(input: InputStream, passphrase: CharArray, currentSchema: Int): Map<String, JSONArray> =
+        read(input, BackupSecret.OldPassword(passphrase), currentSchema)
+
+    /** Reads and checks a backup without changing anything (the recovery key, or an older backup's password). Throws BackupException when it can't be used. */
+    fun read(input: InputStream, opener: BackupSecret, currentSchema: Int): Map<String, JSONArray> {
         var manifest: JSONObject? = null
         val rows = mutableMapOf<String, JSONArray>()
         try {
-            val plain = BackupCrypto.decrypting(input, passphrase)
+            val plain = BackupCrypto.decrypting(input, opener)
             ZipInputStream(plain).use { zip ->
                 while (true) {
                     val e = zip.nextEntry ?: break
@@ -127,9 +137,13 @@ class DesktopBackups(
      * Replaces the budget with the backup's. [failForTest]: fail after the rows went in, before the commit (tests of
      * the rollback only).
      */
-    suspend fun restore(input: InputStream, passphrase: CharArray, failForTest: Boolean = false): Summary {
+    suspend fun restore(input: InputStream, passphrase: CharArray, failForTest: Boolean = false): Summary =
+        restore(input, BackupSecret.OldPassword(passphrase), failForTest)
+
+    /** Replaces the budget with the backup's, opened with [secret] (the recovery key, or an older backup's password). */
+    suspend fun restore(input: InputStream, opener: BackupSecret, failForTest: Boolean = false): Summary {
         val schema = db.useWriterConnection { c -> c.usePrepared("PRAGMA user_version") { it.step(); it.getLong(0).toInt() } }
-        val rows = read(input, passphrase, schema)
+        val rows = read(input, opener, schema)
         // a copy of the current budget, kept until the restore is checked
         val copy = File(dbFile.absoluteFile.parentFile, dbFile.name + BEFORE_RESTORE)
         db.useWriterConnection { c -> c.usePrepared("PRAGMA wal_checkpoint(TRUNCATE)") { while (it.step()) { } } }

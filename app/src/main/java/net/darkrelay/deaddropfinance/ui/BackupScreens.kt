@@ -24,10 +24,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 
-/** What the backup screen shows: the last backup, a restore file picked and waiting for its password, progress. */
+/** What the backup screen shows: the last backup, a restore file picked and waiting for its key or password, progress. */
 data class BackupState(
     val lastBackup: String? = null,
     val restoreName: String? = null,
+    /** The picked backup opens with a recovery key (1.6.0); false: an older backup, opened with its password. */
+    val restoreWithKey: Boolean = true,
     val working: String? = null,
     val message: String? = null,
     val error: String? = null,
@@ -45,26 +47,25 @@ fun backupPasswordProblem(passphrase: String, again: String): String? = when {
 
 /**
  * Backup and restore (FEATURES.md): one encrypted file with the budget, receipt photos and settings, saved wherever
- * the user picks; restore from a picked file replaces what's in the app. Dropbox comes later.
+ * the user picks; restore from a picked file replaces what's in the app. From 1.6.0 a backup is encrypted with the
+ * recovery key (made and shown once on the first backup); a backup made before 1.6.0 still restores with its password.
  */
 @Composable
 fun BackupScreen(
     s: BackupState,
     onBack: () -> Unit,
-    onBackUp: (passphrase: String) -> Unit,
+    onBackUp: () -> Unit,
     onPickRestore: () -> Unit,
-    onRestore: (passphrase: String) -> Unit,
+    /** The recovery key typed (or, for an older backup, its password). */
+    onRestore: (typed: String) -> Unit,
     onCancelRestore: () -> Unit,
 ) {
-    var passphrase by remember { mutableStateOf("") }
-    var again by remember { mutableStateOf("") }
-    var restorePassword by remember(s.restoreName) { mutableStateOf("") }
-    var tried by remember { mutableStateOf(false) }
+    var restoreSecret by remember(s.restoreName) { mutableStateOf("") }
     val busy = s.working != null
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Backup and restore", onBack)
         Text(
-            "One encrypted file with everything: your budget, receipt photos and settings. It needs your backup password to open.",
+            "One encrypted file with everything: your budget, receipt photos and settings. It opens only with the recovery key.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         if (s.lastBackup != null) {
@@ -76,14 +77,11 @@ fun BackupScreen(
         ErrorLine(s.error)
 
         SectionTitle("Back up")
-        PasswordField("Backup password", passphrase) { passphrase = it }
-        PasswordField("Password again", again) { again = it }
-        val problem = backupPasswordProblem(passphrase, again)
         Text(
-            if (tried && problem != null) problem else "At least $BACKUP_PASSWORD_MIN characters. Keep it safe: without it nobody can open the backup, you included.",
-            color = if (tried && problem != null) DdfColors.Error else DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
+            "Encrypted with this phone's recovery key (the account's, once logged in to a server, so it opens on any of its devices). The first backup makes the key and shows it once. Lose the key and the backups can't be opened, by anyone.",
+            color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
-        Button(onClick = { tried = true; if (problem == null) onBackUp(passphrase) }, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Back up now") }
+        Button(onClick = onBackUp, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Back up now") }
 
         SectionTitle("Restore")
         Text(
@@ -94,10 +92,20 @@ fun BackupScreen(
             OutlinedButton(onClick = onPickRestore, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Restore from file") }
         } else {
             Text("Restore ${s.restoreName}", modifier = Modifier.padding(top = 8.dp))
-            PasswordField("That backup's password", restorePassword) { restorePassword = it }
+            if (s.restoreWithKey) {
+                OutlinedTextField(
+                    value = restoreSecret, onValueChange = { restoreSecret = it }, label = { Text("Recovery key") }, singleLine = false,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("The recovery key this backup was made with: 14 groups of 4 letters and digits.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            } else {
+                PasswordField("That backup's password", restoreSecret) { restoreSecret = it }
+                Text("This backup was made before 1.6.0, so it opens with the password it was made with.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
             Row {
                 Button(
-                    onClick = { onRestore(restorePassword) }, enabled = !busy && restorePassword.isNotEmpty(),
+                    onClick = { onRestore(restoreSecret) }, enabled = !busy && restoreSecret.isNotEmpty(),
                     colors = ButtonDefaults.buttonColors(containerColor = DdfColors.Error, contentColor = DdfColors.Background),
                 ) { Text("Replace everything and restore") }
                 TextButton(onClick = onCancelRestore, enabled = !busy) { Text("Cancel") }

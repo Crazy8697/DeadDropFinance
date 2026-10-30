@@ -173,17 +173,28 @@ interface Platform {
     fun pickBackupFile(done: (android.net.Uri?) -> Unit)
     /** A picked file's name as the phone shows it. */
     fun displayName(uri: android.net.Uri): String
-    /** Writes the backup to [uri]. Runs off the main thread. */
-    suspend fun writeBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
-    /** Restores from [uri]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
-    suspend fun restoreBackup(uri: android.net.Uri, passphrase: CharArray): net.darkrelay.deaddropfinance.backup.Backups.Summary
-    /** Server login (1.4.0): this phone's budget, backed up to Downloads before the server's replaces it; returns where. */
-    suspend fun backupBeforeServer(passphrase: CharArray): String
+    /** This phone's recovery keys (1.6.0); null where there are none (screen tests). */
+    val recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? get() = null
+    /** Writes the backup to [uri], under the recovery key (1.6.0). Runs off the main thread. */
+    suspend fun writeBackup(uri: android.net.Uri): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    /** What a picked backup opens with (1.6.0): the recovery key, or an older backup's password; null when it isn't one. */
+    suspend fun backupKind(uri: android.net.Uri): Class<out net.darkrelay.deaddropfinance.backup.BackupSecret>? = null
+    /** Restores from [uri] with [secret]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
+    suspend fun restoreBackup(uri: android.net.Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    /** Server login (1.4.0): this phone's budget, backed up to Downloads under its recovery key before the server's replaces it; returns where. */
+    suspend fun backupBeforeServer(key: ByteArray): String
+    /** Copies the recovery key for the user (marked sensitive). */
+    fun copySecret(text: String) {}
     /**
      * Scan QR code (1.5.0): asks for the camera only now, then reads one QR code. Without a camera to ask for (tests),
      * nothing happens.
      */
     fun scanQr(onResult: (QrScan) -> Unit) { onResult(QrScan.Cancelled) }
+    /**
+     * Server reach (1.6.0): on Android 17, asks for the local network permission (Nearby devices) if it isn't granted
+     * yet, then [done]. Either way the connection is tried: a tailnet or https:// server needs no permission.
+     */
+    fun requestLocalNetwork(done: (Boolean) -> Unit) { done(true) }
 }
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
@@ -214,6 +225,18 @@ fun AppRoot(
     val syncStatus by (sync?.status ?: noSync).collectAsState()
     val syncNotices by (sync?.notices ?: noNotices).collectAsState()
     var serverUi by remember { mutableStateOf(ServerUi()) }
+    /** The recovery key shown once (1.6.0), and what runs after "I saved it". */
+    var keyShown by remember { mutableStateOf<ByteArray?>(null) }
+    var afterKey by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val keys = platform.recoveryKeys
+    fun showKeyThen(next: () -> Unit) {
+        val k = keys?.toShow()
+        if (k == null) next() else { keyShown = k; afterKey = next }
+    }
+    // a key made here but not confirmed as saved is shown again on the next open
+    LaunchedEffect(keys) { keys?.toShow()?.let { keyShown = it; afterKey = null } }
+    val noArrival = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
+    val keyArrived by (sync?.recoveryKeyArrived ?: noArrival).collectAsState()
     val actions = remember(store) { BudgetActions(store, platform.receiptFiles).also { it.requireCategories = true } }
     val sorting = remember(store) { Sorting(store, actions) }
     val categoryActions = remember(store) { CategoryActions(store) }
@@ -859,14 +882,17 @@ fun AppRoot(
             )
             Nav.Backup -> BackupScreen(
                 backupState, ::back,
-                onBackUp = { pw ->
+                onBackUp = {
+                    // the first backup makes the recovery key and shows it once, before anything is saved
+                    keys?.ensure()
+                    showKeyThen {
                     val name = net.darkrelay.deaddropfinance.backup.Backups.fileName(today)
                     platform.createBackupFile(name) { uri ->
                         if (uri == null) return@createBackupFile
                         scope.launch {
                             backupState = backupState.copy(working = "Backing up...", message = null, error = null)
                             backupState = try {
-                                val s = platform.writeBackup(uri, pw.toCharArray())
+                                val s = platform.writeBackup(uri)
                                 appSettings.lastBackupAt = System.currentTimeMillis()
                                 appSettings.lastBackupName = platform.displayName(uri)
                                 backupState.copy(
@@ -878,20 +904,32 @@ fun AppRoot(
                             }
                         }
                     }
+                    }
                 },
                 onPickRestore = {
                     platform.pickBackupFile { uri ->
-                        if (uri != null) { restoreUri = uri; backupState = backupState.copy(restoreName = platform.displayName(uri), message = null, error = null) }
+                        if (uri != null) scope.launch {
+                            val kind = platform.backupKind(uri)
+                            if (kind == null) {
+                                backupState = backupState.copy(error = "That isn't a Dead Drop Finance backup file, or it was made by a newer version. Nothing was changed.")
+                                return@launch
+                            }
+                            restoreUri = uri
+                            backupState = backupState.copy(restoreName = platform.displayName(uri), message = null, error = null,
+                                restoreWithKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java)
+                        }
                     }
                 },
-                onRestore = { pw ->
+                onRestore = { typed ->
                     val uri = restoreUri
                     if (uri != null && sync?.connected == true) {
                         backupState = backupState.copy(error = "Log out of the server (More > Server) before restoring a backup: a restore would replace the budget the server keeps in step.")
                     } else if (uri != null) scope.launch {
                         backupState = backupState.copy(working = "Restoring...", message = null, error = null)
                         backupState = try {
-                            val s = platform.restoreBackup(uri, pw.toCharArray())
+                            val secret = if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
+                                else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
+                            val s = platform.restoreBackup(uri, secret)
                             reloadSettings()
                             restoreUri = null
                             backupState.copy(
@@ -899,6 +937,8 @@ fun AppRoot(
                                 message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos.",
                             )
                         } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
+                            backupState.copy(working = null, error = e.message)
+                        } catch (e: IllegalArgumentException) {
                             backupState.copy(working = null, error = e.message)
                         } catch (e: Exception) {
                             backupState.copy(working = null, error = "That file couldn't be read. Nothing was changed.")
@@ -1052,28 +1092,43 @@ fun AppRoot(
                     ServerInfo(s.serverUrl, s.fingerprint, s.username, s.deviceName, s.deviceId),
                     connected = s.connected,
                     onBack = ::back,
-                    onContact = { address ->
+                    onContact = { address -> platform.requestLocalNetwork {
                         serverRun("Connecting...") {
                             val (url, key) = s.contact(address)
                             serverUi = serverUi.copy(contactedUrl = url, contactedFingerprint = key.fingerprint)
                             null
                         }
-                    },
+                    } },
                     onMode = { serverUi = serverUi.copy(createMode = it, error = null) },
                     onCreate = { code, user, pw, name ->
                         serverRun("Creating the account and sending the budget...") {
                             s.createAccount(serverUi.contactedUrl!!, code, user, pw, name)
                             loadDevices()
+                            // the account's recovery key, made now, is shown once
+                            keys?.toShow()?.let { keyShown = it; afterKey = null }
                             "Connected. This phone's budget is the server's copy now."
                         }
                     },
-                    onLogin = { user, pw, name ->
-                        serverRun("Logging in...") {
-                            val saved = s.login(serverUi.contactedUrl!!, user, pw, name) { pass -> platform.backupBeforeServer(pass) }
-                            loadDevices()
-                            if (saved != null) "Logged in. This phone's old budget was backed up to $saved, encrypted with the account password." else "Logged in."
+                    onLogin = { user, pw, name, stay ->
+                        scope.launch {
+                            // a budget of its own and no recovery key yet: the key is made and shown before its backup
+                            if (s.needsRecoveryKeyFirst()) keys?.ensure()
+                            showKeyThen {
+                                serverRun("Logging in...") {
+                                    val saved = s.login(serverUi.contactedUrl!!, user, pw, name, stay) { k -> platform.backupBeforeServer(k) }
+                                    loadDevices()
+                                    if (saved != null) "Logged in. This phone's old budget was backed up to $saved, encrypted with this phone's recovery key." else "Logged in."
+                                }
+                            }
                         }
                     },
+                    onChangePassword = { pw ->
+                        serverRun("Changing the password...") {
+                            s.changePassword(pw)
+                            "Password changed. Your other devices stay logged in; use the new password for the next login."
+                        }
+                    },
+                    stayLoggedIn = s.stayLoggedIn,
                     onSyncNow = { scope.launch { s.syncNow(); loadDevices() } },
                     onRevoke = { d -> serverRun("Removing ${d.name}...") { s.revoke(d.id); loadDevices(); "${d.name} was removed." } },
                     onLogout = {
@@ -1094,14 +1149,19 @@ fun AppRoot(
                             }
                         }
                     },
-                    onPair = { name, pass ->
-                        serverRun("Pairing...") {
-                            val saved = s.pair(serverUi.scanned!!, name, pass) { p -> platform.backupBeforeServer(p) }
-                            serverUi = serverUi.copy(scanned = null)
-                            loadDevices()
-                            if (saved != null) "Paired. This phone's old budget was backed up to $saved, encrypted with the password you typed." else "Paired."
+                    onPair = { name -> platform.requestLocalNetwork {
+                        scope.launch {
+                            if (s.needsRecoveryKeyFirst()) keys?.ensure()
+                            showKeyThen {
+                                serverRun("Pairing...") {
+                                    val saved = s.pair(serverUi.scanned!!, name) { k -> platform.backupBeforeServer(k) }
+                                    serverUi = serverUi.copy(scanned = null)
+                                    loadDevices()
+                                    if (saved != null) "Paired. This phone's old budget was backed up to $saved, encrypted with this phone's recovery key." else "Paired."
+                                }
+                            }
                         }
-                    },
+                    } },
                     onCancelScan = { serverUi = serverUi.copy(scanned = null, error = null) },
                 )
             }
@@ -1174,6 +1234,7 @@ fun AppRoot(
         Column(Modifier.fillMaxSize().padding(pad)) {
             ReadOnlyBanner(syncStatus) { sync?.let { s -> scope.launch { s.takeOver() } } }
             for (n in syncNotices) SyncNotice(n) { sync?.dismissNotice(n) }
+            if (keyArrived) SyncNotice("The account's recovery key reached this phone: backups made here now open on every device of the account.") { sync?.dismissKeyArrived() }
             // screens that don't show errors themselves get them here, so a failed action never goes unsaid
             val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Receipts)
             val e = error
@@ -1185,6 +1246,15 @@ fun AppRoot(
             }
             Box(Modifier.fillMaxSize()) { screen(top) }
         }
+    }
+    keyShown?.let { k ->
+        RecoveryKeyDialog(k, onCopy = { platform.copySecret(it) }, onSaved = {
+            keys?.confirmSaved()
+            keyShown = null
+            val next = afterKey
+            afterKey = null
+            next?.invoke()
+        })
     }
 }
 

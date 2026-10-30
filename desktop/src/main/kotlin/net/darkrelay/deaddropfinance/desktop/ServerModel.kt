@@ -22,6 +22,8 @@ import net.darkrelay.deaddropfinance.serversync.ServerException
 import net.darkrelay.deaddropfinance.serversync.ServerSync
 import net.darkrelay.deaddropfinance.serversync.SyncPrefs
 import net.darkrelay.deaddropfinance.serversync.SyncStatus
+import net.darkrelay.deaddropfinance.serversync.hex
+import net.darkrelay.deaddropfinance.serversync.unhex
 
 /**
  * The program's server connection settings (0.10.0), in %APPDATA%\DeadDropFinance\server.properties. Nothing here is
@@ -58,6 +60,8 @@ class DesktopSyncPrefs(val dir: File) : SyncPrefs {
     override var lastSyncedAt: Long get() = long("last_synced_at"); set(v) = setStr("last_synced_at", v.toString())
     override var conflictsSeenAt: Long get() = long("conflicts_seen_at"); set(v) = setStr("conflicts_seen_at", v.toString())
     override var revoked: Boolean get() = str("revoked") == "true"; set(v) = setStr("revoked", v.toString())
+    /** Stay logged in (0.11.0), from the Log in screen; missing means on. */
+    override var stayLoggedIn: Boolean get() = str("stay_logged_in") != "false"; set(v) = setStr("stay_logged_in", v.toString())
 
     override fun pinned(url: String): String? = str("pin.$url")
     override fun pin(url: String, keyHex: String) = setStr("pin.$url", keyHex)
@@ -99,6 +103,56 @@ class DesktopKeyVault(dir: File, private val protector: KeyProtector = Dpapi) : 
 
     companion object {
         const val FILE = "server-device.key"
+    }
+}
+
+/**
+ * This computer's recovery keys (0.11.0), protected with Windows DPAPI for this Windows user, in
+ * %APPDATA%\DeadDropFinance\recovery.key: the current key, earlier ones kept for older backups, and whether the current
+ * one still waits for "I saved it". Never a plain file, never logged.
+ */
+class DesktopRecoveryStore(dir: File, private val protector: KeyProtector = Dpapi) : net.darkrelay.deaddropfinance.backup.RecoveryKeyStore {
+    private val file = File(dir, FILE)
+
+    private fun load(): Properties = Properties().also { p ->
+        try {
+            if (file.isFile) p.load(java.io.StringReader(String(protector.unprotect(file.readBytes()), Charsets.UTF_8)))
+        } catch (e: Exception) {
+            p.clear()
+        }
+    }
+
+    private fun save(p: Properties) {
+        file.parentFile.mkdirs()
+        val text = java.io.StringWriter().also { p.store(it, null) }.toString()
+        val tmp = File(file.parentFile, "$FILE.tmp")
+        tmp.writeBytes(protector.protect(text.toByteArray(Charsets.UTF_8)))
+        java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+    }
+
+    private fun olds(p: Properties): List<String> = p.getProperty("old", "").split(',').filter { it.isNotBlank() }
+
+    @Synchronized override fun current(): ByteArray? = load().getProperty("current")?.takeIf { it.isNotBlank() }?.unhex()
+
+    @Synchronized override fun old(): List<ByteArray> = olds(load()).map { it.unhex() }
+
+    @Synchronized override fun setCurrent(key: ByteArray, unconfirmed: Boolean) {
+        val p = load()
+        val cur = p.getProperty("current", "")
+        val old = olds(p).toMutableList()
+        if (cur.isNotEmpty() && cur != key.hex() && cur !in old) old += cur
+        p.setProperty("current", key.hex())
+        p.setProperty("old", old.joinToString(","))
+        p.setProperty("unconfirmed", unconfirmed.toString())
+        save(p)
+    }
+
+    @Synchronized override fun unconfirmed(): Boolean = load().getProperty("unconfirmed") == "true"
+
+    @Synchronized override fun confirm() { save(load().also { it.setProperty("unconfirmed", "false") }) }
+
+    companion object {
+        const val FILE = "recovery.key"
     }
 }
 
@@ -148,6 +202,14 @@ class ServerModel(
             }
         }
         scope.launch { sync.notices.collect { notices = it } }
+        scope.launch {
+            sync.recoveryKeyArrived.collect { arrived ->
+                if (arrived) {
+                    app.message = "The account's recovery key reached this computer: backups made here now open on every device of the account." to false
+                    sync.dismissKeyArrived()
+                }
+            }
+        }
     }
 
     private suspend fun guarded(block: suspend () -> Unit): Boolean {
@@ -183,25 +245,74 @@ class ServerModel(
 
     suspend fun hasLocalData(): Boolean = sync.hasLocalData()
 
-    /** Logs in; the server's budget replaces this one's, after a backup of this one when it has data of its own. */
-    suspend fun login(username: String, pass: String, deviceName: String): Boolean {
+    /**
+     * Creates the server's account from this computer (0.11.0) with the server's one-time setup code. This computer's
+     * budget becomes the server's copy. The account's recovery key is this computer's, or one made now and shown once.
+     */
+    suspend fun create(setupCode: String, username: String, pass: String, again: String, deviceName: String): Boolean {
+        val url = contacted?.first ?: return false
+        if (pass.length < ServerSync.MIN_PASSWORD) { error = "Use at least ${ServerSync.MIN_PASSWORD} characters for the password."; return false }
+        if (pass != again) { error = "The two passwords don't match."; return false }
+        return guarded {
+            sync.createAccount(url, setupCode, username, pass, deviceName.ifBlank { defaultDeviceName })
+            contacted = null
+            app.message = "Account created. This computer's budget is the server's copy now." to false
+            loadDevices()
+            app.showRecoveryKeyIfNew()
+        }
+    }
+
+    /**
+     * Log in's button: when this computer has a budget of its own but no recovery key, the key is made and shown first
+     * (the backup before the login is encrypted with it); then the confirmation that its budget will be replaced.
+     */
+    suspend fun startLogin(username: String, pass: String, deviceName: String, stay: Boolean) {
+        val confirm = Dialog.ConfirmLogin(username, pass, deviceName, stay)
+        if (sync.needsRecoveryKeyFirst()) {
+            app.recoveryKeys?.ensure()
+            app.dialog = Dialog.ShowRecoveryKey(confirm)
+        } else if (sync.hasLocalData()) {
+            app.dialog = confirm
+        } else {
+            login(username, pass, deviceName, stay)
+        }
+    }
+
+    /**
+     * Logs in; the server's budget replaces this one's, after a backup of this one (under its recovery key) when it has
+     * data of its own. [stay] false: closing the program logs out, and the next open asks for the login again.
+     */
+    suspend fun login(username: String, pass: String, deviceName: String, stay: Boolean = true): Boolean {
         val url = contacted?.first ?: return false
         return guarded {
-            val saved = sync.login(url, username, pass, deviceName.ifBlank { defaultDeviceName }) { p -> backupTo(p) }
+            val saved = sync.login(url, username, pass, deviceName.ifBlank { defaultDeviceName }, stay) { k -> backupTo(k) }
             contacted = null
-            app.message = (if (saved != null) "Logged in. This computer's old budget was backed up to $saved, encrypted with the account password." else "Logged in.") to false
+            app.message = (if (saved != null) "Logged in. This computer's old budget was backed up to $saved, encrypted with its recovery key." else "Logged in.") to false
             loadDevices()
         }
     }
 
-    /** The encrypted backup a login makes first (the shared backup format, the account password). Never overwrites a file. */
-    private suspend fun backupTo(pass: CharArray): String {
+    /** Password change (0.11.0): no old password needed, this computer is logged in. Other devices stay logged in. */
+    suspend fun changePassword(pass: String, again: String): Boolean {
+        if (pass.length < ServerSync.MIN_PASSWORD) { error = "Use at least ${ServerSync.MIN_PASSWORD} characters for the password."; return false }
+        if (pass != again) { error = "The two passwords don't match."; return false }
+        return guarded {
+            sync.changePassword(pass)
+            app.message = "Password changed. Your other devices stay logged in; use the new password for the next login." to false
+        }
+    }
+
+    /** Opening: with Stay logged in off, a close that didn't finish logging out is finished now (a few seconds at most). */
+    suspend fun openingCheck() { withTimeoutOrNull(6_000) { sync.openingCheck() } }
+
+    /** The encrypted backup a login makes first (the shared backup format, this computer's recovery key). Never overwrites a file. */
+    private suspend fun backupTo(key: ByteArray): String {
         val dir = File(downloads, "DeadDropFinance").apply { mkdirs() }
         val name = net.darkrelay.deaddropfinance.backup.DesktopBackups.fileName(app.today())
         var f = File(dir, name)
         var n = 2
         while (f.exists()) f = File(dir, name.removeSuffix(".ddfbak") + "-$n.ddfbak").also { n++ }
-        app.writeBackup(f, pass)
+        app.writeBackup(f, key)
         return f.absolutePath
     }
 
@@ -235,10 +346,13 @@ class ServerModel(
         }
     }
 
-    /** Closing: the same as minimized, waited for (a few seconds at most, so closing never hangs). */
+    /**
+     * Closing: the same as minimized, waited for (a few seconds at most, so closing never hangs). With Stay logged in
+     * off (0.11.0) it logs out instead: the lock let go, this computer removed on the server, its key deleted here.
+     */
     suspend fun closing() {
         ticker?.cancel()
-        withTimeoutOrNull(5_000) { sync.background() }
+        withTimeoutOrNull(6_000) { if (!sync.closing()) sync.background() }
     }
 
     fun syncNow() { scope.launch { sync.syncNow() } }

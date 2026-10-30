@@ -267,6 +267,43 @@ class BackupTest {
         }
     }
 
+    /** 1.6.0: a new backup is encrypted with the recovery key; it opens with that key on any phone, and nothing else opens it. */
+    @Test fun aBackupUnderTheRecoveryKeyRestoresWithItAndAWrongKeyChangesNothing() = runBlocking<Unit> {
+        val a = Phone("k1")
+        a.fill()
+        val before = a.dump()
+        val recovery = RecoveryKey.generate()
+        val file = java.io.ByteArrayOutputStream().also { a.backups.write(it, recovery) }.toByteArray()
+        assertEquals(BackupSecret.Key::class.java, BackupCrypto.kindOf(file.copyOf(7)))
+        assertTrue("the budget isn't readable in the file", !String(file, Charsets.ISO_8859_1).contains("SAMPLE MARKET"))
+        assertTrue("the key isn't in the file", !file.joinToString("") { "%02x".format(it) }.contains(recovery.joinToString("") { "%02x".format(it) }))
+        val b = Phone("k2")
+        b.fill()
+        b.actions.saveAccount(null, "Sample Savings", AccountType.BANK, 5_00, day)
+        val bBefore = b.dump()
+        for ((secret, why) in listOf(BackupSecret.Key(RecoveryKey.generate()) to "a different key", BackupSecret.OldPassword("right words".toCharArray()) to "a password")) {
+            try { b.backups.restore(ByteArrayInputStream(file), secret); fail("restored with $why") } catch (e: BackupException) { assertTrue(e.message!!.isNotBlank()) }
+            assertEquals("nothing changed after $why", bBefore, b.dump())
+        }
+        b.backups.restore(ByteArrayInputStream(file), BackupSecret.Key(RecoveryKey.parse(RecoveryKey.format(recovery))))
+        assertEquals(before, b.dump())
+    }
+
+    /** 1.6.0: a backup made before it (under a password) still restores with that password, and not with a key. */
+    @Test fun aBackupFromBefore160StillOpensWithItsPassword() = runBlocking<Unit> {
+        val a = Phone("o1")
+        a.fill()
+        val before = a.dump()
+        val file = a.backup("older words")
+        assertEquals(BackupSecret.OldPassword::class.java, BackupCrypto.kindOf(file.copyOf(7)))
+        val b = Phone("o2")
+        try { b.backups.restore(ByteArrayInputStream(file), BackupSecret.Key(RecoveryKey.generate())); fail() } catch (e: BackupException) {
+            assertTrue(e.message!!.contains("before 1.6.0"))
+        }
+        b.backups.restore(ByteArrayInputStream(file), BackupSecret.OldPassword("older words".toCharArray()))
+        assertEquals(before, b.dump())
+    }
+
     @Test fun theFileNameIsDated() {
         assertEquals("deaddrop-2030-07-01.ddfbak", Backups.fileName(day))
     }

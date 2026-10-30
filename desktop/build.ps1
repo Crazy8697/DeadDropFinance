@@ -31,6 +31,17 @@
 #                                             still be a phone release, so the phone's update check never sees this one
 #                                          6. the private commit is tagged desktop-vx.y.z, pushed to origin only
 #                                          7. the staging and temp folders are deleted
+#                                          8. only after all of that succeeded: the program's download link on the
+#                                             front page of the darkrelay-site repo (next to this one) is moved to
+#                                             releases/download/desktop-vx.y.z/DeadDropFinance-Setup.exe, committed
+#                                             ("Dead Drop Finance program download: desktop-vx.y.z") and pushed to
+#                                             the site's origin only, with any site commits made beforehand that
+#                                             weren't pushed yet (a new card, for example); refused if the site has
+#                                             uncommitted changes, is behind its upstream, or the link isn't there
+#                                             exactly once (step 0 checks this too, so it stops the release first)
+#                                          9. live check: https://darkrelay.net/ is polled (cache busted) for up to
+#                                             10 minutes until it shows the new link, then the link must reach a 200.
+#                                             A failure in 8 or 9 says so; the GitHub release itself stays done
 # Nothing here prints a token: gh uses its own login.
 param(
     [switch]$Setup,
@@ -56,6 +67,10 @@ $Desktop = $PSScriptRoot
 $AppImage = Join-Path $Desktop "build\compose\binaries\main\app\DeadDropFinance"
 $Iss = Join-Path $Desktop "installer\deaddropfinance.iss"
 $EmDash = [string][char]0x2014
+# The public site (darkrelay.net) repo, next to this one; its origin is the only remote it is pushed to.
+$Site = Join-Path (Split-Path $Root -Parent) "darkrelay-site"
+$SiteHrefRe = 'href="' + [regex]::Escape("https://github.com/$Repo/releases/download/desktop-v") + '\d+\.\d+\.\d+/' +
+              [regex]::Escape($SetupName) + '"'
 
 function Fail([string]$why) { throw "desktop build: $why. Nothing more was done." }
 function Step([string]$what) { Write-Host "== $what" }
@@ -147,6 +162,18 @@ function Invoke-Smoke {
     }
 }
 
+function Assert-SiteReady {
+    # the site repo must be clean, not behind its upstream (commits of its own still to push are fine: they go out
+    # with the link), and carry the program's download link exactly once
+    if (-not (Test-Path (Join-Path $Site ".git"))) { Fail "no darkrelay-site repo at $Site" }
+    if ((git -C $Site status --porcelain) -ne $null) { Fail "darkrelay-site has uncommitted changes; commit or stash them first" }
+    Run git @("-C", $Site, "fetch", "-q", "origin")
+    git -C $Site merge-base --is-ancestor '@{u}' HEAD
+    if ($LASTEXITCODE -ne 0) { Fail "darkrelay-site is behind or apart from its upstream (pull it first)" }
+    $n = [regex]::Matches([IO.File]::ReadAllText((Join-Path $Site "index.html")), $SiteHrefRe).Count
+    if ($n -ne 1) { Fail "darkrelay-site index.html has the program's download link $n times, not exactly once" }
+}
+
 if ($PrivacyCheck) {
     $modes = @("--tree", "--public")
     if (Test-Path $AppImage) { $modes += @("--desktop", $AppImage) }
@@ -187,6 +214,7 @@ try {
     if (git tag --list $tag) { Fail "tag $tag already exists locally" }
     $latestBefore = ((cmd /c "gh api repos/$Repo/releases/latest --jq .tag_name 2>nul") -join "").Trim()
     if ($latestBefore -notmatch '^v\d+\.\d+\.\d+$') { Fail "releases/latest isn't a phone release now ('$latestBefore')" }
+    Assert-SiteReady
 
     Step "1. build, tests, Setup"
     Invoke-Build
@@ -279,4 +307,51 @@ try {
         if (Test-Path $d) { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
     }
     Write-Host "Staging and temp folders removed: $(-not (Test-Path $staging) -and -not (Test-Path $public))"
+}
+
+# ---------------- site link ----------------
+# Only reached when every release step above succeeded (Fail throws). From here on the release stays done
+# whatever happens; a failure only means the site still links the previous program version.
+$siteHref = "https://github.com/$Repo/releases/download/$tag/$SetupName"
+try {
+    Step "8. darkrelay.net: the program's download link to $tag (site origin only)"
+    Assert-SiteReady
+    $index = Join-Path $Site "index.html"
+    $utf8 = New-Object Text.UTF8Encoding($false)
+    $before = [IO.File]::ReadAllText($index)
+    $after = [regex]::Replace($before, $SiteHrefRe, "href=`"$siteHref`"")
+    if ($after -ceq $before) {
+        Write-Host "index.html already links $tag; no commit."
+    } else {
+        [IO.File]::WriteAllText($index, $after, $utf8)
+        $changed = @(git -C $Site status --porcelain)
+        $num = @(git -C $Site diff --numstat)
+        if ($changed.Count -ne 1 -or $changed[0] -ne " M index.html" -or $num.Count -ne 1 -or $num[0] -ne "1`t1`tindex.html") {
+            [IO.File]::WriteAllText($index, $before, $utf8)
+            Fail "darkrelay-site changed more than the one link line ($($changed -join '; ')); index.html was put back"
+        }
+        Run git @("-C", $Site, "add", "--", "index.html")
+        Run git @("-C", $Site, "commit", "-q", "-m", "Dead Drop Finance program download: $tag")
+        Write-Host "darkrelay-site: committed."
+    }
+    $ahead = "$(git -C $Site rev-list --count '@{u}..HEAD')".Trim()
+    if ($ahead -ne "0") {
+        Run git @("-C", $Site, "push", "-q", "origin", "HEAD")
+        Write-Host "darkrelay-site: $ahead commit(s) pushed to origin."
+    }
+
+    Step "9. live check: darkrelay.net shows the $tag link, and the link resolves"
+    $deadline = (Get-Date).AddMinutes(10)
+    $live = $false
+    while ((Get-Date) -lt $deadline) {
+        $page = (& curl.exe -s -H "Cache-Control: no-cache" "https://darkrelay.net/?ddf=$([DateTime]::UtcNow.Ticks)") -join "`n"
+        if ($page.Contains("href=`"$siteHref`"")) { $live = $true; break }
+        Start-Sleep -Seconds 15
+    }
+    if (-not $live) { Fail "darkrelay.net still doesn't show the $tag link after 10 minutes (the site commit is pushed; Cloudflare Pages may still be building). Check https://darkrelay.net/ by hand" }
+    $code = "$(& curl.exe -s -I -L -o NUL -w '%{http_code}' $siteHref)".Trim()
+    if ($code -ne "200") { Fail "darkrelay.net shows the $tag link, but $siteHref answers $code, not 200" }
+    Write-Host "darkrelay.net links $tag and the link answers 200: $siteHref"
+} catch {
+    throw "The release $tag is out and stays done; only the site link step failed. $($_.Exception.Message)"
 }

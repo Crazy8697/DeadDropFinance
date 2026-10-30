@@ -21,6 +21,14 @@ class Settings(val dir: File) {
         }
     }
 
+    /** Windows Hello unlock (0.11.0): off unless turned on (and checked) in Settings. */
+    var helloUnlock: Boolean
+        get() = props.getProperty(KEY_HELLO)?.trim()?.lowercase() == "true"
+        set(value) {
+            props.setProperty(KEY_HELLO, value.toString())
+            save()
+        }
+
     var checkUpdatesAtStartup: Boolean
         get() = props.getProperty(KEY_CHECK_UPDATES)?.trim()?.lowercase() != "false"
         set(value) {
@@ -42,6 +50,7 @@ class Settings(val dir: File) {
 
     companion object {
         const val KEY_CHECK_UPDATES = "checkUpdatesAtStartup"
+        const val KEY_HELLO = "hello_unlock"
 
         /** %APPDATA%\DeadDropFinance (the user's roaming profile), or ~/.deaddropfinance off Windows. */
         fun defaultDir(): File {

@@ -17,7 +17,8 @@ import org.json.JSONException
 import org.json.JSONObject
 
 /**
- * Backup and restore (FEATURES.md): one file, encrypted with a password the user picks (BackupCrypto), holding the
+ * Backup and restore (FEATURES.md): one file, encrypted with the recovery key (BackupCrypto format 2, 1.6.0; older
+ * backups were encrypted with a password the user picked, and still restore with it), holding the
  * whole budget (every budget table, the change log included), the receipt photos and the user's settings.
  *
  * Restore replaces everything the backup holds. The whole file is read and checked first (password, every table,
@@ -58,8 +59,14 @@ class Backups(
         return (0 until a.length()).count { i -> !live || a.getJSONObject(i).optInt("deleted", 0) == 0 }
     }
 
-    /** Writes the backup to [out] (closed when done), encrypted under [passphrase]. */
-    fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary {
+    /** Writes the backup to [out] (closed when done), encrypted under the recovery key (1.6.0). */
+    fun write(out: OutputStream, recoveryKey: ByteArray): Summary = write(out) { BackupCrypto.encryptingWithKey(it, recoveryKey) }
+
+    /** A backup under a password, as before 1.6.0 (the tests of older backups). */
+    fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary =
+        write(out) { BackupCrypto.encrypting(it, passphrase, rounds) }
+
+    private fun write(out: OutputStream, encrypting: (OutputStream) -> OutputStream): Summary {
         val rows = mutableMapOf<String, JSONArray>()
         // one consistent picture of the budget, even if a background job writes meanwhile
         db.runInTransaction {
@@ -70,7 +77,7 @@ class Backups(
             }
         }
         val pages = photos?.stored().orEmpty()
-        ZipOutputStream(BackupCrypto.encrypting(out, passphrase, rounds)).use { zip ->
+        ZipOutputStream(encrypting(out)).use { zip ->
             val manifest = JSONObject()
                 .put("format", FORMAT_NAME).put("version", 1).put("schema", schema()).put("app", appVersion).put("createdAt", clock())
                 .put("tables", JSONArray(rows.keys.sorted())).put("photos", pages.size)
@@ -109,7 +116,10 @@ class Backups(
      * Replaces the budget, the receipt photos and the carried settings with the backup's. Reads and checks the whole
      * file before changing anything; throws BackupException (nothing changed) when it can't be used.
      */
-    fun restore(input: InputStream, passphrase: CharArray): Summary {
+    fun restore(input: InputStream, passphrase: CharArray): Summary = restore(input, BackupSecret.OldPassword(passphrase))
+
+    /** As above, opened with [secret]: the recovery key (1.6.0), or an older backup's password. */
+    fun restore(input: InputStream, opener: BackupSecret): Summary {
         stagingDir.deleteRecursively()
         val staged = photos?.staging(stagingDir)
         var manifest: JSONObject? = null
@@ -117,7 +127,7 @@ class Backups(
         var settingsJson: JSONObject? = null
         var pageCount = 0
         try {
-            val plain = BackupCrypto.decrypting(input, passphrase)
+            val plain = BackupCrypto.decrypting(input, opener)
             ZipInputStream(plain).use { zip ->
                 while (true) {
                     val e = zip.nextEntry ?: break

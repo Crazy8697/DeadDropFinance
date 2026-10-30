@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -164,15 +165,20 @@ fun ServerScreen(
     onContact: (address: String) -> Unit,
     onMode: (create: Boolean) -> Unit,
     onCreate: (setupCode: String, username: String, pass: String, deviceName: String) -> Unit,
-    onLogin: (username: String, pass: String, deviceName: String) -> Unit,
+    /** [stay]: Stay logged in (1.6.0), on by default; off logs out when the app closes. */
+    onLogin: (username: String, pass: String, deviceName: String, stay: Boolean) -> Unit,
     onSyncNow: () -> Unit,
     onRevoke: (DeviceInfo) -> Unit,
     onLogout: () -> Unit,
     /** Scan QR code (1.5.0); null where there is no camera to ask for. */
     onScan: (() -> Unit)? = null,
-    /** Pair from the scanned code: this device's name, and the backup password when this phone has data of its own. */
-    onPair: (deviceName: String, backupPass: String?) -> Unit = { _, _ -> },
+    /** Pair from the scanned code: this device's name (a budget of its own is backed up first, under its recovery key). */
+    onPair: (deviceName: String) -> Unit = {},
     onCancelScan: () -> Unit = {},
+    /** Password change (1.6.0): a new password for the account, from this logged-in phone. */
+    onChangePassword: (pass: String) -> Unit = {},
+    /** Stay logged in, as chosen at login (1.6.0). */
+    stayLoggedIn: Boolean = true,
 ) {
     val busy = ui.working != null
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -180,19 +186,17 @@ fun ServerScreen(
         if (ui.working != null) Text(ui.working, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
         if (ui.message != null) Text(ui.message, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
         ErrorLine(ui.error)
-        if (connected) Connected(ui, status, info, busy, onSyncNow, onRevoke, onLogout)
+        if (connected) Connected(ui, status, info, busy, onSyncNow, onRevoke, onLogout, onChangePassword, stayLoggedIn)
         else if (ui.scanned != null) Scanned(ui, ui.scanned, busy, onPair, onCancelScan)
         else Connect(ui, busy, onContact, onMode, onCreate, onLogin, onScan)
         Gap(24)
     }
 }
 
-/** A scanned Add a phone code: the server it names, then this phone's name (and a backup password if it has a budget of its own). */
+/** A scanned Add a phone code: the server it names, then this phone's name. */
 @Composable
-private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (String, String?) -> Unit, onCancel: () -> Unit) {
+private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (String) -> Unit, onCancel: () -> Unit) {
     var deviceName by remember { mutableStateOf("Phone") }
-    var pass by remember { mutableStateOf("") }
-    var again by remember { mutableStateOf("") }
     var tried by remember { mutableStateOf(false) }
     var confirmReplace by remember { mutableStateOf(false) }
     SectionTitle("Pair with the scanned code")
@@ -205,23 +209,17 @@ private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (St
     Field("This device's name", deviceName, KeyboardType.Text) { deviceName = it }
     if (ui.hasLocalData) {
         Text(
-            "This phone has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads/DeadDropFinance, encrypted with the password you type here (use the account password).",
+            "This phone has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads/DeadDropFinance, encrypted with this phone's recovery key (made and shown first if it has none).",
             color = DdfColors.Error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp),
         )
-        Secret("Backup password", pass) { pass = it }
-        Secret("Backup password again", again) { again = it }
     }
-    val problem = when {
-        deviceName.isBlank() -> "Name this device."
-        ui.hasLocalData -> serverPasswordProblem(pass, again)
-        else -> null
-    }
+    val problem = if (deviceName.isBlank()) "Name this device." else null
     if (tried && problem != null) Text(problem, color = DdfColors.Error, style = MaterialTheme.typography.bodySmall)
     Row(Modifier.padding(top = 8.dp)) {
         Button(onClick = {
             tried = true
             if (problem != null) return@Button
-            if (ui.hasLocalData) confirmReplace = true else onPair(deviceName, null)
+            if (ui.hasLocalData) confirmReplace = true else onPair(deviceName)
         }, enabled = !busy) { Text("Pair this phone") }
         TextButton(onClick = onCancel, enabled = !busy) { Text("Cancel") }
     }
@@ -229,8 +227,8 @@ private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (St
         AlertDialog(
             onDismissRequest = { confirmReplace = false },
             title = { Text("Replace this phone's budget?") },
-            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with the password you typed.") },
-            confirmButton = { TextButton(onClick = { confirmReplace = false; onPair(deviceName, pass) }) { Text("Back up and pair", color = DdfColors.Error) } },
+            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.") },
+            confirmButton = { TextButton(onClick = { confirmReplace = false; onPair(deviceName) }) { Text("Back up and pair", color = DdfColors.Error) } },
             dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
         )
     }
@@ -239,8 +237,9 @@ private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (St
 @Composable
 private fun Connect(
     ui: ServerUi, busy: Boolean, onContact: (String) -> Unit, onMode: (Boolean) -> Unit,
-    onCreate: (String, String, String, String) -> Unit, onLogin: (String, String, String) -> Unit, onScan: (() -> Unit)?,
+    onCreate: (String, String, String, String) -> Unit, onLogin: (String, String, String, Boolean) -> Unit, onScan: (() -> Unit)?,
 ) {
+    var stay by remember { mutableStateOf(true) }
     var address by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
@@ -286,6 +285,22 @@ private fun Connect(
     Secret("Password", password) { password = it }
     if (ui.createMode) Secret("Password again", again) { again = it }
     Field("This device's name", deviceName, KeyboardType.Text) { deviceName = it }
+    if (!ui.createMode) {
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp)
+                .toggleable(value = stay, enabled = !busy, role = androidx.compose.ui.semantics.Role.Checkbox) { stay = it },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.Checkbox(checked = stay, onCheckedChange = null, enabled = !busy)
+            Column(Modifier.weight(1f)) {
+                Text("Stay logged in")
+                Text("Off: closing the app logs this phone out, and the next open asks for the login again.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    } else {
+        Text("Creating the account shows the account's recovery key once. Every backup opens only with it. There is no password reset on the server: a logged-in device can set a new one here.",
+            color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+    }
     val problem = when {
         username.isBlank() -> "Type a username."
         deviceName.isBlank() -> "Name this device."
@@ -300,7 +315,7 @@ private fun Connect(
     )
     if (!ui.createMode && ui.hasLocalData) {
         Text(
-            "This phone has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads/DeadDropFinance, encrypted with the account password.",
+            "This phone has a budget of its own. Before the server's replaces it, a backup of it is saved to Downloads/DeadDropFinance, encrypted with this phone's recovery key (made and shown first if it has none).",
             color = DdfColors.Error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp),
         )
     }
@@ -310,7 +325,7 @@ private fun Connect(
             if (problem != null) return@Button
             if (ui.createMode) onCreate(code, username, password, deviceName)
             else if (ui.hasLocalData) confirmReplace = true
-            else onLogin(username, password, deviceName)
+            else onLogin(username, password, deviceName, stay)
         },
         enabled = !busy, modifier = Modifier.padding(top = 8.dp),
     ) { Text(if (ui.createMode) "Create account" else "Log in") }
@@ -318,8 +333,8 @@ private fun Connect(
         AlertDialog(
             onDismissRequest = { confirmReplace = false },
             title = { Text("Replace this phone's budget?") },
-            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with the account password.") },
-            confirmButton = { TextButton(onClick = { confirmReplace = false; onLogin(username, password, deviceName) }) { Text("Back up and log in", color = DdfColors.Error) } },
+            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.") },
+            confirmButton = { TextButton(onClick = { confirmReplace = false; onLogin(username, password, deviceName, stay) }) { Text("Back up and log in", color = DdfColors.Error) } },
             dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
         )
     }
@@ -328,10 +343,13 @@ private fun Connect(
 @Composable
 private fun Connected(
     ui: ServerUi, status: SyncStatus, info: ServerInfo, busy: Boolean,
-    onSyncNow: () -> Unit, onRevoke: (DeviceInfo) -> Unit, onLogout: () -> Unit,
+    onSyncNow: () -> Unit, onRevoke: (DeviceInfo) -> Unit, onLogout: () -> Unit, onChangePassword: (String) -> Unit, stayLoggedIn: Boolean,
 ) {
     var revoking by remember { mutableStateOf<DeviceInfo?>(null) }
     var loggingOut by remember { mutableStateOf(false) }
+    var newPass by remember { mutableStateOf("") }
+    var newAgain by remember { mutableStateOf("") }
+    var triedPass by remember { mutableStateOf(false) }
     SyncStatusLine(status, onSyncNow, Modifier.padding(vertical = 4.dp))
     if (status.readOnlyBy != null) Text(readOnlyText(status), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     SectionTitle("This server")
@@ -339,6 +357,7 @@ private fun Connected(
     info.fingerprint?.let { Line("Fingerprint", fingerprintText(it)) }
     Line("Account", info.username ?: "Paired with a code")
     Line("This device", info.deviceName ?: "")
+    Line("Stay logged in", if (stayLoggedIn) "Yes" else "No: closing the app logs out")
     SectionTitle("Devices")
     val devices = ui.devices
     if (devices == null) Text("Shown once the server can be reached.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -357,6 +376,17 @@ private fun Connected(
             if (d.revokedAt == null && d.id != info.deviceId) TextButton(onClick = { revoking = d }, enabled = !busy) { Text("Remove", color = DdfColors.Error) }
         }
     }
+    SectionTitle("Password")
+    Text("This phone is logged in, so the old password isn't needed. Other devices stay logged in; the new password is for the next login. There is no password reset on the server.",
+        color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+    Secret("New password", newPass) { newPass = it }
+    Secret("New password again", newAgain) { newAgain = it }
+    val passProblem = serverPasswordProblem(newPass, newAgain)
+    if (triedPass && passProblem != null) Text(passProblem, color = DdfColors.Error, style = MaterialTheme.typography.bodySmall)
+    OutlinedButton(onClick = {
+        triedPass = true
+        if (passProblem == null) { onChangePassword(newPass); newPass = ""; newAgain = ""; triedPass = false }
+    }, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Change password") }
     SectionTitle("Log out")
     Text("Lets go of the edit lock and deletes this phone's server key. The budget stays on this phone.",
         color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)

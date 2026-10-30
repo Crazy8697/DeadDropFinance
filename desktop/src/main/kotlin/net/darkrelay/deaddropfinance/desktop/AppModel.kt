@@ -26,20 +26,24 @@ sealed class Dialog {
     data class EnvelopeForm(val envelopeId: String? = null) : Dialog()
     data class AccountForm(val accountId: String? = null) : Dialog()
     data class ImportCsv(val accountId: String, val fileName: String, val plan: CsvImport.Plan) : Dialog()
-    /** Backup: a password typed twice, then where to save. */
+    /** Backup: where to save; encrypted with the recovery key (0.11.0). */
     object Backup : Dialog()
-    /** Restore from [file]: its password, then a confirmation before the budget is replaced. */
+    /** Restore from [file]: its recovery key (or an older backup's password), then a confirmation before the budget is replaced. */
     data class Restore(val file: java.io.File, val confirm: Boolean = false) : Dialog()
+    /** The recovery key, shown once (0.11.0), then [next]. */
+    data class ShowRecoveryKey(val next: Dialog? = null) : Dialog()
 
     /** The server's dialogs (0.10.0). */
     sealed class ServerDialog : Dialog()
-    data class ConfirmLogin(val username: String, val pass: String, val name: String) : ServerDialog() {
+    data class ConfirmLogin(val username: String, val pass: String, val name: String, val stay: Boolean = true) : ServerDialog() {
         override fun toString() = "ConfirmLogin"
     }
     data class TakeOver(val holder: String) : ServerDialog()
     data class RemoveDevice(val id: String, val name: String) : ServerDialog()
     object Logout : ServerDialog()
     object AddPhone : ServerDialog()
+    /** Password change (0.11.0): a new account password, typed twice. */
+    object ChangePassword : ServerDialog()
 }
 
 /** A backup password has to be at least this long (as on the phone). */
@@ -241,13 +245,28 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         return net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "desktop-${BuildInfo.VERSION}")
     }
 
-    /** Writes an encrypted backup to [file] (through a temporary file, so a failed backup never leaves half a file). */
-    suspend fun backup(file: java.io.File, passphrase: String, rounds: Int = net.darkrelay.deaddropfinance.backup.BackupCrypto.ITERATIONS): Boolean {
+    /** This computer's recovery keys (0.11.0), DPAPI-protected in the data folder. */
+    var recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? = null
+
+    /** Back up...: the recovery key first when there's none yet (or it wasn't confirmed as saved), then where to save. */
+    fun startBackup() {
+        val keys = recoveryKeys ?: return
+        keys.ensure()
+        dialog = if (keys.toShow() != null) Dialog.ShowRecoveryKey(Dialog.Backup) else Dialog.Backup
+    }
+
+    /** A key made here and not yet confirmed as saved is shown (again) before anything else. */
+    fun showRecoveryKeyIfNew(next: Dialog? = null) {
+        if (recoveryKeys?.toShow() != null) dialog = Dialog.ShowRecoveryKey(next)
+    }
+
+    /** Writes an encrypted backup to [file], under the recovery key (through a temporary file, so a failed backup never leaves half a file). */
+    suspend fun backup(file: java.io.File): Boolean {
         val bk = backups() ?: return false
-        backupPasswordProblem(passphrase, passphrase)?.let { message = it to true; return false }
+        val key = recoveryKeys?.current() ?: run { message = "This computer has no recovery key yet. Choose Back up again." to true; return false }
         val tmp = java.io.File(file.absoluteFile.parentFile, file.name + ".part")
         return try {
-            val s = tmp.outputStream().use { bk.write(it, passphrase.toCharArray(), rounds) }
+            val s = tmp.outputStream().use { bk.write(it, key) }
             java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             message = "Backed up to ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." to false
             true
@@ -258,12 +277,12 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         }
     }
 
-    /** The backup a server login makes first: [file], written through a temporary file. Throws when it can't be written. */
-    suspend fun writeBackup(file: java.io.File, pass: CharArray, rounds: Int = net.darkrelay.deaddropfinance.backup.BackupCrypto.ITERATIONS) {
+    /** The backup a server login makes first: [file], under [key], written through a temporary file. Throws when it can't be written. */
+    suspend fun writeBackup(file: java.io.File, key: ByteArray) {
         val bk = backups() ?: throw IllegalStateException("the budget isn't open")
         val tmp = java.io.File(file.absoluteFile.parentFile, file.name + ".part")
         try {
-            tmp.outputStream().use { bk.write(it, pass, rounds) }
+            tmp.outputStream().use { bk.write(it, key) }
             java.nio.file.Files.move(tmp.toPath(), file.toPath())
         } catch (e: Exception) {
             tmp.delete()
@@ -278,12 +297,16 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         return false
     }
 
-    /** Replaces the budget with the backup in [file]. A wrong password or a bad file changes nothing. */
-    suspend fun restore(file: java.io.File, passphrase: String): Boolean {
+    /** What a backup file opens with: the recovery key, or (made before 0.11.0) its password; null when it isn't one. */
+    fun backupKind(file: java.io.File): Class<out net.darkrelay.deaddropfinance.backup.BackupSecret>? =
+        runCatching { file.inputStream().use { net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(it.readNBytes(7)) } }.getOrNull()
+
+    /** Replaces the budget with the backup in [file]. A wrong key or password, or a bad file, changes nothing. */
+    suspend fun restore(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): Boolean {
         if (!canRestore()) return false
         val bk = backups() ?: return false
         return try {
-            val s = file.inputStream().use { bk.restore(it, passphrase.toCharArray()) }
+            val s = file.inputStream().use { bk.restore(it, opener) }
             refresh()
             monthIndex = 0
             drawerEnvelope = null

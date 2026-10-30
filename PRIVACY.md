@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.5.0.
+Effective with version 1.6.0.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
@@ -20,6 +20,8 @@ DarkRelay never receives your budget, your bank data, your bank logins or anythi
 - If you connect to your own Dead Drop server (1.4.0): its address, its public key (pinned the first time), the
   username, this phone's name and id on the server, and its own server key (in the encrypted secrets file, protected
   by the Android Keystore). The account password is never kept on the phone.
+- The recovery key (1.6.0), which encrypts your backups: in the same encrypted secrets file, never in plain text. It
+  is shown to you once and never again.
 
 Android's own backup is turned off for the app, so none of this leaves the phone through it.
 
@@ -37,22 +39,31 @@ Android's own backup is turned off for the app, so none of this leaves the phone
   changes to it and takes in the changes your other devices made. That server is yours, on your own network; it is
   not DarkRelay's, and DarkRelay never sees it. Everything between the app and it is encrypted end to end with
   libsodium, to the server's key the app pinned the first time; the network sees only ciphertext. The password is
-  sent only when you create the account or log in, inside that encryption. Logging out lets go of the server and
-  deletes this phone's server key; the budget stays on the phone.
-- Before a login replaces this phone's budget with the server's, a backup of it, encrypted with the account password,
-  is saved to Downloads/DeadDropFinance on the phone.
+  sent only when you create the account, log in or change it, inside that encryption. Logging out lets go of the
+  server and deletes this phone's server key; the budget stays on the phone. With Stay logged in off, closing the app
+  logs out the same way.
+- The recovery key and your server (1.6.0): so a backup opens on every device of the account, your devices pass the
+  recovery key to each other through your server, each copy sealed to one device's own key. Your server stores only
+  those sealed copies and can't open them.
+- Before a login replaces this phone's budget with the server's, a backup of it, encrypted with the phone's recovery
+  key, is saved to Downloads/DeadDropFinance on the phone.
 - Links you tap (darkrelay.net, support) open in your browser.
 
 ## Backups
 
-A backup is one file encrypted with a password you choose, saved wherever you pick. It contains your budget, receipt
-photos and settings. Where it goes after that is up to you. Without the password it
-can't be opened, by anyone, including DarkRelay.
+A backup is one file encrypted with your recovery key (from 1.6.0; older backups with the password you chose then),
+saved wherever you pick. It contains your budget, receipt photos and settings. Where it goes after that is up to you.
+Without the recovery key it can't be opened, by anyone, including DarkRelay. Lose the key and the backups made with it
+are gone.
 
 ## Permissions
 
 - Notifications: for bill reminders and autopay warnings, if you turn them on.
 - Internet and network state: for the update check, downloading an update, and syncing with your own server.
+- Local network (1.6.0, Android 17 and later, shown as Nearby devices): Android 17 blocks an app from reaching a server
+  on your own Wi-Fi network without it. It is asked for only when you tap Connect or pair with a QR code on the Server
+  screen, and it is used only to talk to your own Dead Drop server. Refused, a server on your home network can't be
+  reached (a tailnet address over its VPN still can). The app doesn't look for other devices on your network.
 - Biometric: for app lock with your fingerprint or the phone's PIN.
 - Run at startup, keep awake briefly and run in the foreground: so reminders keep running after a restart.
 - Camera (1.5.0): for Scan QR code on the Server screen, which reads the desktop program's Add a phone code on the phone,

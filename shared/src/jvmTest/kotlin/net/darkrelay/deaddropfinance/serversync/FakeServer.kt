@@ -10,17 +10,21 @@ import org.json.JSONObject
  * An in-memory Dead Drop server for the unit tests: no network at all. It speaks the real envelopes (Box, real
  * libsodium, test keys) and follows the server's rules (DeadDropServer's Service.kt): one account made with a one-time
  * setup code, login, 5 failures lock, push needs the edit lock unless offline, last change wins by its time, pull,
- * records, devices and revoke. [online] false makes every call fail as an unreachable server does.
+ * records, devices and revoke; from 1.6.0 password change, log out in one call and the recovery key handoff (sealed
+ * copies it stores but can't open). [online] false makes every call fail as an unreachable server does.
  */
 class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTimeoutMs: Long = 120_000) {
     val keys: Box.KeyPair = Box.keyPair()
     var online = true
     var setupCode: String? = "TEST-CODE"
     var account: Pair<String, String>? = null
+    var recoveryKeyId: String? = null
+    /** Every op the fake answered, in order (names only), for the tests that check what was called. */
+    val ops = mutableListOf<String>()
     private var failures = 0
 
     class Device(val id: String, val name: String, val kind: String, var key: ByteArray?, val pairedAt: Long, var revokedAt: Long? = null, var open: Boolean = false,
-                 var takenBy: String? = null, var takenAt: Long? = null)
+                 var takenBy: String? = null, var takenAt: Long? = null, var sealed: Pair<String, String>? = null)
 
     class PairCode(val name: String, val expiresAt: Long, var usedAt: Long? = null)
     val pairingCodes = linkedMapOf<String, PairCode>()
@@ -73,10 +77,16 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
             else -> account != null && account!!.first.equals(req.getString("username").trim(), true) && account!!.second == req.getString("password")
         }
         if (!ok || key == null || key.size != 32) { failures++; return forbidden }
-        if (path == "/v1/setup") { account = req.getString("username").trim() to req.getString("password"); setupCode = null }
+        if (path == "/v1/setup") {
+            val rid = req.optString("recoveryKeyId", "")
+            if (rid.isNotEmpty() && !Regex("[0-9a-f]{32}").matches(rid)) { failures++; return forbidden }
+            account = req.getString("username").trim() to req.getString("password"); setupCode = null
+            recoveryKeyId = rid.ifEmpty { null }
+        }
         val id = UUID.randomUUID().toString()
         devices[id] = Device(id, name, req.getString("kind"), key, clock())
         val reply = JSONObject().put("deviceId", id).put("name", name).put("kind", req.getString("kind")).put("serverTime", clock())
+        recoveryKeyId?.let { reply.put("recoveryKeyId", it) }
         return Transport.Response(200, Box.reply(reply.toString().toByteArray(), key, keys.secretKey))
     }
 
@@ -119,7 +129,16 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
 
     private fun lastSeq() = changes.lastOrNull()?.seq ?: 0L
 
-    private fun dispatch(me: String, op: String, a: JSONObject): Any = when (op) {
+    private fun recoveryJson(me: String): JSONObject {
+        val id = recoveryKeyId
+        val needing = if (id == null) emptyList() else devices.values.filter { it.id != me && it.key != null && it.sealed?.first != id }
+        return JSONObject().put("keyId", id ?: JSONObject.NULL).put("mine", id != null && devices[me]?.sealed?.first == id)
+            .put("needing", JSONArray(needing.map { JSONObject().put("deviceId", it.id).put("name", it.name).put("kind", it.kind).put("publicKey", it.key!!.hex()) }))
+    }
+
+    private fun dispatch(me: String, op: String, a: JSONObject): Any = ops.add(op).let { dispatchOp(me, op, a) }
+
+    private fun dispatchOp(me: String, op: String, a: JSONObject): Any = when (op) {
         "status" -> JSONObject().put("serverTime", clock()).put("lastSeq", lastSeq()).put("lock", lockJson(me))
             .put("you", devJson(devices[me]!!)).put("devices", JSONArray(devices.values.map(::devJson)))
         "heartbeat" -> {
@@ -160,10 +179,37 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         "devices.list" -> JSONArray(devices.values.map(::devJson))
         "devices.revoke" -> {
             val d = devices[a.getString("deviceId")]?.takeIf { it.revokedAt == null } ?: throw Refused("not_found", "no active device with that id")
-            d.key = null; d.revokedAt = clock(); d.open = false
+            d.key = null; d.revokedAt = clock(); d.open = false; d.sealed = null
             if (lockHolder == d.id) lockHolder = null
             devJson(d)
         }
+        "account.password" -> {
+            val pw = a.getString("password")
+            if (pw.length < 8) throw Refused("bad_request", "too short")
+            account = account!!.first to pw
+            JSONObject().put("changedAt", clock())
+        }
+        "device.logout" -> {
+            val d = devices[me]!!
+            if (lockHolder == me) lockHolder = null
+            d.key = null; d.revokedAt = clock(); d.open = false; d.sealed = null
+            JSONObject().put("loggedOut", true)
+        }
+        "recovery.status" -> recoveryJson(me)
+        "recovery.set" -> {
+            val id = a.getString("keyId")
+            if (recoveryKeyId != null && recoveryKeyId != id) throw Refused("conflict", "the account has another recovery key")
+            recoveryKeyId = id
+            recoveryJson(me)
+        }
+        "recovery.put" -> {
+            val d = devices[a.getString("deviceId")]?.takeIf { it.key != null } ?: throw Refused("not_found", "no active device with that id")
+            if (a.getString("keyId") != recoveryKeyId) throw Refused("conflict", "not the account's recovery key")
+            d.sealed = a.getString("keyId") to a.getString("sealed")
+            JSONObject().put("stored", true)
+        }
+        "recovery.get" -> JSONObject().put("keyId", recoveryKeyId ?: JSONObject.NULL)
+            .put("sealed", devices[me]?.sealed?.takeIf { it.first == recoveryKeyId }?.second ?: JSONObject.NULL)
         else -> throw Refused("unknown_op", "unknown op $op")
     }
 

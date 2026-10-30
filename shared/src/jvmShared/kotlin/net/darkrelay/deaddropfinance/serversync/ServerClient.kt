@@ -13,8 +13,42 @@ interface Transport {
     fun post(path: String, body: ByteArray): Response
 }
 
-/** Why a server call failed, in words the Server screen can show. */
-class ServerException(val kind: Kind, message: String) : Exception(message) {
+/**
+ * The device itself blocked the connection, not the network: on Android 17, a server on the local network needs the
+ * app's local network permission (Nearby devices). The phone's transport raises it when that permission is missing.
+ */
+class LocalNetworkBlocked(cause: Throwable? = null) : IOException("local network access is off for this app", cause)
+
+/** Plain http:// to an address outside the home network, tailnet and loopback ranges (1.6.0): refused before sending. */
+class PlainHttpRefused : IOException("plain http is only for home network, tailnet and loopback addresses")
+
+/**
+ * Why a server call failed, in words the Server screen can show. [reach] (1.6.0): for an UNREACHABLE (or a plain
+ * HTTP refusal), what failed on the way. Never carries an address, code, key or password.
+ */
+class ServerException(val kind: Kind, message: String, val reach: Reach? = null) : Exception(message) {
+    /** What failed on the way to the server (1.6.0). */
+    enum class Reach {
+        /** This device's security policy refused plain http:// to that address. */
+        CLEARTEXT_BLOCKED,
+        /** Plain http:// to an address outside the home network, tailnet and loopback ranges, refused by the app itself (1.6.0). */
+        PLAIN_HTTP_REFUSED,
+        /** Android blocked the local network for this app (its local network permission is off). */
+        LOCAL_NETWORK_BLOCKED,
+        /** The server's name couldn't be looked up (DNS). */
+        DNS,
+        /** The address answered, but nothing listens on that port: the connection was refused. */
+        REFUSED,
+        /** No answer in time. */
+        TIMEOUT,
+        /** No route from this device's network to that address. */
+        NO_ROUTE,
+        /** The https:// connection failed (certificate or TLS). */
+        TLS,
+        /** Some other network failure. */
+        OTHER,
+    }
+
     enum class Kind {
         /** No answer: no network, or the server is down. Changes wait in the queue. */
         UNREACHABLE,
@@ -36,7 +70,16 @@ class ServerKeyInfo(val publicKey: ByteArray) {
     val fingerprint: String get() = Box.fingerprint(publicKey)
 }
 
-data class PairReply(val deviceId: String, val name: String, val kind: String, val serverTime: Long)
+/** [recoveryKeyId] (1.6.0): the account's recovery key id, so a device that logs in knows whether its own key is it. */
+data class PairReply(val deviceId: String, val name: String, val kind: String, val serverTime: Long, val recoveryKeyId: String? = null)
+
+/**
+ * The recovery key handoff (1.6.0): the account's key id, whether a sealed copy waits for this device, and the account's
+ * other devices that still need one (their public keys, to seal it to).
+ */
+data class RecoveryStatus(val keyId: String?, val mine: Boolean, val needing: List<NeedsKey>)
+
+data class NeedsKey(val deviceId: String, val name: String, val publicKey: ByteArray)
 
 /**
  * [takenBy] (1.5.0): the handoff notice. Another device took the lock over from this one, which hasn't held it since,
@@ -84,9 +127,9 @@ class ServerClient(
 ) {
     // ---- before this device is known: setup and login, sealed to the server's key
 
-    fun setup(setupCode: String, username: String, pass: String, name: String, kind: String): PairReply =
+    fun setup(setupCode: String, username: String, pass: String, name: String, kind: String, recoveryKeyId: String? = null): PairReply =
         account("/v1/setup", JSONObject().put("setupCode", setupCode).put("username", username).put("password", pass)
-            .put("name", name).put("kind", kind).put("publicKey", keys.publicKey.hex()))
+            .put("name", name).put("kind", kind).put("publicKey", keys.publicKey.hex()).apply { recoveryKeyId?.let { put("recoveryKeyId", it) } })
 
     fun login(username: String, pass: String, name: String, kind: String): PairReply =
         account("/v1/login", JSONObject().put("username", username).put("password", pass)
@@ -106,7 +149,8 @@ class ServerClient(
         val plain = Box.openReply(resp.body, serverPublic, keys.secretKey)
             ?: throw ServerException(ServerException.Kind.KEY_CHANGED, KEY_CHANGED)
         val o = JSONObject(String(plain))
-        return PairReply(o.getString("deviceId"), o.getString("name"), o.getString("kind"), o.getLong("serverTime")).also { deviceId = it.deviceId }
+        return PairReply(o.getString("deviceId"), o.getString("name"), o.getString("kind"), o.getLong("serverTime"), o.optStringOrNull("recoveryKeyId"))
+            .also { deviceId = it.deviceId }
     }
 
     // ---- the encrypted calls
@@ -174,6 +218,30 @@ class ServerClient(
     }
 
     fun devices(): List<DeviceInfo> = (rpc("devices.list") as JSONArray).objects().map(::device)
+
+    /** Password change (1.6.0): this logged-in device sets a new one, no old one needed. Other devices stay logged in. */
+    fun changePassword(pass: String): Long = (rpc("account.password", JSONObject().put("password", pass)) as JSONObject).getLong("changedAt")
+
+    /** Log out on close (1.6.0): the lock let go and this device removed, in one call. */
+    fun logout() { rpc("device.logout") }
+
+    fun recoveryStatus(): RecoveryStatus = recovery(rpc("recovery.status") as JSONObject)
+
+    fun recoverySet(keyId: String): RecoveryStatus = recovery(rpc("recovery.set", JSONObject().put("keyId", keyId)) as JSONObject)
+
+    /** A sealed copy of the account's key for [deviceId], made here with crypto_box_seal to its public key. */
+    fun recoveryPut(deviceId: String, keyId: String, sealed: ByteArray) {
+        rpc("recovery.put", JSONObject().put("deviceId", deviceId).put("keyId", keyId).put("sealed", sealed.hex()))
+    }
+
+    /** The account's key id and this device's sealed copy, if one is waiting. */
+    fun recoveryGet(): Pair<String?, ByteArray?> {
+        val o = rpc("recovery.get") as JSONObject
+        return o.optStringOrNull("keyId") to o.optStringOrNull("sealed")?.unhex()
+    }
+
+    private fun recovery(o: JSONObject) = RecoveryStatus(o.optStringOrNull("keyId"), o.optBoolean("mine"),
+        (o.optJSONArray("needing") ?: JSONArray()).objects().map { NeedsKey(it.getString("deviceId"), it.optString("name"), it.getString("publicKey").unhex()) })
     fun revoke(id: String): DeviceInfo = device(rpc("devices.revoke", JSONObject().put("deviceId", id)) as JSONObject)
 
     private fun lock(o: JSONObject) = LockState(o.optStringOrNull("holder"), o.optStringOrNull("holderName"),
@@ -208,7 +276,56 @@ class ServerClient(
         private inline fun call(block: () -> Transport.Response): Transport.Response = try {
             block()
         } catch (e: IOException) {
-            throw ServerException(ServerException.Kind.UNREACHABLE, "The server can't be reached.")
+            throw unreachable(e)
+        }
+
+        const val UNREACHABLE = "The server can't be reached."
+        const val PLAIN_HTTP_REFUSED = "Not sent: plain http:// only goes to a home network, tailnet or loopback address " +
+            "(10.x.x.x, 172.16 to 172.31, 192.168.x.x, 100.64 to 100.127, or 127.x.x.x and ::1), and that address is outside them. " +
+            "Use https:// for a server anywhere else."
+        const val CLEARTEXT_BLOCKED = "This device refused plain http:// to that address (its security policy). Use the server's " +
+            "home network or tailnet address, or https://."
+        const val LOCAL_NETWORK_BLOCKED = "Android blocked the connection: Dead Drop Finance isn't allowed to use the local network. " +
+            "Allow it (Nearby devices) when the app asks, or in Android's settings under Apps > Dead Drop Finance > Permissions."
+        const val DNS_FAILED = "The server's name couldn't be found (DNS). Check the spelling, or type its IP address instead."
+        const val REFUSED_CONN = "The connection was refused: that address answered, but nothing is listening on that port. " +
+            "Check the port (5090 unless the server uses another) and that the server is running."
+        const val TIMED_OUT = "The server didn't answer in time. Check the address, and that this device is on the server's " +
+            "network or tailnet."
+        const val NO_ROUTE = "There's no route to that address from this device's network. Check the address, and that this " +
+            "device is on the server's network or tailnet."
+        const val TLS_FAILED = "The https:// connection failed (its certificate or TLS). Check the address, or use http:// on " +
+            "the home network."
+
+        /**
+         * A network failure in words that say what failed (1.6.0), never with the exception's own text (it can hold the
+         * address). Cleartext refusals and local network blocks come first: they are this device's doing, not the server's.
+         */
+        fun unreachable(e: IOException): ServerException {
+            val chain = generateSequence<Throwable>(e) { it.cause }.take(8).toList()
+            // by class name, so this file names no networking class (it never opens a connection itself)
+            fun has(name: String) = chain.any { t -> generateSequence<Class<*>>(t.javaClass) { it.superclass }.any { it.simpleName == name } }
+            val text = chain.joinToString(" ") { it.message ?: "" }
+            val (reach, message) = when {
+                // Android 17's local network protection: the phone's own check, or a socket refused with EPERM
+                chain.any { it is PlainHttpRefused } -> ServerException.Reach.PLAIN_HTTP_REFUSED to PLAIN_HTTP_REFUSED
+                chain.any { it is LocalNetworkBlocked } || text.contains("EPERM") || text.contains("Operation not permitted", ignoreCase = true) ->
+                    ServerException.Reach.LOCAL_NETWORK_BLOCKED to LOCAL_NETWORK_BLOCKED
+                // Android: UnknownServiceException "CLEARTEXT communication to ... not permitted by network security policy"
+                has("UnknownServiceException") || text.contains("CLEARTEXT", ignoreCase = true) ->
+                    ServerException.Reach.CLEARTEXT_BLOCKED to CLEARTEXT_BLOCKED
+                has("UnknownHostException") -> ServerException.Reach.DNS to DNS_FAILED
+                has("SocketTimeoutException") || text.contains("timed out", ignoreCase = true) ->
+                    ServerException.Reach.TIMEOUT to TIMED_OUT
+                has("NoRouteToHostException") || text.contains("unreachable", ignoreCase = true) ->
+                    ServerException.Reach.NO_ROUTE to NO_ROUTE
+                has("ConnectException") -> ServerException.Reach.REFUSED to REFUSED_CONN
+                has("SSLException") -> ServerException.Reach.TLS to TLS_FAILED
+                else -> ServerException.Reach.OTHER to UNREACHABLE
+            }
+            val kind = if (reach == ServerException.Reach.CLEARTEXT_BLOCKED || reach == ServerException.Reach.PLAIN_HTTP_REFUSED) ServerException.Kind.ERROR
+            else ServerException.Kind.UNREACHABLE
+            return ServerException(kind, message, reach)
         }
     }
 }
