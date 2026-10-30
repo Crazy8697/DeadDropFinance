@@ -316,13 +316,6 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         }
     }
 
-    /** While connected to the server, a restore waits for a log out (as on the phone): it would replace the budget the server keeps in step. */
-    fun canRestore(): Boolean {
-        if (server?.connected != true) return true
-        message = "Log out of the server (Settings > Server) before restoring a backup: a restore would replace the budget the server keeps in step." to true
-        return false
-    }
-
     /**
      * Restore (0.12.0): the recovery key saved on this computer that [file] opens with (the account's key first, then
      * this computer's older keys), or null when none of them is it and the key is typed.
@@ -336,19 +329,36 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     fun backupKind(file: java.io.File): Class<out net.darkrelay.deaddropfinance.backup.BackupSecret>? =
         runCatching { file.inputStream().use { net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(it.readNBytes(7)) } }.getOrNull()
 
-    /** Replaces the budget with the backup in [file]. A wrong key or password, or a bad file, changes nothing. */
+    /**
+     * Replaces the budget with the backup in [file]. A wrong key or password, or a bad file, changes nothing. Logged in to a
+     * server (0.12.2), the restored budget also becomes the server's master copy and the other devices take it at their next
+     * sync (ServerSync.restoreAsMaster); a refusal before the restore, such as another device editing or a server that can't
+     * back up its own budget first, changes nothing anywhere.
+     */
     suspend fun restore(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): Boolean {
-        if (!canRestore()) return false
         val bk = backups() ?: return false
+        val srv = server?.takeIf { it.connected }
         return try {
-            val s = file.inputStream().use { bk.restore(it, opener) }
-            refresh()
-            monthIndex = 0
-            drawerEnvelope = null
-            message = "Restored from ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." to false
+            var summary: net.darkrelay.deaddropfinance.backup.DesktopBackups.Summary? = null
+            val local: suspend () -> Unit = {
+                summary = file.inputStream().use { bk.restore(it, opener) }
+                refresh()
+                monthIndex = 0
+                drawerEnvelope = null
+            }
+            if (srv != null) srv.sync.restoreAsMaster(local) else local()
+            val s = summary!!
+            message = "Restored from ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." +
+                (if (srv != null) " The server's budget is now this backup, and your other devices take it at their next sync." else "") to false
             true
         } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
             message = "${e.message} Your budget wasn't changed." to true
+            false
+        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerException) {
+            message = (e.message ?: "The server refused.") to true
+            false
+        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerClient.RpcError) {
+            message = (e.message ?: "The server refused.") to true
             false
         } catch (e: Exception) {
             message = "${file.name} can't be read. Your budget wasn't changed." to true

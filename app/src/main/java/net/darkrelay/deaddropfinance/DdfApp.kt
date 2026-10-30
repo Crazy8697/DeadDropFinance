@@ -72,6 +72,8 @@ class DdfApp : Application() {
                 recovery = recoveryKeys,
             ).also { s ->
                 serverSync = s
+                // another device restored a backup (1.7.2): this phone's budget is saved before the server's replaces it
+                s.backupBeforeReplaced = { key -> backupBeforeServer(store, key) }
                 syncLifecycle = net.darkrelay.deaddropfinance.serversync.SyncLifecycle(s, syncScope).also { it.attach() }
             }
         }

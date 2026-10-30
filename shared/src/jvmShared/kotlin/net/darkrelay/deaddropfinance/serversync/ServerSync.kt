@@ -99,6 +99,12 @@ class ServerSync(
     /** The account's recovery key reached this device through the server (1.6.0): its backups now use it. */
     val recoveryKeyArrived: StateFlow<Boolean> = _keyArrived.asStateFlow()
 
+    /**
+     * Before another device's restored budget replaces this one's at a sync (1.7.2): saves this device's budget, encrypted with
+     * its recovery key, and returns where. Set by the screen's model; null (tests of sync alone) saves nothing.
+     */
+    @Volatile var backupBeforeReplaced: (suspend (ByteArray) -> String)? = null
+
     @Volatile private var foreground = false
     @Volatile private var holdsLock = false
     @Volatile private var readOnlyBy: String? = null
@@ -215,6 +221,70 @@ class ServerSync(
         }
         syncNow()
         return savedTo
+    }
+
+    // ---- restore while logged in (1.7.2)
+
+    /**
+     * Restore while logged in: the restored budget becomes the server's master copy. All under one hold of the sync lock, so
+     * no sync runs in between. This device must hold the edit lock (it takes it when it's free; another device's holding it
+     * is an error the screen answers with Take over editing), and the server must be able to back up its current master copy
+     * ([ServerClient.masterCheck]). Only then does [restore] replace this device's budget; if any step before it fails, nothing
+     * has changed anywhere. Then the restored budget goes up ([replaceNow]; the server backs up again, then replaces its copy
+     * in one transaction). If that last step fails, this device keeps the restored budget and the next sync tries again.
+     * Every other device takes the new copy at its next sync.
+     */
+    suspend fun restoreAsMaster(restore: suspend () -> Unit) {
+        mutex.withLock {
+            check(connected) { "not connected" }
+            if (prefs.revoked) throw ServerException(ServerException.Kind.REVOKED, ServerClient.REVOKED)
+            withContext(Dispatchers.IO) {
+                val c = client()
+                try {
+                    val st = c.status()
+                    names = st.devices.associate { it.id to it.name }
+                    var lock = st.lock
+                    if (lock.youHoldIt) lock = c.heartbeat(open = true) else if (lock.holder == null) lock = c.acquire()
+                    takeLock(lock)
+                    if (!lock.youHoldIt) {
+                        throw ServerException(ServerException.Kind.ERROR, "${lock.holderName ?: "Another device"} is editing. Take over editing first, then restore.")
+                    }
+                    if (prefs.phase != PHASE_READY) throw ServerException(ServerException.Kind.ERROR, "This device hasn't finished its first sync with the server yet. Sync, then restore.")
+                    c.masterCheck()
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    fail(e)
+                    throw e
+                }
+                restore()
+                prefs.phase = PHASE_REPLACE
+                try {
+                    replaceNow(c)
+                    prefs.lastSyncedAt = clock()
+                    publish(SyncStatus.State.SYNCED)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    fail(e)
+                    throw ServerException(ServerException.Kind.ERROR,
+                        "The backup was restored on this device, but the server hasn't taken it yet: ${e.message}. This device tries again at its next sync.")
+                }
+            }
+        }
+    }
+
+    /** The restored budget goes up as the server's master copy; this device's change history starts over with it. */
+    private suspend fun replaceNow(c: ServerClient) {
+        if (!holdsLock) {
+            val l = c.acquire()
+            takeLock(l)
+            if (!l.youHoldIt) throw ServerException(ServerException.Kind.ERROR, "Another device holds the edit lock")
+        }
+        val last = c.masterReplace(snapshot())
+        store.db.rawTransaction { raw -> raw.exec("DELETE FROM change_log") }
+        prefs.pushedSeq = store.dao.lastSeq()
+        prefs.pulledSeq = last
+        prefs.phase = PHASE_READY
+        store.applyCurrency()
     }
 
     /** A one-time pairing code for a phone (Add a phone), and the QR code's content for it. */
@@ -338,6 +408,7 @@ class ServerSync(
                     when (prefs.phase) {
                         PHASE_UPLOAD -> upload(c)
                         PHASE_TAKEOVER -> takeover(c, st.lastSeq)
+                        PHASE_REPLACE -> replaceNow(c)
                     }
                     pullAll(c)
                     pushAll(c)
@@ -418,6 +489,36 @@ class ServerSync(
     /** A device that logged in: the server's copy replaces this one's (the backup was made before logging in). */
     private suspend fun takeover(c: ServerClient, serverLastSeq: Long) {
         if (serverLastSeq == 0L) { prefs.phase = PHASE_UPLOAD; upload(c); return }
+        takeServerCopy(c, serverLastSeq)
+    }
+
+    /**
+     * The server's master copy was replaced by a restored backup on another device (1.7.2): this device's budget is saved
+     * first (when it has data and a way to save it), then the server's whole copy replaces it, as at login. A failed save
+     * stops the sync with a message, and nothing here is replaced. Not replaced: a device with no recovery key yet can save
+     * nothing, so it is replaced only if it has no unsent changes.
+     */
+    private suspend fun takeReplacedMaster(c: ServerClient, serverLastSeq: Long) {
+        var savedTo: String? = null
+        val save = backupBeforeReplaced
+        // a device that has no recovery key yet and nothing unsent holds just the server's old copy (the key reaches it at a
+        // sync); one with unsent changes can't save them without a key, so the sync stops rather than lose them
+        val nothingToSave = recovery != null && recovery.current() == null && queued() == 0
+        if (save != null && recovery != null && hasLocalData() && !nothingToSave) {
+            savedTo = try {
+                save(backupKey())
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                throw ServerException(ServerException.Kind.ERROR, "Another device restored a backup, so this device's budget is to be replaced by the server's, but " +
+                    "its own budget couldn't be saved first (${e.message}). Nothing was replaced.")
+            }
+        }
+        takeServerCopy(c, serverLastSeq)
+        _notices.value = (_notices.value + ("The budget on the server was replaced by a backup restored on another device, and this device now has it." +
+            (savedTo?.let { " Its previous budget was saved to $it, encrypted with the recovery key." } ?: ""))).distinct()
+    }
+
+    private suspend fun takeServerCopy(c: ServerClient, serverLastSeq: Long) {
         val records = mutableListOf<Record>()
         var afterType = ""; var afterId = ""
         while (true) {
@@ -452,6 +553,7 @@ class ServerSync(
         val me = prefs.deviceId
         while (true) {
             val r = c.pull(prefs.pulledSeq, PAGE)
+            if (r.masterReplaced) { takeReplacedMaster(c, r.lastSeq); return }
             val theirs = r.changes.filter { it.deviceId != me }
             if (theirs.isNotEmpty()) applyRemote(theirs)
             prefs.pulledSeq = r.lastSeq
@@ -656,6 +758,8 @@ class ServerSync(
         const val PHASE_UPLOAD = "UPLOAD"
         const val PHASE_TAKEOVER = "TAKEOVER"
         const val PHASE_READY = "READY"
+        /** A restored budget is on this device and still to go up as the server's master copy (1.7.2). */
+        const val PHASE_REPLACE = "REPLACE"
         /** The server's lock lapses 120 s after its holder's last heartbeat; a heartbeat every 40 s keeps it. */
         const val HEARTBEAT_MS = 40_000L
         const val PAGE = 500

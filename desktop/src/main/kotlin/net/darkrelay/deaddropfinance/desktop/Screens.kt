@@ -527,7 +527,7 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         Panel("Backup and restore", "One encrypted file with this computer's budget, opened with its recovery key. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Back up...", { model.startBackup() }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
-                Btn("Restore...", { if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
+                Btn("Restore...", { shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.restore")
             }
         }
         Spacer(Modifier.height(16.dp))

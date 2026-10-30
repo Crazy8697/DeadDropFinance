@@ -88,4 +88,49 @@ class CurrencyAndRestoreTest {
         compose.onNodeWithText("Replace everything and restore").performScrollTo().performClick()
         assertEquals("ABCD", typed)
     }
+
+    // ---- 1.7.2: restore while logged in replaces the server's budget, after its own warning
+
+    private val picked = BackupState(restoreName = "deaddrop-2030-05-01.ddfbak", restoreWithKey = true, restoreSavedKey = true)
+
+    @Test fun loggedInTheWarningHasItsOwnScreenWithCancelAsTheDefault() {
+        var cancelled = 0; var replaced = 0
+        val state = picked.copy(confirmServerReplace = true)
+        compose.setContent { BackupScreen(state, {}, {}, {}, {}, {}, onCancelServerReplace = { cancelled++ }, onConfirmServerReplace = { replaced++ }) }
+        compose.onNodeWithText("Replace the server's budget?").assertIsDisplayed()
+        compose.onNodeWithText("This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. " +
+            "The server keeps a backup of the current budget first.").assertIsDisplayed()
+        compose.onNodeWithText("Replace everything and restore").assertDoesNotExist()
+        compose.onNodeWithText("Cancel").performClick()
+        assertEquals(1, cancelled)
+        assertEquals("Cancel changes nothing", 0, replaced)
+        compose.onNodeWithText("Replace server budget").performClick()
+        assertEquals(1, replaced)
+    }
+
+    @Test fun anotherDeviceEditingMustBeTakenOverBeforeTheReplaceCanGo() {
+        var replaced = 0; var tookOver = 0
+        val state = picked.copy(confirmServerReplace = true, lockedBy = "Test desktop")
+        compose.setContent { BackupScreen(state, {}, {}, {}, {}, {}, onConfirmServerReplace = { replaced++ }, onTakeOver = { tookOver++ }) }
+        compose.onNodeWithText("Test desktop is editing the budget right now. Take over editing to restore.").assertIsDisplayed()
+        compose.onNodeWithText("Replace server budget").performClick()
+        assertEquals("disabled while another device edits", 0, replaced)
+        compose.onNodeWithText("Take over editing").performClick()
+        assertEquals(1, tookOver)
+    }
+
+    @Test fun loggedOutThereIsNoServerWarning() {
+        var typed: String? = null
+        compose.setContent { BackupScreen(picked, {}, {}, {}, onRestore = { typed = it }, onCancelRestore = {}) }
+        compose.onNodeWithText("Replace the server's budget?").assertDoesNotExist()
+        compose.onNodeWithText("Replace everything and restore").performScrollTo().performClick()
+        assertEquals("", typed)
+    }
+
+    @Test fun aRefusalIsShownOnTheWarningScreenAndNothingElseChanges() {
+        val state = picked.copy(confirmServerReplace = true, error = "The server couldn't back up its current budget first, so it did not replace it. Nothing was changed.")
+        compose.setContent { BackupScreen(state, {}, {}, {}, {}, {}) }
+        compose.onNodeWithText("The server couldn't back up its current budget first", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Replace server budget").assertIsDisplayed()
+    }
 }

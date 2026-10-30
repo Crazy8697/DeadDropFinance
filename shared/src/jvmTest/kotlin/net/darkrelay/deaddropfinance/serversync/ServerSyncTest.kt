@@ -481,4 +481,173 @@ class ServerSyncTest {
             }
         }
     }
+
+    // ---- restore while logged in (1.7.2): the restored budget becomes the server's master copy
+
+    /** Stands in for the real restore: this device's budget replaced by another one (no change log rows, as a restore leaves none). */
+    private suspend fun Phone.restoredAs(label: String) {
+        store.db.rawTransaction { raw -> for (t in ServerSync.TABLES.values) raw.exec("DELETE FROM `$t`") }
+        store.db.rawTransaction { raw -> raw.exec("DELETE FROM meta WHERE `key` = ?", listOf(net.darkrelay.deaddropfinance.data.DefaultCategories.META_SEEDED)) }
+        store.ensureSystemEnvelopes(); store.ensureCategories()
+        fill(label)
+        store.db.rawTransaction { raw -> raw.exec("DELETE FROM change_log") }
+    }
+
+    private fun Phone.keepBackupsOfReplaced() { sync.backupBeforeReplaced = { k -> backups += net.darkrelay.deaddropfinance.backup.RecoveryKey.id(k); "Downloads/replaced.ddfbak" } }
+
+    @Test fun aRestoreWhileLoggedInBecomesTheServersMasterAndTheOtherDeviceTakesIt() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login(); b.keepBackupsOfReplaced()
+        a.sync.syncNow(); b.sync.syncNow()                   // the account's recovery key reaches B
+        assertEquals(a.picture(), b.picture())
+        val before = server.serverBackups
+        a.sync.foreground()
+        a.sync.restoreAsMaster { a.restoredAs("Restored") }
+        assertTrue(server.serverBackups > before, "the server backed up its master first")
+        assertEquals(ServerSync.PHASE_READY, a.prefs.phase)
+        assertEquals(SyncStatus.State.SYNCED, a.sync.status.value.state, a.sync.status.value.message)
+        assertEquals(0, queued(a))
+        val master = server.records.entries.filter { it.key.startsWith("account") }.map { it.value.data.getString("name") }
+        assertTrue(master.single().startsWith("Restored"), "the server's master is the restored budget: $master")
+        a.sync.background()
+        // the other device takes it at its next sync: its own budget is saved first, then replaced
+        b.sync.foreground()
+        b.sync.syncNow()
+        assertEquals(SyncStatus.State.SYNCED, b.sync.status.value.state, b.sync.status.value.message)
+        assertEquals(a.picture(), b.picture())
+        assertFalse(b.picture().contains("Sample Checking"))
+        assertEquals(1, b.backups.size, "this device's old budget was saved before it was replaced")
+        assertTrue(b.sync.notices.value.single().contains("replaced by a backup restored on another device"))
+        assertTrue(b.sync.notices.value.single().contains("Downloads/replaced.ddfbak"))
+        assertEquals(0, queued(b))
+        // ordinary sync goes on both ways afterwards
+        b.sync.background()
+        val food = a.actions.snapshot().fillOrder.first { it.name.startsWith("Restored") }.id
+        a.sync.foreground()
+        a.actions.move(null, food, 10_00, date = day)
+        a.sync.syncNow()
+        b.sync.syncNow()
+        assertEquals(a.picture(), b.picture())
+    }
+
+    @Test fun aServerThatCantBackUpRefusesAndNothingChangesAnywhere() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val picture = a.picture()
+        val master = server.records.keys.toList()
+        server.backupWorks = false
+        var restored = false
+        a.sync.foreground()
+        val e = assertFailsWith<ServerClient.RpcError> { a.sync.restoreAsMaster { restored = true; a.restoredAs("Restored") } }
+        assertEquals("backup_failed", e.code)
+        assertTrue(e.message!!.contains("Nothing was changed"))
+        assertFalse(restored, "the restore never ran")
+        assertEquals(picture, a.picture(), "this device is as it was")
+        assertEquals(master, server.records.keys.toList(), "the server's master is as it was")
+        assertEquals(ServerSync.PHASE_READY, a.prefs.phase)
+    }
+
+    @Test fun anotherDeviceHoldingTheLockStopsItUntilTheDeviceTakesOver() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login()
+        a.sync.syncNow(); b.sync.syncNow()                   // the account's recovery key reaches B
+        a.sync.background()                                  // creating the account left the lock with A
+        b.sync.foreground()                                  // B edits: it holds the lock
+        a.sync.foreground()
+        val picture = a.picture()
+        var restored = false
+        val e = assertFailsWith<ServerException> { a.sync.restoreAsMaster { restored = true } }
+        assertTrue(e.message!!.contains("is editing") && e.message!!.contains("Take over editing"), e.message)
+        assertFalse(restored)
+        assertEquals(picture, a.picture())
+        // the take-over flow that already exists, then the restore goes through
+        a.sync.takeOver()
+        assertTrue(a.sync.holdsEditLock)
+        a.sync.restoreAsMaster { a.restoredAs("Restored") }
+        assertTrue(server.records.values.any { it.data.optString("name").startsWith("Restored") })
+        // B was told it lost the lock, and takes the new copy
+        b.keepBackupsOfReplaced()
+        b.sync.syncNow()
+        assertEquals(a.picture(), b.picture())
+    }
+
+    @Test fun aRestoreThatFailsLocallyLeavesTheServerAlone() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val master = server.records.keys.toList()
+        a.sync.foreground()
+        assertFailsWith<IllegalStateException> { a.sync.restoreAsMaster { error("wrong key") } }
+        assertEquals(ServerSync.PHASE_READY, a.prefs.phase, "no replace is pending")
+        assertEquals(master, server.records.keys.toList())
+        assertTrue(server.records.values.any { it.data.optString("name").startsWith("Sample") })
+    }
+
+    @Test fun ifTheUploadFailsAfterTheRestoreTheNextSyncTriesAgain() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login(); b.keepBackupsOfReplaced()
+        a.sync.syncNow(); b.sync.syncNow()                   // the account's recovery key reaches B
+        a.sync.foreground()
+        val e = assertFailsWith<ServerException> {
+            // the server's backup works for the pre-flight and breaks before the replace
+            a.sync.restoreAsMaster { a.restoredAs("Restored"); server.backupWorks = false }
+        }
+        assertTrue(e.message!!.contains("restored on this device, but the server hasn't taken it yet"), e.message)
+        assertEquals(ServerSync.PHASE_REPLACE, a.prefs.phase)
+        assertTrue(server.records.values.any { it.data.optString("name").startsWith("Sample") }, "the server still has the old master")
+        server.backupWorks = true
+        a.sync.syncNow()
+        assertEquals(ServerSync.PHASE_READY, a.prefs.phase)
+        assertTrue(server.records.values.any { it.data.optString("name").startsWith("Restored") })
+        b.sync.syncNow()
+        assertEquals(a.picture(), b.picture())
+    }
+
+    @Test fun aDeviceWithNoRecoveryKeyYetIsReplacedOnlyIfItHasNothingUnsent() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login(); b.keepBackupsOfReplaced()
+        assertNull(b.keys.current(), "B has no key yet")
+        a.sync.foreground()
+        a.sync.restoreAsMaster { a.restoredAs("Restored") }
+        a.sync.background()
+        // nothing unsent: it only holds the server's old copy, so there's nothing to save
+        b.sync.syncNow()
+        assertEquals(a.picture(), b.picture())
+        assertTrue(b.backups.isEmpty())
+        // unsent changes and no key: it can't save them, so it stops and keeps them
+        val c = Phone("C"); c.login(); c.keepBackupsOfReplaced()
+        a.sync.foreground()
+        a.sync.restoreAsMaster { a.restoredAs("Again") }
+        a.sync.background()
+        server.online = false
+        c.actions.saveAccount(null, "Unsent Savings", AccountType.BANK, 1_00, day)
+        server.online = true
+        c.sync.syncNow()
+        assertEquals(SyncStatus.State.ERROR, c.sync.status.value.state)
+        assertTrue(c.sync.status.value.message!!.contains("Nothing was replaced"), c.sync.status.value.message)
+        assertTrue(c.picture().contains("Unsent Savings"), "its changes are kept")
+    }
+
+    @Test fun anOldServerWithoutTheOpsRefusesBeforeAnythingChanges() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        a.sync.foreground()
+        val picture = a.picture()
+        val old = object : Transport by server.transport() {
+            override fun post(path: String, body: ByteArray): Transport.Response = server.transport().post(path, body)
+        }
+        // the fake answers unknown_op for ops it doesn't know: make master.check one of them
+        server.unknownOps += "master.check"
+        val e = assertFailsWith<ServerClient.RpcError> { a.sync.restoreAsMaster { a.restoredAs("Restored") } }
+        assertEquals("unknown_op", e.code)
+        assertEquals(picture, a.picture())
+        assertNotNull(old)
+    }
+
+    @Test fun anEmptyRestoredBudgetBecomesAnEmptyMasterAndTheOtherDeviceTakesIt() = runBlocking<Unit> {
+        val a = Phone("A"); a.fill("Sample"); a.create()
+        val b = Phone("B"); b.login()
+        a.sync.foreground()
+        a.sync.restoreAsMaster { a.store.db.rawTransaction { raw -> for (t in ServerSync.TABLES.values) raw.exec("DELETE FROM `$t`") }; a.store.db.rawTransaction { it.exec("DELETE FROM change_log") } }
+        b.sync.syncNow()
+        assertEquals(SyncStatus.State.SYNCED, b.sync.status.value.state, b.sync.status.value.message)
+        assertFalse(b.sync.hasLocalData(), "an empty master is taken as empty, not refilled from this device's old budget")
+        assertTrue(server.records.keys.none { !it.startsWith("meta") }, "nothing of the old budget went back up")
+    }
 }

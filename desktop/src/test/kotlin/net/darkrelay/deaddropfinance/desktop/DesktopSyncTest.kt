@@ -1,6 +1,9 @@
 package net.darkrelay.deaddropfinance.desktop
 
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertHasNoClickAction
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -171,13 +174,132 @@ class DesktopSyncTest {
         assertEquals("Test desktop", p.sync.status.value.readOnlyBy)
     }
 
-    @Test fun restoreWaitsForALogOutWhileConnected() {
+    // ---- restore while logged in (0.12.2): the restored budget becomes the server's master copy
+
+    /** The backup this computer's login made of its own budget (the sample one), and the key that opens it. */
+    private fun ownBackup(d: Device): Pair<File, net.darkrelay.deaddropfinance.backup.BackupSecret> {
+        val file = d.downloads.resolve("DeadDropFinance").listFiles()!!.single()
+        return file to net.darkrelay.deaddropfinance.backup.BackupSecret.Key(assertNotNull(d.model.savedKeyFor(file)))
+    }
+
+    @Test fun restoringWhileLoggedInMakesTheBackupTheServersBudgetAndThePhoneTakesIt() {
+        val (p, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, key) = ownBackup(d)
+        assertFalse(accounts(d).contains("Checking"), "this computer has the phone's budget now")
+        val before = fake.serverBackups
+        assertTrue(runBlocking { d.model.restore(file, key) }, d.model.message?.first)
+        assertFalse(d.model.message!!.second, d.model.message?.first)
+        assertTrue(d.model.message!!.first.contains("The server's budget is now this backup"))
+        assertTrue(accounts(d).contains("Checking"), "the restored budget is here")
+        assertTrue(fake.serverBackups > before, "the server backed up its master first")
+        assertTrue(fake.records.values.any { it.data.optString("name") == "Checking" }, "and the restored budget is the server's master")
+        assertFalse(fake.records.values.any { it.data.optString("name") == "Phone Checking" }, "the phone's old budget is gone from it")
+        // the phone takes it at its next sync (nothing is waiting there, so it needs no backup of its own)
+        runBlocking { p.sync.syncNow() }
+        assertEquals(SyncStatus.State.SYNCED, p.sync.status.value.state, p.sync.status.value.message)
+        assertEquals(accounts(d), accounts(p))
+        assertTrue(p.sync.notices.value.single().contains("replaced by a backup restored on another device"))
+    }
+
+    @Test fun anOlderPasswordBackupRestoresWhileLoggedInToo() {
+        val (p, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val old = tmp.newFile("older-backup.ddfbak")
+        // an older backup of a different budget (made before 0.11.0, so opened with its password)
+        val other = SampleBudget.filled(tmp.newFolder()).also { models.add(it.model) }
+        val ok = other.model.engine!!.opened as DesktopDatabase.Opened.Ok
+        runBlocking { old.outputStream().use { DesktopBackups(ok.store.db, ok.file, "test").write(it, "older pass 1".toCharArray(), rounds = 1_000) } }
+        assertFalse(runBlocking { d.model.restore(old, net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword("wrong password".toCharArray())) })
+        assertTrue(d.model.message!!.second)
+        assertFalse(fake.records.values.any { it.data.optString("name") == "Checking" }, "a wrong password changes nothing, here or on the server")
+        assertTrue(runBlocking { d.model.restore(old, net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword("older pass 1".toCharArray())) }, d.model.message?.first)
+        assertTrue(fake.records.values.any { it.data.optString("name") == "Checking" })
+        runBlocking { p.sync.syncNow() }
+        assertTrue(accounts(p).contains("Checking"))
+    }
+
+    @Test fun anotherDeviceEditingStopsTheRestoreUntilThisComputerTakesOver() {
+        val (p, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, key) = ownBackup(d)
+        runBlocking { p.sync.foreground() }
+        val before = accounts(d)
+        assertFalse(runBlocking { d.model.restore(file, key) })
+        assertTrue(d.model.message!!.second)
+        assertTrue(d.model.message!!.first.contains("Test phone is editing") && d.model.message!!.first.contains("Take over editing"), d.model.message?.first)
+        assertEquals(before, accounts(d), "nothing changed here")
+        assertFalse(fake.records.values.any { it.data.optString("name") == "Checking" }, "nor on the server")
+        d.server.shown()                                     // the window is in front, so the lock stays with this computer
+        runBlocking { d.server.takeOver() }
+        until("taken over") { fake.lockHolder == d.prefs.deviceId }
+        assertTrue(runBlocking { d.model.restore(file, key) }, d.model.message?.first)
+        assertTrue(fake.records.values.any { it.data.optString("name") == "Checking" })
+    }
+
+    @Test fun aServerThatCantBackUpRefusesTheRestoreAndNothingChanges() {
         val (_, d) = loggedIn()
-        assertFalse(d.model.canRestore())
-        assertTrue(d.model.message!!.first.startsWith("Log out of the server"))
-        assertFalse(runBlocking { d.model.restore(File(d.dir, "none.ddfbak"), net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword("whatever".toCharArray())) })
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, key) = ownBackup(d)
+        val before = accounts(d)
+        fake.backupWorks = false
+        assertFalse(runBlocking { d.model.restore(file, key) })
+        assertTrue(d.model.message!!.second)
+        assertTrue(d.model.message!!.first.contains("Nothing was changed"), d.model.message?.first)
+        assertEquals(before, accounts(d))
+        assertFalse(fake.records.values.any { it.data.optString("name") == "Checking" })
+    }
+
+    @Test fun loggedOutARestoreStaysLocalAsBefore() {
+        val (_, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, key) = ownBackup(d)
         runBlocking { d.server.logout() }
-        assertTrue(d.model.canRestore())
+        val ops = fake.ops.size
+        assertTrue(runBlocking { d.model.restore(file, key) }, d.model.message?.first)
+        assertFalse(d.model.message!!.first.contains("server's budget"))
+        assertTrue(accounts(d).contains("Checking"))
+        assertEquals(ops, fake.ops.size, "no call to the server")
+    }
+
+    @Test fun theConfirmScreenWarnsAndCancelChangesNothing() {
+        val (_, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, _) = ownBackup(d)
+        val before = accounts(d)
+        d.model.dialog = Dialog.Restore(file, confirm = true)
+        compose.setContent { DesktopApp(d.model, Shell(run = { block -> runBlocking { block() } })) }
+        tag("dialog.confirmRestore").assertExists()
+        assertTrue(textOf("restore.serverWarning").startsWith("This replaces the budget on your server. Every device on this account will get this backup instead of what it has now."))
+        assertTrue(textOf("restore.serverWarning").contains("The server keeps a backup of the current budget first."))
+        compose.onNodeWithTag("dialog.confirm").assertTextEquals("Replace server budget")
+        compose.onNodeWithTag("dialog.cancel").assertTextEquals("Cancel")
+        tag("dialog.cancel").performClick()
+        compose.waitForIdle()
+        assertNull(d.model.dialog)
+        assertEquals(before, accounts(d))
+        assertEquals(0, fake.serverBackups, "nothing was asked of the server")
+        assertFalse(fake.ops.contains("master.check") || fake.ops.contains("master.replace"))
+    }
+
+    @Test fun replaceServerBudgetRestoresAndTheLockHolderMustBeTakenOverFirst() {
+        val (p, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        val (file, _) = ownBackup(d)
+        runBlocking { p.sync.foreground() }
+        d.server.shown()
+        until("read only") { d.server.status.readOnlyBy == "Test phone" }
+        d.model.dialog = Dialog.Restore(file, confirm = true)
+        compose.setContent { DesktopApp(d.model, Shell(run = { block -> runBlocking { block() } })) }
+        tag("restore.lockedBy").assertExists()
+        tag("dialog.confirm").assertHasNoClickAction()          // a disabled button has no click action
+        tag("restore.takeOver").performClick()
+        until("taken over") { d.server.status.readOnlyBy == null && fake.lockHolder == d.prefs.deviceId }
+        compose.waitForIdle()
+        tag("dialog.confirm").assertHasClickAction()
+        tag("dialog.confirm").performClick()
+        until("restored") { fake.records.values.any { it.data.optString("name") == "Checking" } }
+        assertTrue(accounts(d).contains("Checking"))
     }
 
     @Test fun loggingOutLetsGoRemovesThisComputerAndDeletesTheKey() {
@@ -220,6 +342,8 @@ class DesktopSyncTest {
     // ---- the screens
 
     private fun tag(t: String): SemanticsNodeInteraction = compose.onNodeWithTag(t, useUnmergedTree = true)
+    private fun textOf(t: String): String =
+        tag(t).fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString("") { it.text }
 
     @Test fun theServerPanelLogsInAndShowsAddAPhoneWithItsCountdown() {
         val p = phone()

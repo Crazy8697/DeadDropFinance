@@ -39,6 +39,13 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
     val conflicts = mutableListOf<Conf>()
     var lockHolder: String? = null
     var lockExpires = 0L
+    /** Restore while logged in (server 0.5.1): the server's own backup before it replaces its master, and where seqs stand. */
+    var backupWorks = true
+    /** Ops this fake pretends not to know, as an older server answers. */
+    val unknownOps = mutableSetOf<String>()
+    var serverBackups = 0
+    private var seqBase = 0L
+    private var masterFloor = 0L
 
     fun transport(): Transport = object : Transport {
         override fun get(path: String): Transport.Response {
@@ -128,6 +135,7 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         .put("open", d.open).put("revokedAt", d.revokedAt ?: JSONObject.NULL)
 
     private fun lastSeq() = changes.lastOrNull()?.seq ?: 0L
+    private fun nextSeq() = maxOf(lastSeq(), seqBase) + 1
 
     private fun recoveryJson(me: String): JSONObject {
         val id = recoveryKeyId
@@ -138,7 +146,7 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
 
     private fun dispatch(me: String, op: String, a: JSONObject): Any = ops.add(op).let { dispatchOp(me, op, a) }
 
-    private fun dispatchOp(me: String, op: String, a: JSONObject): Any = when (op) {
+    private fun dispatchOp(me: String, op: String, a: JSONObject): Any = if (op in unknownOps) throw Refused("unknown_op", "unknown op $op") else when (op) {
         "status" -> JSONObject().put("serverTime", clock()).put("lastSeq", lastSeq()).put("lock", lockJson(me))
             .put("you", devJson(devices[me]!!)).put("devices", JSONArray(devices.values.map(::devJson)))
         "heartbeat" -> {
@@ -162,11 +170,34 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         "push" -> push(me, a)
         "pull" -> {
             val since = a.getLong("sinceSeq"); val limit = a.optInt("limit", 500)
+            if (since in 1..masterFloor) return JSONObject().put("changes", JSONArray()).put("lastSeq", lastSeq()).put("more", false)
+                .put("conflicts", JSONArray()).put("masterReplaced", true)
             val rows = changes.filter { it.seq > since }
             val page = rows.take(limit)
             JSONObject().put("changes", JSONArray(page.map { JSONObject(it.change.toString()).put("seq", it.seq).put("deviceId", it.device).put("offline", it.offline) }))
                 .put("lastSeq", page.lastOrNull()?.seq ?: lastSeq()).put("more", rows.size > limit)
                 .put("conflicts", JSONArray(conflicts.filter { it.loser == me }.map(::confJson)))
+        }
+        "master.check" -> { requireLock(me); backup(); JSONObject().put("backedUp", true) }
+        "master.replace" -> {
+            requireLock(me)
+            backup()
+            val floor = maxOf(lastSeq(), seqBase)
+            changes.clear(); records.clear(); applied.clear(); conflicts.clear()
+            seqBase = floor
+            for (c in a.getJSONArray("changes").objects()) {
+                val key = c.getString("entityType") + "\u0000" + c.getString("entityId")
+                val existing = records[key]
+                val fields = c.getJSONObject("changedFields")
+                val merged = JSONObject(existing?.data?.toString() ?: "{}").also { m -> for (k in fields.keys()) m.put(k, fields.get(k)) }
+                val deleted = if (c.getString("operation") == "DELETE") true else if (fields.has("deleted")) fields.optBoolean("deleted") else existing?.deleted ?: false
+                val seq = nextSeq()
+                changes += Row(seq, c, me, false)
+                records[key] = Rec(merged, deleted, c.getLong("timestamp"), me, seq)
+                applied += c.getString("changeId")
+            }
+            masterFloor = floor
+            JSONObject().put("applied", a.getJSONArray("changes").length()).put("lastSeq", lastSeq())
         }
         "records" -> {
             val after = a.getString("afterType") + "\u0000" + a.getString("afterId"); val limit = a.optInt("limit", 500)
@@ -213,6 +244,16 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
         else -> throw Refused("unknown_op", "unknown op $op")
     }
 
+    private fun requireLock(me: String) {
+        if (devices[me]?.takenBy != null) throw Refused("taken_over", "another device took over editing")
+        if (holder() != me) throw Refused("locked", if (holder() == null) "take the edit lock first" else "another device holds the edit lock")
+    }
+
+    private fun backup() {
+        if (!backupWorks) throw Refused("backup_failed", "The server couldn't back up its current budget first, so it did not replace it. Nothing was changed.")
+        serverBackups++
+    }
+
     private fun confJson(c: Conf) = JSONObject().put("entityType", c.type).put("entityId", c.id).put("winnerDevice", c.winner).put("loserDevice", c.loser)
         .put("note", "last change wins").put("at", c.at)
 
@@ -240,7 +281,7 @@ class FakeServer(var clock: () -> Long = System::currentTimeMillis, val lockTime
             val fields = c.getJSONObject("changedFields")
             val merged = JSONObject(existing?.data?.toString() ?: "{}").also { m -> for (k in fields.keys()) m.put(k, fields.get(k)) }
             val deleted = if (c.getString("operation") == "DELETE") true else if (fields.has("deleted")) fields.optBoolean("deleted") else existing?.deleted ?: false
-            val seq = lastSeq() + 1
+            val seq = nextSeq()
             changes += Row(seq, c, me, offline)
             records[key] = Rec(merged, deleted, ts, me, seq)
             applied += cid; appliedN++

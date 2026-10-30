@@ -194,6 +194,8 @@ class ServerModel(
     val connected: Boolean get() = status.let { sync.connected }
 
     init {
+        // another device restored a backup (0.12.2): this computer's budget is saved before the server's replaces it
+        sync.backupBeforeReplaced = { key -> backupTo(key) }
         scope.launch {
             sync.status.collect {
                 status = it

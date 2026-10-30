@@ -35,6 +35,10 @@ data class BackupState(
     val working: String? = null,
     val message: String? = null,
     val error: String? = null,
+    /** 1.7.2: logged in to a server, so a restore replaces the server's budget too: its own confirm screen is up. */
+    val confirmServerReplace: Boolean = false,
+    /** On that screen: the device holding the edit lock, which has to be taken over before the restore can go ahead. */
+    val lockedBy: String? = null,
 )
 
 /** A backup password has to be at least this long. */
@@ -61,9 +65,17 @@ fun BackupScreen(
     /** The recovery key typed (or, for an older backup, its password). */
     onRestore: (typed: String) -> Unit,
     onCancelRestore: () -> Unit,
+    /** Restore while logged in (1.7.2): the confirm screen's buttons. Cancel changes nothing. */
+    onCancelServerReplace: () -> Unit = {},
+    onConfirmServerReplace: () -> Unit = {},
+    onTakeOver: () -> Unit = {},
 ) {
     var restoreSecret by remember(s.restoreName) { mutableStateOf("") }
     val busy = s.working != null
+    if (s.confirmServerReplace) {
+        ConfirmServerReplace(s, onCancelServerReplace, onConfirmServerReplace, onTakeOver)
+        return
+    }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Backup and restore", onBack)
         Text(
@@ -118,6 +130,35 @@ fun BackupScreen(
 
         SectionTitle("Cloud")
         Row(Modifier.padding(vertical = 4.dp)) { Text("Dropbox", Modifier.weight(1f), color = DdfColors.Muted); Text("later", color = DdfColors.Muted) }
+        Gap(24)
+    }
+}
+
+/** Restore while logged in (1.7.2): what it does to the server's budget and the other devices, before anything happens. */
+@Composable
+private fun ConfirmServerReplace(s: BackupState, onCancel: () -> Unit, onConfirm: () -> Unit, onTakeOver: () -> Unit) {
+    val busy = s.working != null
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+        ScreenTitle("Replace the server's budget?", onCancel)
+        Text(
+            "This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. " +
+                "The server keeps a backup of the current budget first.",
+            modifier = Modifier.padding(vertical = 8.dp),
+        )
+        if (s.restoreName != null) Text("Backup: ${s.restoreName}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        if (s.lockedBy != null) {
+            Text("${s.lockedBy} is editing the budget right now. Take over editing to restore.", color = DdfColors.Warning, modifier = Modifier.padding(top = 12.dp))
+            OutlinedButton(onClick = onTakeOver, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Take over editing") }
+        }
+        if (s.working != null) Text(s.working, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
+        ErrorLine(s.error)
+        Row(Modifier.padding(top = 16.dp)) {
+            Button(onClick = onCancel, enabled = !busy) { Text("Cancel") }
+            Button(
+                onClick = onConfirm, enabled = !busy && s.lockedBy == null, modifier = Modifier.padding(start = 12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = DdfColors.Error, contentColor = DdfColors.Background),
+            ) { Text("Replace server budget") }
+        }
         Gap(24)
     }
 }

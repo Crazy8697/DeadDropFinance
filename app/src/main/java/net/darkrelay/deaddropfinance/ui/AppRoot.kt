@@ -257,6 +257,8 @@ fun AppRoot(
     var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
     /** 1.7.0: the recovery key saved on this phone that the picked backup opens with, if any. */
     var restoreKey by remember { mutableStateOf<ByteArray?>(null) }
+    /** 1.7.2: the key or password typed for a restore that waits on the confirm screen (restore while logged in). */
+    var restoreTyped by remember { mutableStateOf("") }
     // a parked buy turns ready with time alone, so the clock is checked every minute
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
@@ -338,6 +340,43 @@ fun AppRoot(
         alertTick++
         planTick++
         scope.launch { parkWait = parkedOps.defaultWait() }
+    }
+    /**
+     * Restores the picked backup. Logged out: this phone alone, as always. Logged in (1.7.2): the restored budget also becomes
+     * the server's master copy and the other devices take it at their next sync (ServerSync.restoreAsMaster); a refusal
+     * before the restore, like a server that can't back up its own budget first, changes nothing anywhere.
+     */
+    suspend fun runRestore(uri: android.net.Uri, typed: String) {
+        backupState = backupState.copy(working = "Restoring...", message = null, error = null)
+        val server = sync?.takeIf { it.connected }
+        backupState = try {
+            val saved = restoreKey
+            val secret = if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
+                else if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
+                else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
+            var summary: net.darkrelay.deaddropfinance.backup.Backups.Summary? = null
+            if (server != null) server.restoreAsMaster { summary = platform.restoreBackup(uri, secret); reloadSettings() }
+            else { summary = platform.restoreBackup(uri, secret); reloadSettings() }
+            val s = summary!!
+            restoreUri = null
+            restoreKey = null
+            backupState.copy(
+                working = null, restoreName = null, restoreSavedKey = false, confirmServerReplace = false,
+                message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos." +
+                    if (server != null) " The server's budget is now this backup, and your other devices take it at their next sync." else "",
+            )
+        } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
+            backupState.copy(working = null, error = e.message)
+        } catch (e: IllegalArgumentException) {
+            backupState.copy(working = null, error = e.message)
+        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerException) {
+            // refused before the restore: nothing changed. After it: the message says the restored budget is here and the server will be tried again
+            backupState.copy(working = null, error = e.message)
+        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerClient.RpcError) {
+            backupState.copy(working = null, error = e.message)
+        } catch (e: Exception) {
+            backupState.copy(working = null, error = "That file couldn't be read. Nothing was changed.")
+        }
     }
     /** The settings a setup file changes, applied where each one lives. */
     fun applySettings(s: net.darkrelay.deaddropfinance.domain.SetupImport.SettingsIn) {
@@ -889,7 +928,7 @@ fun AppRoot(
                 onDrop = { id -> run(scope) { parkedOps.drop(id); message = null } },
             )
             Nav.Backup -> BackupScreen(
-                backupState, ::back,
+                if (backupState.confirmServerReplace) backupState.copy(lockedBy = syncStatus.readOnlyBy) else backupState, ::back,
                 onBackUp = {
                     // the first backup makes the recovery key and shows it once, before anything is saved
                     keys?.ensure()
@@ -934,30 +973,17 @@ fun AppRoot(
                 onRestore = { typed ->
                     val uri = restoreUri
                     if (uri != null && sync?.connected == true) {
-                        backupState = backupState.copy(error = "Log out of the server (More > Server) before restoring a backup: a restore would replace the budget the server keeps in step.")
-                    } else if (uri != null) scope.launch {
-                        backupState = backupState.copy(working = "Restoring...", message = null, error = null)
-                        backupState = try {
-                            val saved = restoreKey
-                            val secret = if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
-                                else if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
-                                else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
-                            val s = platform.restoreBackup(uri, secret)
-                            reloadSettings()
-                            restoreUri = null
-                            backupState.copy(
-                                working = null, restoreName = null,
-                                message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos.",
-                            )
-                        } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
-                            backupState.copy(working = null, error = e.message)
-                        } catch (e: IllegalArgumentException) {
-                            backupState.copy(working = null, error = e.message)
-                        } catch (e: Exception) {
-                            backupState.copy(working = null, error = "That file couldn't be read. Nothing was changed.")
-                        }
-                    }
+                        // 1.7.2: logged in, a restore replaces the server's budget too: say so first, and wait for the answer
+                        restoreTyped = typed
+                        backupState = backupState.copy(confirmServerReplace = true, message = null, error = null)
+                    } else if (uri != null) scope.launch { runRestore(uri, typed) }
                 },
+                onCancelServerReplace = { backupState = backupState.copy(confirmServerReplace = false, error = null) },
+                onConfirmServerReplace = {
+                    val uri = restoreUri
+                    if (uri != null) scope.launch { runRestore(uri, restoreTyped) }
+                },
+                onTakeOver = { sync?.let { s -> scope.launch { s.takeOver() } } },
                 onCancelRestore = { restoreUri = null; restoreKey = null; backupState = backupState.copy(restoreName = null, restoreSavedKey = false, error = null) },
             )
             Nav.SetupImport -> {

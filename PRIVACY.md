@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.7.1.
+Effective with version 1.7.2.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
@@ -49,6 +49,10 @@ Android's own backup is turned off for the app, so none of this leaves the phone
   recovery key only as those sealed copies, which it can't open. (It can read the budget itself, as above.)
 - Before a login replaces this phone's budget with the server's, a backup of it, encrypted with the phone's recovery
   key, is saved to Downloads/DeadDropFinance on the phone.
+- Restoring a backup while logged in (1.7.2) replaces the budget on your server too, after a warning screen. Before it does,
+  your server writes its own encrypted backup of its current budget to its own backup folder, on your own hardware, under
+  its own key. When another device next syncs, a backup of that device's budget, encrypted with the recovery key, is saved
+  to its Downloads/DeadDropFinance folder before the restored budget replaces it.
 - Links you tap (darkrelay.net, support) open in your browser.
 
 ## Backups

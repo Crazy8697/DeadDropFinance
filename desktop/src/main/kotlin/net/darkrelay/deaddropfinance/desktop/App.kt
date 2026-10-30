@@ -118,7 +118,7 @@ private fun MenuStrip(model: AppModel, shell: Shell) {
     Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF0D1217)).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Menu("File") { close ->
             MenuItem("Back up...", enabled = model.budget != null) { close(); model.startBackup() }
-            MenuItem("Restore...", enabled = model.budget != null) { close(); if (model.canRestore()) shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
+            MenuItem("Restore...", enabled = model.budget != null) { close(); shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
             MenuItem("Exit") { close(); shell.onExit() }
         }
         Menu("Edit") { close ->

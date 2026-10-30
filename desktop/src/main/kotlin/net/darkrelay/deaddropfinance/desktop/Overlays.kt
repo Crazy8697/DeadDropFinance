@@ -489,6 +489,7 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
     // 0.12.0: a key saved on this computer that opens it is used, and nothing is typed
     val saved = remember(d.file) { if (withKey) model.savedKeyFor(d.file) else null }
     val close = { model.dialog = null }
+    val server = model.server?.takeIf { it.connected }
     fun parsed(): net.darkrelay.deaddropfinance.backup.BackupSecret? =
         if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
         else if (withKey) runCatching { net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(secret)) }
@@ -513,6 +514,23 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
                 T("This backup was made before 0.11.0, so it opens with the password it was made with.", 11.5.sp, C.Dim2, modifier = Modifier.testTag("restore.old"))
             }
             problem?.let { T(it, 12.sp, C.Bad, modifier = Modifier.testTag("f.problem")) }
+        }
+    } else if (server != null) {
+        // 0.12.2: logged in, a restore replaces the server's budget too, and every other device's: its own confirm, Cancel the default
+        Modal("Replace the server's budget?", 470.dp, close, "dialog.confirmRestore", footer = {
+            Btn("Cancel", close, tag = "dialog.cancel")
+            Btn("Replace server budget", {
+                val s = parsed()
+                if (s != null) shell.run { model.restore(d.file, s); model.dialog = null }
+            }, ghost = true, enabled = server.status.readOnlyBy == null, tag = "dialog.confirm")
+        }) {
+            T("This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. The server keeps a backup of the current budget first.",
+                13.5.sp, modifier = Modifier.testTag("restore.serverWarning"))
+            T("Backup: ${d.file.name}", 12.sp, C.Dim)
+            server.status.readOnlyBy?.let { holder ->
+                T("$holder is editing the budget right now. Take over editing to restore.", 12.5.sp, C.Bad, modifier = Modifier.testTag("restore.lockedBy"))
+                Btn("Take over editing", { shell.run { server.takeOver() } }, ghost = true, small = true, tag = "restore.takeOver")
+            }
         }
     } else {
         Modal("Replace this budget?", 470.dp, close, "dialog.confirmRestore", footer = {

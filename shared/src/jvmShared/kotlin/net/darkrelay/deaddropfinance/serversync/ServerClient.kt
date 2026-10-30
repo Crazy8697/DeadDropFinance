@@ -108,7 +108,8 @@ data class Conflict(val entityType: String, val entityId: String, val winnerDevi
 
 data class PushResult(val applied: Int, val duplicates: Int, val lost: Int, val lastSeq: Long, val conflicts: List<Conflict>)
 
-data class PullResult(val changes: List<ServerChange>, val lastSeq: Long, val more: Boolean, val conflicts: List<Conflict>)
+/** [masterReplaced] (server 0.5.1): the master copy was replaced by a restored backup since this device's last pull; it takes the whole copy. */
+data class PullResult(val changes: List<ServerChange>, val lastSeq: Long, val more: Boolean, val conflicts: List<Conflict>, val masterReplaced: Boolean = false)
 
 data class Record(val entityType: String, val entityId: String, val data: JSONObject, val deleted: Boolean, val changedAt: Long, val seq: Long)
 
@@ -206,7 +207,23 @@ class ServerClient(
             ServerChange(it.getLong("seq"), it.getString("changeId"), it.getString("entityType"), it.getString("entityId"), it.getString("operation"),
                 it.getJSONObject("changedFields"), it.getLong("timestamp"), it.getString("deviceId"))
         }
-        return PullResult(changes, o.getLong("lastSeq"), o.getBoolean("more"), conflicts(o))
+        return PullResult(changes, o.getLong("lastSeq"), o.getBoolean("more"), conflicts(o), o.optBoolean("masterReplaced", false))
+    }
+
+    /**
+     * Restore while logged in (1.7.2), before anything changes here: this device holds the edit lock, and the server has written
+     * and verified a backup of its current master copy. An older server answers unknown_op.
+     */
+    fun masterCheck() { rpc("master.check") }
+
+    /** The restored budget as the server's master copy (the server backs up the old one first). Returns the new last seq. */
+    fun masterReplace(changes: List<Change>): Long {
+        val a = JSONArray()
+        for (c in changes) a.put(JSONObject().put("changeId", c.changeId).put("entityType", c.entityType).put("entityId", c.entityId)
+            .put("operation", c.operation).put("changedFields", c.changedFields).put("timestamp", c.timestamp))
+        val body = JSONObject().put("changes", a)
+        if (body.toString().length > MAX_REPLACE_CHARS) throw RpcError("too_large", TOO_BIG)
+        return (rpc("master.replace", body) as JSONObject).getLong("lastSeq")
     }
 
     fun records(afterType: String, afterId: String, limit: Int = 500): RecordsResult {
@@ -257,6 +274,9 @@ class ServerClient(
     }
 
     companion object {
+        /** The server takes at most 8 MB in one request; a restored budget bigger than this can't go up in one replace. */
+        const val MAX_REPLACE_CHARS = 7_000_000
+        const val TOO_BIG = "This budget is too big to send to the server in one go (the limit is about 7 MB). Nothing was changed on the server."
         const val KEY_CHANGED = "The server's key is not the one this device pinned. It could be a different server, so nothing was sent. " +
             "If the server was rebuilt on purpose, log out and connect again."
         const val REVOKED = "This device was removed from the server. Log in again to sync."
