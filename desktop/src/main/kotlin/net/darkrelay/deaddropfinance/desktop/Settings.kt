@@ -28,7 +28,39 @@ class Settings(val dir: File) {
             save()
         }
 
-    private fun save() {
+    /** A setting the phone's screens keep (0.13.0), as a property: `var x by settings.flag("key", default)`. */
+    fun flag(key: String, default: Boolean) = setting(key, default, { it.trim().lowercase() == "true" }, { it.toString() })
+    fun number(key: String, default: Long) = setting(key, default, { it.trim().toLongOrNull() ?: default }, { it.toString() })
+    fun text(key: String, default: String) = setting(key, default, { it }, { it })
+    /** A set of short keys (no commas), as one comma-separated value. */
+    fun keys(key: String) = setting(key, emptySet<String>(), { v -> v.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet() }, { it.joinToString(",") })
+
+    /** The version Skip this version was used on (0.13.0). */
+    var skippedVersion: String by text(KEY_SKIPPED, "")
+
+    private fun <T> setting(key: String, default: T, read: (String) -> T, write: (T) -> String) =
+        object : kotlin.properties.ReadWriteProperty<Any?, T> {
+            override fun getValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>): T =
+                synchronized(props) { props.getProperty(key) }?.let { runCatching { read(it) }.getOrNull() } ?: default
+            override fun setValue(thisRef: Any?, property: kotlin.reflect.KProperty<*>, value: T) {
+                synchronized(props) { props.setProperty(key, write(value)) }
+                save()
+            }
+        }
+
+    /** Erase everything (0.13.0): every setting goes, the file too. */
+    fun clearAll() {
+        synchronized(props) { props.clear() }
+        file.delete()
+    }
+
+    /** Purge data (0.13.0): the phone's screens' settings go back to their defaults; the program's own stay. */
+    fun clearScreenSettings() {
+        synchronized(props) { props.keys.map { it.toString() }.filter { it.startsWith("ui.") }.forEach { props.remove(it) } }
+        save()
+    }
+
+    @Synchronized private fun save() {
         try {
             dir.mkdirs()
             val tmp = File(dir, "settings.properties.tmp")
@@ -42,6 +74,7 @@ class Settings(val dir: File) {
 
     companion object {
         const val KEY_CHECK_UPDATES = "checkUpdatesAtStartup"
+        const val KEY_SKIPPED = "skippedVersion"
 
         /** %APPDATA%\DeadDropFinance (the user's roaming profile), or ~/.deaddropfinance off Windows. */
         fun defaultDir(): File {

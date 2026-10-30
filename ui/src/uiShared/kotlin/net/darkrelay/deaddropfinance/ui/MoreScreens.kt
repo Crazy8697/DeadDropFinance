@@ -105,6 +105,9 @@ fun MoreScreen(
         sortAlerts?.invoke()
         if (onBudgetStart != null) BudgetStartSetting(budgetStart, onBudgetStart)
         if (onCurrency != null) CurrencySetting(currency, onCurrency)
+        val words = LocalDeviceWords.current
+        // App lock, Hide screen and updates are the phone's own; the program has its own updates
+        if (words.appLock) {
         SectionTitle("Privacy")
         SettingRow(
             "App lock",
@@ -124,6 +127,7 @@ fun MoreScreen(
         OutlinedButton(onClick = onCheckNow, enabled = !s.checking) { Text(if (s.checking) "Checking..." else "Check for updates") }
         if (s.updateMessage != null) Text(s.updateMessage, modifier = Modifier.padding(vertical = 6.dp))
         updateBar?.invoke()
+        }
         ListRow(onSetup) { Column { Text("Setup"); Text("Run the setup wizard again. Nothing you have is changed.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onPurge != null) ListRow(onPurge) {
             Column {
@@ -134,7 +138,7 @@ fun MoreScreen(
         ListRow(onErase) {
             Column {
                 Text("Erase everything and start over", color = DdfColors.Error)
-                Text("Deletes all your data from this phone", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Deletes all your data from this ${words.device}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
         SectionTitle("About")
@@ -145,7 +149,7 @@ fun MoreScreen(
 }
 
 @Composable
-internal fun SettingRow(title: String, help: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+fun SettingRow(title: String, help: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { Text(title); Text(help, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)

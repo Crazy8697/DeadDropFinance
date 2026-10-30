@@ -74,9 +74,10 @@ private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelo
     var offset by remember { mutableFloatStateOf(0f) }
     val heights = remember { mutableStateMapOf<String, Int>() }
     Column {
+        // keyed by envelope: a row keeps its drag gesture as it moves up or down the list (1.8.0)
         order.forEach { id ->
             val e = byId[id] ?: return@forEach
-            Box(
+            androidx.compose.runtime.key(id) { Box(
                 Modifier
                     .onGloballyPositioned { heights[id] = it.size.height }
                     .zIndex(if (dragging == id) 1f else 0f)
@@ -107,7 +108,7 @@ private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelo
                         },
                     )
                 })
-            }
+            } }
         }
     }
 }
@@ -245,7 +246,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                 EnvelopeMode.GOAL -> {
                     AmountField("Goal amount", goal, { goal = it })
                     DateField("Reach it by", goalDate, { goalDate = it })
-                    Text("The app works out the amount per payday and stops at the goal.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("The ${LocalDeviceWords.current.product} works out the amount per payday and stops at the goal.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 EnvelopeMode.SEASONAL -> {
                     AmountField("Add each payday", perPayday, { perPayday = it })

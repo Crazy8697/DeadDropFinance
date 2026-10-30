@@ -17,19 +17,19 @@ import java.io.InputStream
  */
 class RestoreFlow(
     /** Replaces this phone's budget with the backup in the file (BackupException: nothing changed). */
-    private val restoreLocal: suspend (File, BackupSecret) -> Backups.Summary,
+    private val restoreLocal: suspend (File, BackupSecret) -> BackupSummary,
     /** Logged in: ServerSync.restoreAsMaster, which runs the local restore inside and then makes it the server's budget. */
     private val asMaster: (suspend (suspend () -> Unit) -> Unit)? = null,
 ) {
     sealed interface Result {
         /** [toServer]: the server's budget is now this backup too. */
-        data class Done(val summary: Backups.Summary, val toServer: Boolean) : Result
+        data class Done(val summary: BackupSummary, val toServer: Boolean) : Result
         /** [changedHere]: this phone's budget was replaced although the step after it failed (the screen reloads the settings then). */
         data class Failed(val message: String, val changedHere: Boolean) : Result
     }
 
     suspend fun run(file: File, opener: BackupSecret): Result {
-        var summary: Backups.Summary? = null
+        var summary: BackupSummary? = null
         return try {
             val local: suspend () -> Unit = { summary = restoreLocal(file, opener) }
             if (asMaster != null) asMaster.invoke(local) else local()

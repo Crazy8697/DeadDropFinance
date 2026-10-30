@@ -105,6 +105,18 @@ class MainActivity : ComponentActivity() {
         done(uri)
     }
 
+    /** 1.8.0: Export CSV from Activity, saved where the user picks. */
+    private var csvText: String? = null
+    private var csvDone: ((Boolean) -> Unit)? = null
+    private val csvSaver = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? ->
+        val done = csvDone ?: return@registerForActivityResult
+        val text = csvText
+        csvDone = null
+        csvText = null
+        if (uri == null || text == null) { done(false); return@registerForActivityResult }
+        done(runCatching { contentResolver.openOutputStream(uri, "wt")?.use { it.write(text.toByteArray(Charsets.UTF_8)) } != null }.getOrDefault(false))
+    }
+
     private var exportExampleDone: ((Boolean) -> Unit)? = null
     private val exampleSaver = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri: Uri? ->
         val done = exportExampleDone ?: return@registerForActivityResult
@@ -320,6 +332,8 @@ class MainActivity : ComponentActivity() {
 
     private val platform = object : Platform {
         override fun openUrl(url: String) { Browsers.open(this@MainActivity, url) }
+        @androidx.compose.runtime.Composable
+        override fun appIcon() = androidx.compose.ui.res.painterResource(R.drawable.ic_ddf_master)
 
         override fun pickCsv(onPicked: (String, String?) -> Unit) {
             pickCallback = onPicked
@@ -421,6 +435,13 @@ class MainActivity : ComponentActivity() {
             exportExampleDone = done
             app.lock.expectReturn()
             runCatching { exampleSaver.launch("deaddropfinance-setup-example.json") }.onFailure { exportExampleDone = null; done(false) }
+        }
+
+        override fun saveCsv(name: String, text: String, done: (Boolean) -> Unit) {
+            csvText = text
+            csvDone = done
+            app.lock.expectReturn()
+            runCatching { csvSaver.launch(name) }.onFailure { csvDone = null; csvText = null; done(false) }
         }
 
         override fun displayName(uri: Uri): String = runCatching {
@@ -592,8 +613,8 @@ class MainActivity : ComponentActivity() {
         /** A bill reminder or autopay warning opens the app here. */
         const val EXTRA_OPEN = "open"
         const val OPEN_ACTIVITY = "activity"
-        const val OPEN_BILLS = "bills"
-        const val OPEN_HOME = "home"
+        const val OPEN_BILLS = net.darkrelay.deaddropfinance.ui.OpenTargets.BILLS
+        const val OPEN_HOME = net.darkrelay.deaddropfinance.ui.OpenTargets.HOME
     }
 }
 

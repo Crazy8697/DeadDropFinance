@@ -53,6 +53,12 @@ data class ActivityTabs(
     val onAdd: (accountId: String) -> Unit = {},
     val onScan: (accountId: String) -> Unit = {},
     val onImport: (accountId: String) -> Unit = {},
+    /** 1.8.0: the budget month Activity shows (0: the open one), stepped with Older and Newer as in Categories. */
+    val monthIndex: Int = 0,
+    val onMonth: (Int) -> Unit = {},
+    /** 1.8.0: Export CSV, what the tab shows for that month; null hides it. [note] says where it went. */
+    val onExport: (() -> Unit)? = null,
+    val note: String? = null,
 )
 
 /** The accounts with a tab in Activity: shown in Activity and not archived, in account order (More, Accounts). */
@@ -103,8 +109,19 @@ fun ActivityScreen(
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Activity", onBack = null) }
         ActivityTabRow(tabs, budget.toSort.size)
-        if (selected != null) AccountActivity(selected, budget, tabs, onTransaction)
-        else AllActivity(budget, onTransaction, onSort, onSplit, sorting)
+        val today = java.time.LocalDate.now()
+        val months = budget.months(today)
+        val index = tabs.monthIndex.coerceIn(0, months.size - 1)
+        val month = months[index]
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+            TextButton(onClick = { tabs.onMonth(index + 1) }, enabled = index < months.size - 1) { Text("‹ Older") }
+            Text(monthLabel(month, today), Modifier.weight(1f), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { tabs.onMonth(index - 1) }, enabled = index > 0) { Text("Newer ›") }
+            tabs.onExport?.let { TextButton(onClick = it) { Text("Export CSV") } }
+        }
+        tabs.note?.let { Text(it, color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp)) }
+        if (selected != null) AccountActivity(selected, budget, tabs, onTransaction, month)
+        else AllActivity(budget, onTransaction, onSort, onSplit, sorting, month)
     }
 }
 
@@ -126,8 +143,8 @@ private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
 
 /** One account's tab: its current balance, Add, Scan and Import CSV, and only its transactions, newest first. */
 @Composable
-private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity, budget: Budget, tabs: ActivityTabs, onTransaction: (String) -> Unit) {
-    val txs = budget.transactions.filter { it.accountId == a.id || it.transferAccountId == a.id }
+private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity, budget: Budget, tabs: ActivityTabs, onTransaction: (String) -> Unit, month: Budget.Month = Budget.Month(null, null)) {
+    val txs = budget.transactions.filter { (it.accountId == a.id || it.transferAccountId == a.id) && month.contains(it.date) }
         .sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -143,8 +160,8 @@ private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity,
             TextButton(onClick = { tabs.onImport(a.id) }) { Text("Import CSV") }
         }
         txs.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }, forAccount = a.id) }
-        // an account's balance is built from its starting balance: shown as its first (oldest) entry
-        ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
+        // an account's balance is built from its starting balance: shown as its first (oldest) entry, in its month
+        if (month.contains(a.startDate)) ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
         Gap(24)
     }
 }
@@ -157,6 +174,7 @@ private fun AllActivity(
     onSort: (String, String?, Boolean) -> Unit,
     onSplit: (String) -> Unit,
     sorting: SortingUi,
+    month: Budget.Month = Budget.Month(null, null),
 ) {
     val accounts = budget.accounts.associateBy { it.id }
     val envelopes = budget.envelopes.associateBy { it.id }
@@ -183,12 +201,13 @@ private fun AllActivity(
         }
         if (sorting.recentlySorted.isNotEmpty()) {
             SectionTitle("Recently sorted by rules")
-            Text("Auto-approve sorted these as they arrived. Tap one to change it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Text("Auto-approve sorted these as they arrived. ${LocalDeviceWords.current.tap} one to change it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             sorting.recentlySorted.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }) }
         }
         SectionTitle("Recent")
         val skip = budget.toSort.map { it.id }.toSet() + sorting.recentlySorted.map { it.id }
-        val recent = budget.transactions.filter { it.id !in skip }.take(100)
+        // 1.8.0: the budget month chosen above (To sort and Recently sorted stay whole: they're work to do)
+        val recent = budget.transactions.filter { it.id !in skip && month.contains(it.date) }
         if (recent.isEmpty()) EmptyState("No transactions yet. Add one, or import a CSV from your bank in More.")
         recent.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }) }
         Gap(24)

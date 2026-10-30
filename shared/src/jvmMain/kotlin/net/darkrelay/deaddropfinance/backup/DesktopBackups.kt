@@ -162,6 +162,12 @@ class DesktopBackups(
         return summary(rows)
     }
 
+    /**
+     * Purge data (desktop 0.13.0), as the phone's: every budget table emptied in one transaction, checked before it
+     * commits (a restore of an empty budget); this computer's id stays.
+     */
+    suspend fun purge() = replace(emptyMap(), failForTest = false)
+
     private suspend fun replace(rows: Map<String, JSONArray>, failForTest: Boolean) {
         db.useWriterConnection { c ->
             c.withTransaction(Transactor.SQLiteTransactionType.IMMEDIATE) {

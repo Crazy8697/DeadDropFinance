@@ -9,7 +9,7 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 plugins {
     id("org.jetbrains.kotlin.jvm")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("org.jetbrains.compose") version "1.12.2"
+    id("org.jetbrains.compose")
 }
 
 // The desktop version is set once, in gradle.properties (ddf.desktop.versionName). Stage N of the build procedure
@@ -38,9 +38,16 @@ val generateBuildInfo = tasks.register("generateBuildInfo") {
 // phone releases on a GitHub that also carries desktop releases. Nothing of it ships, and the phone's files are only read.
 val phoneUpdateSrc = tasks.register<Sync>("phoneUpdateSrc") {
     from(rootProject.file("app/src/main/java")) {
-        include("net/darkrelay/deaddropfinance/UpdateCheck.kt", "net/darkrelay/deaddropfinance/UpdateClient.kt")
+        include("net/darkrelay/deaddropfinance/UpdateClient.kt")
     }
     into(layout.buildDirectory.dir("generated/phone-update-src"))
+}
+
+// docs/IMPORT.md, PRIVACY.md and TERMS.md, in the program's resources (0.13.0), as the phone carries them: More, Import
+// setup, Export the example saves IMPORT.md's example file; About shows the privacy policy and the end user agreement
+val importDoc = tasks.register<Sync>("importDoc") {
+    from(rootProject.file("docs/IMPORT.md"), rootProject.file("PRIVACY.md"), rootProject.file("TERMS.md"))
+    into(layout.buildDirectory.dir("generated/import-doc/docs"))
 }
 
 // The shared module's in-memory Dead Drop server (its unit tests' FakeServer), copied unchanged into the desktop tests
@@ -52,13 +59,15 @@ val fakeServerSrc = tasks.register<Sync>("fakeServerSrc") {
 
 kotlin {
     jvmToolchain(21)
-    sourceSets.named("main") { kotlin.srcDir(generateBuildInfo) }
+    sourceSets.named("main") { kotlin.srcDir(generateBuildInfo); resources.srcDir(importDoc.map { it.destinationDir.parentFile }) }
     sourceSets.named("test") { kotlin.srcDir(phoneUpdateSrc); kotlin.srcDir(fakeServerSrc) }
 }
 
 dependencies {
     // the phone app's logic (data model, database, budget rules), built for the JVM: see shared/README.md
     implementation(project(":shared"))
+    // the phone app's screens (0.13.0), the same code the phone shows: see ui/README.md
+    implementation(project(":ui"))
     implementation(compose.desktop.windows_x64)
     implementation(compose.material3)
     // the dark native title bar (0.9.0): one dwmapi call through JNA, which the program already ships (shared's DPAPI)

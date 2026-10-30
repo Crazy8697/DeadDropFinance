@@ -51,6 +51,8 @@ class Shell(
     val onInstall: () -> Unit = {},
     val onOpenPage: (String) -> Unit = {},
     val onDismissUpdate: () -> Unit = {},
+    /** Skip this version (0.13.0). */
+    val onSkipUpdate: () -> Unit = {},
     val onCheckNow: () -> Unit = {},
     val onCheckAtStartup: (Boolean) -> Unit = {},
     val onOpenDataFolder: (() -> Unit)? = null,
@@ -64,6 +66,25 @@ class Shell(
     val pickBackupSave: (suggested: String) -> java.io.File? = { null },
     /** Asks for a backup file to restore; null when cancelled. */
     val pickBackupOpen: () -> java.io.File? = { null },
+    // ---- 0.13.0: what the phone's screens need (PhoneScreens) ----
+    /** The program's settings file, shared with the phone's screens' settings. */
+    val settings: Settings? = null,
+    /** Asks for a setup JSON file; null when cancelled. */
+    val pickJson: () -> java.io.File? = { null },
+    /** Asks where to save a file ([suggested]: the name offered); null when cancelled. */
+    val pickSave: (suggested: String) -> java.io.File? = { null },
+    /** Asks for a receipt image; null when cancelled. */
+    val pickReceipt: () -> java.io.File? = { null },
+    /** Erase everything and Purge data, after the phone's own confirm screens. */
+    val onErase: () -> Unit = {},
+    val onPurge: () -> Unit = {},
+    /** Windows notifications for bill reminders and autopay warnings. */
+    val notices: Notices = Notices.None,
+    /** The notices and license texts the installed program carries (About, Licenses). */
+    val docs: () -> List<String> = { emptyList() },
+    val readDoc: (String) -> String? = { null },
+    /** What protects the receipt photo key (DPAPI; tests use their own). */
+    val keyProtector: net.darkrelay.deaddropfinance.data.KeyProtector = net.darkrelay.deaddropfinance.data.Dpapi,
 )
 
 @Composable
@@ -87,6 +108,12 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                                 model.screen == Screen.REPORTS -> ReportsScreen()
                                 unavailable != null -> UnavailableScreen(unavailable)
                                 model.budget == null -> Box(Modifier.fillMaxSize().padding(18.dp)) { T("Opening your budget...", color = C.Dim) }
+                                // 0.13.0: the phone app's screens
+                                model.phoneNav != null -> PhoneScreens(model, shell, model.phoneNav!!, onExit = { model.phoneNav = null })
+                                model.screen == Screen.HOME -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Home)
+                                model.screen == Screen.BILLS -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Bills)
+                                model.screen == Screen.CATEGORIES -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Categories)
+                                model.screen == Screen.MORE -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.More)
                                 model.screen == Screen.BUDGET -> BudgetScreen(model, shell)
                                 model.screen == Screen.ACTIVITY -> ActivityScreen(model, shell)
                                 model.screen == Screen.ACCOUNTS -> AccountsScreen(model, shell)
@@ -172,6 +199,9 @@ private fun UpdateStrip(shell: Shell) {
         }
         T(text, 13.sp, if (error) C.Bad else C.Cyan, modifier = Modifier.weight(1f).testTag("updateText"))
         if (u is UpdateState.Available) {
+            // 0.13.0: Release notes and Skip this version, as on the phone
+            if (shell.canInstall) Btn("Release notes", { shell.onOpenPage(u.release.page) }, small = true, ghost = true, tag = "releaseNotes")
+            Btn("Skip this version", shell.onSkipUpdate, small = true, ghost = true, tag = "skipVersion")
             if (shell.canInstall) Btn("Install and restart", shell.onInstall, small = true, tag = "install")
             else Btn("Open the release page", { shell.onOpenPage(u.release.page) }, small = true, ghost = true, tag = "releasePage")
         }
@@ -184,8 +214,8 @@ private fun UpdateStrip(shell: Shell) {
 // ---- sidebar and top bar ----------------------------------------------------------------------------------------
 
 private val navIcons = mapOf(
-    Screen.BUDGET to "▮", Screen.ACTIVITY to "⋮", Screen.ACCOUNTS to "▣",
-    Screen.REPORTS to "▲", Screen.SYNC to "⇄", Screen.SETTINGS to "⚙",
+    Screen.BUDGET to "▮", Screen.ACTIVITY to "⋮", Screen.ACCOUNTS to "▣", Screen.HOME to "⌂", Screen.BILLS to "▦",
+    Screen.CATEGORIES to "◔", Screen.REPORTS to "▲", Screen.MORE to "…", Screen.SYNC to "⇄", Screen.SETTINGS to "⚙",
 )
 
 @Composable

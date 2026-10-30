@@ -74,6 +74,8 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
         }
         RowHead("Envelopes") {
             Btn("Bonus income", { model.dialog = Dialog.Bonus() }, ghost = true, small = true, tag = "bonus")
+            // 0.13.0: the phone's envelope list, where dragging the handle sets the fill order
+            Btn("Fill order", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Envelopes) }, ghost = true, small = true, tag = "fillOrder")
             Btn("Fill targets", { shell.run { model.fillTargets() } }, ghost = true, small = true, tag = "fillTargets")
             Btn("New envelope", { model.dialog = Dialog.EnvelopeForm() }, ghost = true, small = true, tag = "newEnvelope")
         }
@@ -332,6 +334,16 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
                 val f = shell.pickCsv() ?: return@Btn
                 shell.run { model.planImport(id, f.name, f.readText()) }
             }, ghost = true, small = true, enabled = !all, tag = "importCsv")
+            // 0.13.0: Export CSV, what this tab shows for the budget month above (the moves too, on All), where the user saves it
+            Btn("Export CSV", {
+                val name = net.darkrelay.deaddropfinance.domain.ActivityExport.fileName(selected?.name, model.month, model.today())
+                val f = shell.pickSave(name) ?: return@Btn
+                val text = net.darkrelay.deaddropfinance.domain.ActivityExport.csv(b, selected?.id, model.month, moves = selected == null)
+                model.message = if (runCatching { f.writeText(text, Charsets.UTF_8) }.isSuccess) "Saved ${f.name}." to false
+                    else "${f.name} couldn't be saved there." to true
+            }, ghost = true, small = true, tag = "exportCsv")
+            // 0.13.0: the phone's Activity, with To sort, approving, recently sorted and what sorting learned
+            Btn("To sort (${b.toSort.size})", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Activity) }, ghost = true, small = true, tag = "toSort")
             Btn("Transfer", { model.dialog = Dialog.Transfer(fromId = selected?.id) }, ghost = true, small = true, enabled = b.accounts.count { !it.archived } >= 2, tag = "transfer")
             Btn("Add", { model.dialog = Dialog.AddTransaction(selected?.id) }, small = true, enabled = !all, tag = "add")
         }

@@ -130,19 +130,25 @@ fun ScanScreen(forPayee: String?, working: Boolean, error: String?, onBack: () -
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Scan a receipt", onBack)
         if (forPayee != null) Text("For $forPayee", color = DdfColors.Muted)
+        val camera = LocalDeviceWords.current.camera
         Text(
-            "Take a photo of the receipt, or choose an image or a PDF. A long receipt can be more than one photo: add the rest on the next " +
-                "screen. It's read on this phone; nothing is sent anywhere.",
+            if (camera) "Take a photo of the receipt, or choose an image or a PDF. A long receipt can be more than one photo: add the rest on the next " +
+                "screen. It's read on this phone; nothing is sent anywhere."
+            // the program (0.13.0): an image file, kept with the receipt; its text isn't read on a computer
+            else "Choose an image of the receipt (JPG or PNG). A long receipt can be more than one image: add the rest on the next screen. " +
+                "This computer keeps the image with the receipt but doesn't read it: type the store, the total and the items. Nothing is sent anywhere.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         Gap()
         if (working) {
-            Text("Reading the receipt...")
+            Text(if (camera) "Reading the receipt..." else "Adding the image...")
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
         } else {
-            Button(onClick = onCamera, modifier = Modifier.fillMaxWidth()) { Text("Take a photo") }
-            Gap()
-            OutlinedButton(onClick = onFile, modifier = Modifier.fillMaxWidth()) { Text("Choose an image or PDF") }
+            if (camera) {
+                Button(onClick = onCamera, modifier = Modifier.fillMaxWidth()) { Text("Take a photo") }
+                Gap()
+                OutlinedButton(onClick = onFile, modifier = Modifier.fillMaxWidth()) { Text("Choose an image or PDF") }
+            } else Button(onClick = onFile, modifier = Modifier.fillMaxWidth()) { Text("Choose an image") }
         }
         ErrorLine(error)
         Gap(24)
@@ -155,18 +161,20 @@ fun ReceiptEditScreen(
     form: ReceiptForm, pages: List<ImageBitmap?>, isNew: Boolean, working: Boolean, error: String?,
     onBack: () -> Unit, onAddCamera: () -> Unit, onAddFile: () -> Unit, onSave: () -> Unit,
 ) {
-    fun label(name: String, field: String) = if (field in form.low) "$name (check this)" else name
+    // nothing is read on the program (no text recognition), so nothing is marked to check there
+    val read = LocalDeviceWords.current.camera
+    fun label(name: String, field: String) = if (read && field in form.low) "$name (check this)" else name
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (isNew) "Check the receipt" else "Edit receipt", onBack)
         ReceiptPhotos(pages)
         if (isNew) {
             Row {
-                TextButton(onClick = onAddCamera, enabled = !working) { Text("Add another photo") }
+                if (LocalDeviceWords.current.camera) TextButton(onClick = onAddCamera, enabled = !working) { Text("Add another photo") }
                 TextButton(onClick = onAddFile, enabled = !working) { Text("Add from a file") }
             }
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        if (form.low.isNotEmpty()) {
+        if (read && form.low.isNotEmpty()) {
             Text("Some of this wasn't clear on the photo. Check what's marked.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         }
         if (form.kind == ReceiptKind.RETURN) Pill("return receipt")

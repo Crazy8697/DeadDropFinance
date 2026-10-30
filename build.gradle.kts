@@ -13,4 +13,6 @@ plugins {
     id("com.android.application") version "9.4.1" apply false
     // the shared module (:shared): the phone's logic, built for the phone app and the desktop program
     id("com.android.kotlin.multiplatform.library") version "9.4.1" apply false
+    // the shared screens (:ui) and the desktop program: Compose Multiplatform
+    id("org.jetbrains.compose") version "1.12.2" apply false
 }

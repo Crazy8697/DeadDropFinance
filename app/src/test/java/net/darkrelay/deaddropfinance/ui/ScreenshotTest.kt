@@ -752,7 +752,7 @@ class ScreenshotTest {
         Page { longRows.transactions.filter { it.id in setOf("L1", "L2", "L3", "L4") }.forEach { TransactionRow(it, longRows) {} } }
     }
     // ---- 1.2.2: Adjust on the wrong-sign warning --------------------------------------------------------------------
-    @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", {}, {}, {}, {}) }
+    @Test @Config(qualifiers = TALL) fun about() = shot("131-about") { AboutScreen("1.1.0", androidx.compose.ui.res.painterResource(net.darkrelay.deaddropfinance.R.drawable.ic_ddf_master), {}, {}, {}, {}) }
     @Test fun bonusIncomeForm() = shot("134-bonus-income-form") {
         BonusIncomeScreen(null, null, {}, {}, today = today)
     }

@@ -47,7 +47,7 @@ fun RulesScreen(rules: List<RuleEntity>, budget: Budget, onBack: () -> Unit, onR
                 "anything already sorted, history before an account's starting balance, or accounts outside the budget.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
-        if (rules.isEmpty()) EmptyState("No rules yet. Sort something by hand and the app offers to make one, or add one here.")
+        if (rules.isEmpty()) EmptyState("No rules yet. Sort something by hand and the ${LocalDeviceWords.current.product} offers to make one, or add one here.")
         rules.forEachIndexed { i, r ->
             ListRow(onClick = { onRule(r.id) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -253,19 +253,20 @@ fun SortingAndAlertsSection(
     }
     SettingRow(
         "Approve rule matches automatically",
-        "Off: rule matches wait in To sort for one tap. On: they're sorted as they arrive and listed under Recently sorted. Rules set to Always ask still wait.",
+        "Off: rule matches wait in To sort for one ${LocalDeviceWords.current.tap.lowercase()}. On: they're sorted as they arrive and listed under Recently sorted. Rules set to Always ask still wait.",
         s.autoApprove, true, onAutoApprove,
     )
     SectionTitle("Alerts")
     if (!s.notificationsAllowed) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Notifications are off for this app.", Modifier.weight(1f), color = DdfColors.Warning)
+            Text("Notifications are off for this ${LocalDeviceWords.current.product}.", Modifier.weight(1f), color = DdfColors.Warning)
             TextButton(onClick = onAllowNotifications) { Text("Turn on") }
         }
     }
     SettingRow("Bill reminders", "For the bills (and debt payments) you turn a reminder on for. Each bill's reminder is off until you do.", s.bills, true) { onAlert(ALERT_BILLS, it) }
     SettingRow("Autopay warnings", "When an autopay is due before payday and its envelope is short.", s.autopay, true) { onAlert(ALERT_AUTOPAY, it) }
-    SettingRow("Show amounts on the lock screen", "Off: the lock screen only says a bill is due or an autopay is short, with no names or amounts.", s.amountsOnLockScreen, true) { onAlert(ALERT_LOCK_AMOUNTS, it) }
+    // the phone's lock screen; Windows notifications have no such setting here
+    if (LocalDeviceWords.current.appLock) SettingRow("Show amounts on the lock screen", "Off: the lock screen only says a bill is due or an autopay is short, with no names or amounts.", s.amountsOnLockScreen, true) { onAlert(ALERT_LOCK_AMOUNTS, it) }
 }
 
 const val ALERT_LOCK_AMOUNTS = "lock_amounts"

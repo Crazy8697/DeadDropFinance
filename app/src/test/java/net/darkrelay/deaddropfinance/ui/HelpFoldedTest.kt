@@ -47,7 +47,7 @@ class HelpFoldedTest {
     }
 
     @Test fun aboutStillHasLicensesLegalSupportAndTheSite() {
-        compose.setContent { AboutScreen("1.1.0", {}, {}, {}, {}) }
+        compose.setContent { AboutScreen("1.1.0", null, {}, {}, {}, {}) }
         for (t in listOf("Licenses", "Privacy policy", "End user agreement", "darkrelay.net")) compose.onNodeWithText(t).performScrollTo().assertExists()
         compose.onNodeWithText("Support DarkRelay", substring = true).assertExists()
     }

@@ -189,7 +189,7 @@ fun HomeScreen(
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("Over-assigned by ${Money.format(-budget.readyToAssign)}", color = DdfColors.Warning, fontWeight = FontWeight.Medium)
-                        Text("More is in envelopes than you have. Tap to move some back.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("More is in envelopes than you have. ${LocalDeviceWords.current.tap} to move some back.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                     Icon(TabIcons.Chevron, contentDescription = null, tint = DdfColors.Warning, modifier = Modifier.size(18.dp))
                 }

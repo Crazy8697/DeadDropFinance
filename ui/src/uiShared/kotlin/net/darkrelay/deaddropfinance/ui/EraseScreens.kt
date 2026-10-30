@@ -30,7 +30,7 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
     var typed by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Erase everything", onBack)
-        Text("This deletes everything Dead Drop Finance keeps on this phone, for good:")
+        Text("This deletes everything Dead Drop Finance keeps on this ${LocalDeviceWords.current.device}, for good:")
         Gap()
         for (line in listOf(
             "Every account and its balance",
@@ -43,7 +43,7 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
         Gap()
         Text("If you might want this back, make a backup first (More, Backup and restore).", color = DdfColors.Warning)
         Gap()
-        Text("The app then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
+        Text("The ${LocalDeviceWords.current.product} then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
         Gap(16)
         OutlinedTextField(
             value = typed, onValueChange = { typed = it.take(10) }, singleLine = true,
@@ -70,7 +70,7 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
     var typed by remember { mutableStateOf("") }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Purge data", onBack)
-        Text("This deletes everything Dead Drop Finance keeps on this phone, for good:")
+        Text("This deletes everything Dead Drop Finance keeps on this ${LocalDeviceWords.current.device}, for good:")
         Gap()
         for (line in listOf(
             "Every account and its balance",
@@ -85,7 +85,7 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
         Gap()
         Text("Only a backup file can bring it back.", color = DdfColors.Warning)
         Gap()
-        Text("The app then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
+        Text("The ${LocalDeviceWords.current.product} then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
         Gap(16)
         OutlinedTextField(
             value = typed, onValueChange = { typed = it.take(10) }, singleLine = true,
@@ -113,9 +113,9 @@ fun ErasedScreen(left: List<String>, onStartOver: () -> Unit) {
         Text(if (left.isEmpty()) "Everything is erased" else "Erase finished, but something is left", style = MaterialTheme.typography.headlineSmall)
         Gap()
         if (left.isEmpty()) {
-            Text("Nothing of your budget is left on this phone.", color = DdfColors.Muted)
+            Text("Nothing of your budget is left on this ${LocalDeviceWords.current.device}.", color = DdfColors.Muted)
         } else {
-            Text("This phone couldn't remove:", color = DdfColors.Warning)
+            Text("This ${LocalDeviceWords.current.device} couldn't remove:", color = DdfColors.Warning)
             left.forEach { Text("  $it", color = DdfColors.Muted) }
         }
         Gap(24)

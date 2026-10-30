@@ -46,7 +46,8 @@ fun WizardFrame(
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Text("Setup, step ${page.ordinal + 1} of ${WizardPage.entries.size}", color = DdfColors.Muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 12.dp))
+        val pages = WizardPage.entries.filter { it != WizardPage.LOCK || LocalDeviceWords.current.appLock }
+        Text("Setup, step ${pages.indexOf(page) + 1} of ${pages.size}", color = DdfColors.Muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 12.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 8.dp))
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
             content()
@@ -61,9 +62,10 @@ fun WizardFrame(
 
 @Composable
 fun WelcomePage(currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT, onCurrency: ((String) -> Unit)? = null) {
-    Text("Dead Drop Finance is an envelope budget that lives on this phone. Your budget is encrypted here and nothing about it is sent anywhere.")
+    val words = LocalDeviceWords.current
+    Text("Dead Drop Finance is an envelope budget that lives on this ${words.device}. Your budget is encrypted here and nothing about it is sent anywhere.")
     Gap()
-    Text("Setup takes a few steps: app lock, how your transactions get in, and optional starter envelopes. You can rerun it any time from More, Setup.", color = DdfColors.Muted)
+    Text("Setup takes a few steps: " + (if (words.appLock) "app lock, " else "") + "how your transactions get in, and optional starter envelopes. You can rerun it any time from More, Setup.", color = DdfColors.Muted)
     // 1.7.0: the budget's currency, USD unless changed here (or later in More)
     if (onCurrency != null) {
         Gap()
@@ -83,7 +85,7 @@ fun LockPage(lockOn: Boolean, deviceSecure: Boolean, onLock: (Boolean) -> Unit) 
 
 @Composable
 fun StarterPage(selected: Set<String>, existing: Set<String>, onToggle: (String) -> Unit, onBlank: () -> Unit) {
-    Text("Pick any to start with. They're names only: you set amounts yourself, and the app never suggests how much to spend.", color = DdfColors.Muted)
+    Text("Pick any to start with. They're names only: you set amounts yourself, and the ${LocalDeviceWords.current.product} never suggests how much to spend.", color = DdfColors.Muted)
     Gap()
     for (n in STARTER_ENVELOPES) {
         val have = existing.any { it.equals(n, ignoreCase = true) }
@@ -122,14 +124,16 @@ fun SetupWizardHost(
     currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT,
     onCurrency: ((String) -> Unit)? = null,
 ) {
+    val lock = LocalDeviceWords.current.appLock
     when (page) {
-        WizardPage.WELCOME -> WizardFrame(page, "Welcome", onBack = if (forced) null else { { onPage(null) } }, next = "Start" to { onPage(WizardPage.LOCK) }) {
+        // no app lock page where there is no app lock (the program)
+        WizardPage.WELCOME -> WizardFrame(page, "Welcome", onBack = if (forced) null else { { onPage(null) } }, next = "Start" to { onPage(if (lock) WizardPage.LOCK else WizardPage.CONNECT) }) {
             WelcomePage(currency, onCurrency)
         }
         WizardPage.LOCK -> WizardFrame(page, "App lock", { onPage(WizardPage.WELCOME) }, "Next" to { onPage(WizardPage.CONNECT) }) {
             LockPage(more.lockEnabled && more.lockAvailable, more.lockAvailable, onLock)
         }
-        WizardPage.CONNECT -> WizardFrame(page, "Old School", { onPage(WizardPage.LOCK) }, null) {
+        WizardPage.CONNECT -> WizardFrame(page, "Old School", { onPage(if (lock) WizardPage.LOCK else WizardPage.WELCOME) }, null) {
             OldSchoolDoor(hasAccounts, onAddAccount, onImport) { onPage(WizardPage.STARTER) }
         }
         WizardPage.STARTER -> WizardFrame(
@@ -140,7 +144,7 @@ fun SetupWizardHost(
         }
         WizardPage.FINISH -> WizardFrame(page, "Finish", { onPage(WizardPage.STARTER) }, "Finish" to onFinish) {
             val lines = mutableListOf<String>()
-            lines += if (more.lockEnabled && more.lockAvailable) "App lock is on." else "App lock is off."
+            if (lock) lines += if (more.lockEnabled && more.lockAvailable) "App lock is on." else "App lock is off."
             lines += "Import a CSV or add transactions any time."
             lines += "${budget.accounts.count { !it.archived }} account(s), ${budget.envelopes.count { !it.archived }} envelope(s) including Rollover."
             lines += "Rerun setup from More, Setup."

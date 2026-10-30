@@ -11,10 +11,6 @@ import java.util.concurrent.TimeUnit
 import net.darkrelay.deaddropfinance.DdfApp
 import net.darkrelay.deaddropfinance.MainActivity
 import net.darkrelay.deaddropfinance.data.DatabaseOpener
-import net.darkrelay.deaddropfinance.domain.BillActions
-import net.darkrelay.deaddropfinance.domain.BudgetActions
-import net.darkrelay.deaddropfinance.domain.Money
-import net.darkrelay.deaddropfinance.domain.Reminders
 import net.darkrelay.deaddropfinance.sync.SyncSettings
 
 /**
@@ -38,44 +34,19 @@ class BillReminderWorker(context: Context, params: WorkerParameters) : Coroutine
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.KEEP, req)
         }
 
-        /** Sends what's due now and remembers it. */
+        /** Sends what's due now and remembers it (BillAlerts, shared with the program). */
         suspend fun check(context: Context, store: net.darkrelay.deaddropfinance.data.BudgetStore, settings: SyncSettings, today: LocalDate) {
             val alerts = SpendAlerts(context)
             if (!alerts.allowed()) return
-            val b = BudgetActions(store).snapshot()
-            val sent = settings.reminded.toMutableSet()
             val lock = settings.alertAmountsOnLockScreen
-            if (settings.alertBills) {
-                for (r in Reminders.due(b, today)) {
-                    if (r.key in sent) continue
-                    val whenText = if (r.due == today) "today" else "on ${r.due}"
-                    alerts.post(
-                        SpendAlerts.CHANNEL_BILLS, ID_BILLS + (r.key.hashCode() and 0xFFF), "${r.name} is due $whenText",
-                        "${Money.format(r.amount)} to pay${if (r.kind == Reminders.Kind.DEBT) " (debt payment)" else ""}.", "A bill is due soon", lock,
-                        MainActivity.OPEN_BILLS,
-                    )
-                    sent += r.key
-                    settings.reminded = sent      // saved as each goes, so a failure later never sends it again
+            net.darkrelay.deaddropfinance.ui.BillAlerts.check(store, settings, today) { a ->
+                when (a.kind) {
+                    net.darkrelay.deaddropfinance.ui.BillAlerts.Kind.BILL ->
+                        alerts.post(SpendAlerts.CHANNEL_BILLS, ID_BILLS + (a.key.hashCode() and 0xFFF), a.title, a.text, a.publicText, lock, MainActivity.OPEN_BILLS)
+                    net.darkrelay.deaddropfinance.ui.BillAlerts.Kind.AUTOPAY ->
+                        alerts.post(SpendAlerts.CHANNEL_AUTOPAY, ID_AUTOPAY + (a.key.hashCode() and 0xFFF), a.title, a.text, a.publicText, lock, MainActivity.OPEN_BILLS)
                 }
             }
-            if (settings.alertAutopay) {
-                val next = BillActions(store) { today }.prediction().effectiveNext(today)
-                if (next != null) {
-                    for (w in Reminders.autopayWarnings(b, today, next)) {
-                        val key = "autopay:${w.cycle.bill.id}:${w.cycle.due}"
-                        if (key in sent) continue
-                        alerts.post(
-                            SpendAlerts.CHANNEL_AUTOPAY, ID_AUTOPAY + (key.hashCode() and 0xFFF), "${w.cycle.bill.name} autopays before payday",
-                            "Due ${w.cycle.due}: ${Money.format(w.needed)}. ${w.envelope?.name ?: "Its envelope"} has ${Money.format(w.envelopeHas)}, short ${Money.format(w.short)}.",
-                            "An autopay is short", lock, MainActivity.OPEN_BILLS,
-                        )
-                        sent += key
-                        settings.reminded = sent
-                    }
-                }
-            }
-            // keep the memory small: only this year's keys
-            settings.reminded = sent.filter { k -> Regex("""\d{4}-\d{2}-\d{2}""").find(k)?.value?.let { LocalDate.parse(it).isAfter(today.minusDays(60)) } ?: false }.toSet()
         }
 
         // each kind has its own range (4096 each)

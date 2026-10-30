@@ -129,7 +129,7 @@ fun BillsScreen(
         }
         val suggest = live.count { it.subscription?.billId == null && budget.bills.none { b -> b.matchText != null && it.keys.any { k -> net.darkrelay.deaddropfinance.domain.Payees.contains(k, b.matchText!!) } } }
         if (suggest > 0) {
-            Text("$suggest of them could be bills: open one and tap Make it a bill.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            Text("$suggest of them could be bills: open one and ${LocalDeviceWords.current.tap.lowercase()} Make it a bill.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
         Gap(24)
     }
@@ -278,7 +278,7 @@ fun BillEditScreen(
         )
         Picker("Paid from envelope", listOf<Pair<String?, String>>(null to "No envelope") + budget.fillOrder.map { it.id to it.name }, env, { env = it })
         Text("Several bills can feed one envelope. A yearly or irregular bill's envelope with no target fills a little each payday.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-        SettingRow("Autopay", "You do nothing; the app warns when it's due before payday and the envelope is short.", autopay, true, { autopay = it })
+        SettingRow("Autopay", "You do nothing; the ${LocalDeviceWords.current.product} warns when it's due before payday and the envelope is short.", autopay, true, { autopay = it })
         SettingRow("Remind me", "Off by default. A notification before it's due.", reminder, true, { reminder = it })
         if (reminder) Picker("How early", listOf(0 to "On the day", 1 to "1 day before", 2 to "2 days before", 3 to "3 days before", 5 to "5 days before", 7 to "A week before"), days, { days = it })
         SectionTitle("Matching payments")

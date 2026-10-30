@@ -27,7 +27,7 @@ class RestoreFlowTest {
 
     @get:Rule val tmp = TemporaryFolder()
 
-    private val summary = Backups.Summary(2, 3, 4, 0, 0)
+    private val summary = BackupSummary(2, 3, 4, 0, 0)
     private val secret = BackupSecret.Key(ByteArray(32))
 
     /** As ServerSync.restoreAsMaster runs it: the local restore on a background thread, then (optionally) a failure after it. */

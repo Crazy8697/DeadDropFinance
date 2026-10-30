@@ -19,7 +19,7 @@ object Updates {
     private const val KEY_SKIPPED = "skipped_version"
 
     /** How long after startup the automatic check waits, so it never competes with the first screen. */
-    const val STARTUP_DELAY_MS = 3000L
+    const val STARTUP_DELAY_MS = net.darkrelay.deaddropfinance.ui.STARTUP_UPDATE_DELAY_MS
 
     /** The installed version the check compares against: the real versionName unless a debug build fakes it. */
     val installedVersion: String

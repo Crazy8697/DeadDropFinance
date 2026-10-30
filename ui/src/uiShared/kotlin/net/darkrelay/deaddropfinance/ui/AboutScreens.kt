@@ -15,10 +15,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import net.darkrelay.deaddropfinance.R
 
 /** Where About links. */
 object DarkRelayLinks {
@@ -45,11 +43,11 @@ val CREDITS = listOf(
 
 /** About: the icon, name, version, license, credits, Licenses, the documents, darkrelay.net and support. */
 @Composable
-fun AboutScreen(version: String, onBack: () -> Unit, onOpen: (String) -> Unit, onLicenses: () -> Unit, onDoc: (String) -> Unit) {
+fun AboutScreen(version: String, icon: androidx.compose.ui.graphics.painter.Painter?, onBack: () -> Unit, onOpen: (String) -> Unit, onLicenses: () -> Unit, onDoc: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("About", onBack)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Image(painterResource(R.drawable.ic_ddf_master), contentDescription = "Dead Drop Finance icon", modifier = Modifier.size(96.dp))
+            if (icon != null) Image(icon, contentDescription = "Dead Drop Finance icon", modifier = Modifier.size(96.dp))
             Gap()
             Text("Dead Drop Finance", style = MaterialTheme.typography.titleLarge, color = DdfColors.Cyan)
             Text("Version $version", color = DdfColors.Muted)
@@ -64,7 +62,7 @@ fun AboutScreen(version: String, onBack: () -> Unit, onOpen: (String) -> Unit, o
             Text(who, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
         SectionTitle("Legal")
-        ListRow(onLicenses) { Column { Text("Licenses"); Text("Full license texts for the app and everything it ships", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        ListRow(onLicenses) { Column { Text("Licenses"); Text("Full license texts for the ${LocalDeviceWords.current.product} and everything it ships", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         ListRow({ onDoc("PRIVACY.md") }) { Text("Privacy policy") }
         ListRow({ onDoc("TERMS.md") }) { Text("End user agreement") }
         Gap(24)

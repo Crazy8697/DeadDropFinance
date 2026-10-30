@@ -16,7 +16,11 @@ import net.darkrelay.deaddropfinance.domain.BudgetActions
 import net.darkrelay.deaddropfinance.domain.BudgetRuleException
 import net.darkrelay.deaddropfinance.domain.CsvImport
 
-enum class Screen(val title: String) { BUDGET("Budget"), ACTIVITY("Activity"), ACCOUNTS("Accounts"), REPORTS("Reports"), SYNC("Sync"), SETTINGS("Settings") }
+/** The sidebar. Home, Bills, Categories and More (0.13.0) are the phone app's own screens (PhoneScreens). */
+enum class Screen(val title: String) {
+    BUDGET("Budget"), ACTIVITY("Activity"), ACCOUNTS("Accounts"), HOME("Home"), BILLS("Bills"), CATEGORIES("Categories"),
+    REPORTS("Reports"), MORE("More"), SYNC("Sync"), SETTINGS("Settings"),
+}
 
 /** An open dialog: Add transaction, Move money, an envelope or account form, or a CSV import's confirmation. */
 sealed class Dialog {
@@ -128,6 +132,18 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     fun go(s: Screen) {
         screen = s
         drawerEnvelope = null
+        phoneNav = null
+    }
+
+    /** 0.13.0: one of the phone app's screens, opened from a program screen (To sort, Details, Fill order); Back returns. */
+    var phoneNav by mutableStateOf<net.darkrelay.deaddropfinance.ui.Nav?>(null)
+    /** Rises when the phone's screens must start over (after Purge data, which then opens the setup wizard). */
+    var phoneGeneration by mutableStateOf(0)
+
+    fun openPhone(n: net.darkrelay.deaddropfinance.ui.Nav) {
+        dialog = null
+        drawerEnvelope = null
+        phoneNav = n
     }
 
     /** Reads the budget again (after every write). */

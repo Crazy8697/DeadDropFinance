@@ -35,7 +35,6 @@ class Backups(
     private val appVersion: String,
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    data class Summary(val accounts: Int, val envelopes: Int, val transactions: Int, val receipts: Int, val photos: Int)
 
     private val sql get() = db.openHelper.writableDatabase
 
@@ -60,13 +59,13 @@ class Backups(
     }
 
     /** Writes the backup to [out] (closed when done), encrypted under the recovery key (1.6.0). */
-    fun write(out: OutputStream, recoveryKey: ByteArray): Summary = write(out) { BackupCrypto.encryptingWithKey(it, recoveryKey) }
+    fun write(out: OutputStream, recoveryKey: ByteArray): BackupSummary = write(out) { BackupCrypto.encryptingWithKey(it, recoveryKey) }
 
     /** A backup under a password, as before 1.6.0 (the tests of older backups). */
-    fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): Summary =
+    fun write(out: OutputStream, passphrase: CharArray, rounds: Int = BackupCrypto.ITERATIONS): BackupSummary =
         write(out) { BackupCrypto.encrypting(it, passphrase, rounds) }
 
-    private fun write(out: OutputStream, encrypting: (OutputStream) -> OutputStream): Summary {
+    private fun write(out: OutputStream, encrypting: (OutputStream) -> OutputStream): BackupSummary {
         val rows = mutableMapOf<String, JSONArray>()
         // one consistent picture of the budget, even if a background job writes meanwhile
         db.runInTransaction {
@@ -90,7 +89,7 @@ class Backups(
                 zip.entry("photos/$id/$page", bytes)
             }
         }
-        return Summary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"), count(rows, "receipt"), pages.size)
+        return BackupSummary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"), count(rows, "receipt"), pages.size)
     }
 
     private fun ZipOutputStream.entry(name: String, bytes: ByteArray) {
@@ -116,10 +115,10 @@ class Backups(
      * Replaces the budget, the receipt photos and the carried settings with the backup's. Reads and checks the whole
      * file before changing anything; throws BackupException (nothing changed) when it can't be used.
      */
-    fun restore(input: InputStream, passphrase: CharArray): Summary = restore(input, BackupSecret.OldPassword(passphrase))
+    fun restore(input: InputStream, passphrase: CharArray): BackupSummary = restore(input, BackupSecret.OldPassword(passphrase))
 
     /** As above, opened with [secret]: the recovery key (1.6.0), or an older backup's password. */
-    fun restore(input: InputStream, opener: BackupSecret): Summary {
+    fun restore(input: InputStream, opener: BackupSecret): BackupSummary {
         stagingDir.deleteRecursively()
         val staged = photos?.staging(stagingDir)
         var manifest: JSONObject? = null
@@ -167,7 +166,7 @@ class Backups(
         // the budget is in; now the photos and settings
         photos?.replaceWith(stagingDir)
         settingsJson?.let { s -> settings?.import(s) }
-        return Summary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"), count(rows, "receipt"), pageCount)
+        return BackupSummary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"), count(rows, "receipt"), pageCount)
     }
 
     /**
@@ -224,6 +223,6 @@ class Backups(
         private val ID = Regex("[A-Za-z0-9-]{1,64}")
 
         /** A backup file's suggested name: deaddrop-yyyy-mm-dd.ddfbak. */
-        fun fileName(date: java.time.LocalDate) = "deaddrop-$date.ddfbak"
+        fun fileName(date: java.time.LocalDate) = BackupNames.fileName(date)
     }
 }

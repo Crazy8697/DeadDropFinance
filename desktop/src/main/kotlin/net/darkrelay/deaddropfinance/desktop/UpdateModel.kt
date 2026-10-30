@@ -25,6 +25,9 @@ class UpdateModel(
     private val launch: (File) -> Boolean = Updater::launchSetup,
     /** Only an installed copy updates itself; a run from source only points at the release page. */
     val canInstall: Boolean = isInstalled(),
+    /** Skip this version (0.13.0), as on the phone: the version skipped, and saving a new one. */
+    private val skipped: () -> String? = { null },
+    private val onSkip: (String) -> Unit = {},
 ) {
     @Volatile var state: UpdateState = UpdateState.Hidden
         private set
@@ -47,7 +50,8 @@ class UpdateModel(
             Updater.Result.Failed("The update check failed.")
         }
         when (r) {
-            is Updater.Result.Newer -> set(UpdateState.Available(r.release))
+            // a skipped version isn't offered at startup until a newer one comes; Check for updates still offers it
+            is Updater.Result.Newer -> if (manual || offered(r.release.version)) set(UpdateState.Available(r.release))
             is Updater.Result.Current -> if (manual) set(UpdateState.Message("Dead Drop Finance $installed is the newest version.", false))
             is Updater.Result.Failed -> if (manual) set(UpdateState.Message("Couldn't check for updates. ${r.reason}", true))
         }
@@ -76,6 +80,19 @@ class UpdateModel(
     }
 
     fun dismiss() = set(UpdateState.Hidden)
+
+    /** Skip this version: hidden now, and not offered at startup again (the phone's UpdateCheck.shouldOffer). */
+    fun skip() {
+        val rel = (state as? UpdateState.Available)?.release ?: return
+        onSkip(rel.version)
+        set(UpdateState.Hidden)
+    }
+
+    private fun offered(version: String): Boolean {
+        val s = skipped()
+        if (s.isNullOrBlank()) return true
+        return (net.darkrelay.deaddropfinance.UpdateCheck.compareVersions(version, s) ?: 1) > 0
+    }
 
     companion object {
         /** The jpackage launcher of an installed copy sets jpackage.app-path; a run from source doesn't. */

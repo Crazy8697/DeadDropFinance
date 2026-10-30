@@ -91,6 +91,8 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell
             Spacer(Modifier.weight(1f))
             if (e.mode != EnvelopeMode.ROLLOVER) Btn(if (e.archived) "Unarchive" else "Archive", { shell.run { model.setEnvelopeArchived(e.id, !e.archived) } }, ghost = true, tag = "drawer.archive")
             Btn("Edit", { model.dialog = Dialog.EnvelopeForm(e.id) }, ghost = true, enabled = !e.isSystem, tag = "drawer.edit")
+            // 0.13.0: the phone's envelope screen: Goal and Debt fields, claimed categories, the suggested target
+            Btn("Details", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Envelope(e.id)) }, ghost = true, tag = "drawer.details")
         }
     }
 }
@@ -207,6 +209,8 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
     val close = { model.dialog = null }
     Modal(if (existing == null) "Add transaction" else "Edit transaction", if (split) 640.dp else 470.dp, close, "dialog.add", footer = {
         if (existing != null && !deleting) Btn("Delete", { deleting = true }, ghost = true, tag = "dialog.delete")
+        // 0.13.0: the phone's transaction screen: payday, wash, returns, each line's category, make a rule, its receipt
+        if (existing != null && !deleting) Btn("Details", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.TxDetail(existing.id)) }, ghost = true, tag = "dialog.details")
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
         Btn("Save", {
             val cents = parseAmount(amount)

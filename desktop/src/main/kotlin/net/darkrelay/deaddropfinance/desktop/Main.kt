@@ -61,7 +61,7 @@ fun main(args: Array<String>) {
     }
     // the smoke test (tests, off screen) never takes the lock; everything else is one instance per user
     if (smoke == null && instance.claim(afterUpdate = "--after-update" in args) == SingleInstance.Claim.SECOND) exitProcess(0)
-    val updates = UpdateModel()
+    val updates = UpdateModel(skipped = { settings.skippedVersion }, onSkip = { settings.skippedVersion = it })
     // the budget (the phone app's engine on the program's own encrypted file) opens in the background
     val engine = CompletableDeferred<Engine>()
     val syncScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
@@ -76,9 +76,11 @@ fun main(args: Array<String>) {
         var model by remember { mutableStateOf(AppModel(null)) }
         val scope = rememberCoroutineScope()
         updates.onChange = { update = it }
+        // bill reminders and autopay warnings as Windows notifications (0.13.0), under the phone's own settings
+        val notices = remember { TrayNotices(java.awt.Toolkit.getDefaultToolkit().getImage(Thread.currentThread().contextClassLoader.getResource("deaddropfinance-256.png"))) }
 
-        LaunchedEffect(Unit) {
-            val e = withContext(Dispatchers.IO) { engine.await() }
+        /** The model on an opened budget: its recovery key and server sync set up, as at every start. */
+        suspend fun openModel(e: Engine): AppModel {
             val m = AppModel(e)
             withContext(Dispatchers.IO) { m.refresh() }
             // the recovery key (0.11.0): every backup's key, DPAPI-protected in the data folder
@@ -95,8 +97,31 @@ fun main(args: Array<String>) {
             }
             // a recovery key made here but not confirmed as saved is shown again
             if (smoke == null) m.showRecoveryKeyIfNew()
-            model = m
+            return m
         }
+
+        LaunchedEffect(Unit) {
+            val e = withContext(Dispatchers.IO) { engine.await() }
+            model = openModel(e)
+        }
+
+        // bill reminders and autopay warnings (0.13.0): checked a minute after the budget opens, then every 6 hours, as the
+        // phone's job does; each goes once per bill cycle, under More, Alerts
+        if (smoke == null) LaunchedEffect(model) {
+            val ok = model.engine?.opened as? net.darkrelay.deaddropfinance.data.DesktopDatabase.Opened.Ok ?: return@LaunchedEffect
+            delay(60_000)
+            while (true) {
+                withContext(Dispatchers.IO) { runCatching { ProgramAlerts.check(ok.store, settings, notices, java.time.LocalDate.now()) } }
+                delay(6 * 60 * 60 * 1000L)
+            }
+        }
+
+        // Erase everything and Purge data (0.13.0), after the phone's confirm screens in More
+        fun erase() = scope.launch {
+            model = ProgramReset.eraseNow(model, settings.dir, settings) { e -> openModel(e) }
+            checkAtStartup = settings.checkUpdatesAtStartup
+        }
+        fun purge() = scope.launch { ProgramReset.purgeNow(model, settings) }
 
         fun checkNow(manual: Boolean) {
             scope.launch { withContext(Dispatchers.IO) { updates.runCheck(manual) } }
@@ -105,7 +130,8 @@ fun main(args: Array<String>) {
         fun quit() {
             // let go of the edit lock and send what's waiting (a few seconds at most), then close the budget
             model.server?.let { s -> runBlocking { s.closing() } }
-            if (engine.isCompleted) engine.getCompleted().close()
+            (model.engine ?: engine.takeIf { it.isCompleted }?.getCompleted())?.close()
+            notices.close()
             instance.release()
             exitApplication()
         }
@@ -152,6 +178,7 @@ fun main(args: Array<String>) {
                 },
                 onOpenPage = { openInBrowser(it) },
                 onDismissUpdate = { updates.dismiss() },
+                onSkipUpdate = { updates.skip() },
                 onCheckNow = { checkNow(true) },
                 onCheckAtStartup = {
                     checkAtStartup = it
@@ -173,6 +200,26 @@ fun main(args: Array<String>) {
                     val d = FileDialog(window, "Restore", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".ddfbak") }; file = "*.ddfbak"; isVisible = true }
                     d.file?.let { File(d.directory, it) }
                 },
+                settings = settings,
+                pickJson = {
+                    val d = FileDialog(window, "Import setup", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".json") }; file = "*.json"; isVisible = true }
+                    d.file?.let { File(d.directory, it) }
+                },
+                pickSave = { suggested ->
+                    val d = FileDialog(window, "Save", FileDialog.SAVE).apply { file = suggested; isVisible = true }
+                    d.file?.let { File(d.directory, it) }
+                },
+                pickReceipt = {
+                    val d = FileDialog(window, "Choose a receipt image", FileDialog.LOAD).apply {
+                        setFilenameFilter { _, n -> n.lowercase().let { it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") } }; isVisible = true
+                    }
+                    d.file?.let { File(d.directory, it) }
+                },
+                notices = notices,
+                docs = { programDocs() },
+                readDoc = { name -> programDoc(name) },
+                onErase = { erase() },
+                onPurge = { purge() },
             )
             DesktopApp(model, shell)
             if (smoke != null) {
@@ -196,6 +243,19 @@ fun main(args: Array<String>) {
             }
         }
     }
+}
+
+/** About, Licenses (0.13.0): the notices and license texts the installed program carries, by file name. */
+private fun programDocs(): List<String> {
+    if (!UpdateModel.isInstalled()) return emptyList()
+    val top = listOf("LICENSE.txt", "NOTICE.txt", "THIRD-PARTY-NOTICES.md").filter { File(installDir(), it).isFile }
+    return top + (File(installDir(), "licenses").listFiles()?.filter { it.isFile }?.map { it.name }?.sorted() ?: emptyList())
+}
+
+private fun programDoc(name: String): String? {
+    if (!UpdateModel.isInstalled()) return null
+    val f = listOf(File(installDir(), name), File(File(installDir(), "licenses"), name)).firstOrNull { it.isFile } ?: return null
+    return runCatching { f.readText(Charsets.UTF_8) }.getOrNull()
 }
 
 /** The installed program's folder (jpackage's launcher sets jpackage.app-path to the exe). */

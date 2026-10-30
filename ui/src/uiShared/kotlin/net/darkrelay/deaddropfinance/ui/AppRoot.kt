@@ -1,6 +1,5 @@
 package net.darkrelay.deaddropfinance.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,7 +16,6 @@ import androidx.compose.runtime.produceState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
-import net.darkrelay.deaddropfinance.sync.SyncSettings
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -114,7 +112,7 @@ sealed interface Nav {
 data class OpenTo(val where: String, val n: Int)
 
 /** Images shared to the app from another app, to scan as a receipt. [n] rises with each share. */
-data class SharedReceipt(val uris: List<android.net.Uri>, val n: Int)
+data class SharedReceipt(val uris: List<PickedUri>, val n: Int)
 
 /** The phone-side hooks the screens need but can't do in Compose (browser, file picker, settings). */
 interface Platform {
@@ -152,11 +150,11 @@ interface Platform {
     /** Asks for the notification permission; when Android won't ask again, opens the app's notification settings. */
     fun requestNotifications(done: (Boolean) -> Unit)
     /** The camera app takes a photo (no camera permission); null if cancelled. */
-    fun takeReceiptPhoto(done: (android.net.Uri?) -> Unit)
+    fun takeReceiptPhoto(done: (PickedUri?) -> Unit)
     /** An image or a PDF from the phone; null if cancelled. */
-    fun pickReceiptFile(done: (android.net.Uri?) -> Unit)
+    fun pickReceiptFile(done: (PickedUri?) -> Unit)
     /** Reads [uri] into receipt pages from [firstPage] on (stored encrypted). Runs off the main thread. */
-    suspend fun scanReceipt(uri: android.net.Uri, receiptId: String, firstPage: Int): List<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>
+    suspend fun scanReceipt(uri: PickedUri, receiptId: String, firstPage: Int): List<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>
     /** One stored page, decrypted for showing. */
     suspend fun receiptPage(receiptId: String, page: Int): androidx.compose.ui.graphics.ImageBitmap?
     /** Deletes a receipt's photos. */
@@ -168,25 +166,29 @@ interface Platform {
     /** One carried document's text, or null. */
     fun readDoc(name: String): String?
     /** The system's save picker for a new backup file named [name]; null if cancelled. */
-    fun createBackupFile(name: String, done: (android.net.Uri?) -> Unit)
+    fun createBackupFile(name: String, done: (PickedUri?) -> Unit)
     /** The system's file picker for a backup to restore; null if cancelled. */
-    fun pickBackupFile(done: (android.net.Uri?) -> Unit)
+    fun pickBackupFile(done: (PickedUri?) -> Unit)
     /** A picked file's name as the phone shows it. */
-    fun displayName(uri: android.net.Uri): String
+    fun displayName(uri: PickedUri): String
     /** This phone's recovery keys (1.6.0); null where there are none (screen tests). */
     val recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? get() = null
     /** Writes the backup to [uri], under the recovery key (1.6.0). Runs off the main thread. */
-    suspend fun writeBackup(uri: android.net.Uri): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    suspend fun writeBackup(uri: PickedUri): net.darkrelay.deaddropfinance.backup.BackupSummary
     /**
      * 1.7.3: the picked backup, read once right after it's picked into a copy in the app's own storage (RestoreFlow.copyPicked);
      * every later step uses the copy. Throws BackupException saying what failed.
      */
-    suspend fun copyPickedBackup(uri: android.net.Uri): java.io.File =
+    suspend fun copyPickedBackup(uri: PickedUri): java.io.File =
         throw net.darkrelay.deaddropfinance.backup.BackupException(net.darkrelay.deaddropfinance.backup.RestoreFlow.UNREADABLE)
     /** Restores from the copy [file] with [opener]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread, no screen work. */
-    suspend fun restoreBackup(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    suspend fun restoreBackup(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.BackupSummary
     /** Server login (1.4.0): this phone's budget, backed up to Downloads under its recovery key before the server's replaces it; returns where. */
     suspend fun backupBeforeServer(key: ByteArray): String
+    /** 1.8.0: the system's save dialog for a CSV file named [name]; [done] says whether [text] was saved. */
+    fun saveCsv(name: String, text: String, done: (Boolean) -> Unit) = done(false)
+    /** The app's icon for About (a resource of the app or the program); null shows none. */
+    @Composable fun appIcon(): androidx.compose.ui.graphics.painter.Painter? = null
     /** Copies the recovery key for the user (marked sensitive). */
     fun copySecret(text: String) {}
     /**
@@ -216,13 +218,15 @@ fun budgetFlow(store: BudgetStore): Flow<Budget> {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppRoot(
-    store: BudgetStore, appSettings: SyncSettings, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
+    store: BudgetStore, appSettings: AppSettings, platform: Platform, startupUpdateCheck: Boolean, openTo: OpenTo? = null, shared: SharedReceipt? = null,
     /** Called once a shared file or a notification's destination is taken, so it isn't taken again later. */
     onTaken: () -> Unit = {},
     /** Rises each time the app comes back to the front: what Android's settings may have changed is read again. */
     resumeTick: Int = 0,
     /** Server sync (1.4.0); null in previews and tests. */
     sync: net.darkrelay.deaddropfinance.serversync.ServerSync? = null,
+    /** 0.13.0: set when the desktop program shows these screens (ProgramHost). */
+    host: ProgramHost? = null,
 ) {
     val noSync = remember { kotlinx.coroutines.flow.MutableStateFlow(net.darkrelay.deaddropfinance.serversync.SyncStatus(net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED)) }
     val noNotices = remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<String>()) }
@@ -251,6 +255,9 @@ fun AppRoot(
     var categoryMonth by remember { mutableIntStateOf(0) }
     /** Activity's selected account tab; null is All, where Activity opens. */
     var activityTab by remember { mutableStateOf<String?>(null) }
+    /** 1.8.0: Activity's budget month (0: the open one), and what Export CSV said last. */
+    var activityMonth by remember { mutableIntStateOf(0) }
+    var exportNote by remember { mutableStateOf<String?>(null) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
     val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
     val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
@@ -285,7 +292,7 @@ fun AppRoot(
     var alertTick by remember { mutableIntStateOf(0) }
     var alertsAsked by remember { mutableStateOf(appSettings.alertsAsked) }
     val budget by remember(store) { budgetFlow(store) }.collectAsState(initial = null)
-    val stack = remember { mutableStateListOf<Nav>(Nav.Home) }
+    val stack = remember { mutableStateListOf<Nav>(host?.start ?: Nav.Home) }
     var error by remember { mutableStateOf<String?>(null) }
     // a user action is running (run): another tap waits for it
     var working by remember { mutableStateOf(false) }
@@ -299,6 +306,7 @@ fun AppRoot(
     var washCandidates by remember { mutableStateOf<List<TransactionEntity>>(emptyList()) }
     val scope = rememberCoroutineScope()
     val today = LocalDate.now()
+    val words = LocalDeviceWords.current
 
     // setup
     var erasing by remember { mutableStateOf(false) }
@@ -309,8 +317,8 @@ fun AppRoot(
     var starters by remember { mutableStateOf(setOf<String>()) }
 
     fun go(n: Nav) { error = null; message = null; stack.add(n) }
-    fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) }
-    fun tab(n: Nav) { error = null; message = null; if (n == Nav.Activity) activityTab = null; stack.clear(); stack.add(n) }
+    fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) else host?.onExit?.invoke() }
+    fun tab(n: Nav) { error = null; message = null; if (n == Nav.Activity) { activityTab = null; exportNote = null }; stack.clear(); stack.add(n) }
     fun backTo(n: Nav) { while (stack.size > 1 && stack.last() != n) stack.removeAt(stack.lastIndex) }
     /**
      * Runs a user action: one at a time (a second tap while it runs is ignored, so nothing is saved twice), with the
@@ -421,7 +429,7 @@ fun AppRoot(
             wizardForced = true
         }
         if (startupUpdateCheck) {
-            delay(net.darkrelay.deaddropfinance.Updates.STARTUP_DELAY_MS)
+            delay(STARTUP_UPDATE_DELAY_MS)
             platform.checkForUpdates(manual = false) { r, _ -> release = r }
         }
     }
@@ -472,11 +480,13 @@ fun AppRoot(
         if (openTo != null) onTaken()
         when (openTo?.where) {
             null -> {}
-            net.darkrelay.deaddropfinance.MainActivity.OPEN_BILLS -> tab(Nav.Bills)
-            net.darkrelay.deaddropfinance.MainActivity.OPEN_HOME -> tab(Nav.Home)
+            OpenTargets.BILLS -> tab(Nav.Bills)
+            OpenTargets.HOME -> tab(Nav.Home)
             else -> tab(Nav.Activity)
         }
     }
+    // 0.13.0: a screen opened from elsewhere in the program
+    LaunchedEffect(host) { host?.requests?.collect { n -> error = null; message = null; stack.clear(); stack.add(n) } }
     LaunchedEffect(Unit) {
         parkWait = parkedOps.defaultWait()
         while (true) { nowMs = System.currentTimeMillis(); delay(60_000) }
@@ -485,8 +495,8 @@ fun AppRoot(
         // photos left behind by a receipt that's gone (or a scan never saved)
         withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
     }
-    BackHandler(enabled = stack.size > 1) { back() }
-    BackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
+    PlatformBackHandler(enabled = stack.size > 1) { back() }
+    PlatformBackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
         wizard = WizardPage.entries[wizard!!.ordinal - 1]
     }
 
@@ -511,7 +521,7 @@ fun AppRoot(
         go(Nav.Scan(forTx))
     }
     /** Reads one more photo or file into the scan, then shows the form. */
-    fun addToScan(uri: android.net.Uri?) {
+    fun addToScan(uri: PickedUri?) {
         val id = scanId ?: return
         if (uri == null) return
         scope.launch {
@@ -521,7 +531,8 @@ fun AppRoot(
                 scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList()))
                 if (stack.last() !is Nav.ReceiptEdit) { stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true)) }
             } catch (e: Exception) {
-                error = "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
+                error = if (words.camera) "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
+                    else "That file couldn't be read as an image. Choose a JPG or PNG."
             } finally {
                 scanning = false
             }
@@ -640,6 +651,17 @@ fun AppRoot(
                         onAdd = { id -> go(Nav.TxEdit(null, accountId = id)) },
                         onScan = { startScan(null) },
                         onImport = { id -> importState = ImportState(accountId = id); go(Nav.Import) },
+                        monthIndex = activityMonth,
+                        onMonth = { activityMonth = it; exportNote = null },
+                        onExport = {
+                            val months = b.months(today)
+                            val m = months[activityMonth.coerceIn(0, months.size - 1)]
+                            val name = net.darkrelay.deaddropfinance.domain.ActivityExport.fileName(b.accounts.firstOrNull { it.id == activityTab }?.name, m, today)
+                            platform.saveCsv(name, net.darkrelay.deaddropfinance.domain.ActivityExport.csv(b, activityTab, m, moves = false)) { ok ->
+                                exportNote = if (ok) "Saved $name." else null
+                            }
+                        },
+                        note = exportNote,
                     ),
                 )
             }
@@ -660,7 +682,7 @@ fun AppRoot(
                 onBudgetStart = { d -> run(scope) { store.setBudgetStart(d); sorting.labelHistory() } },
                 currency = currency,
                 onCurrency = { code -> run(scope) { store.setCurrency(code) } },
-                onServer = sync?.let { { serverUi = ServerUi(); go(Nav.Server) } },
+                onServer = sync?.takeIf { host == null }?.let { { serverUi = ServerUi(); go(Nav.Server) } },
                 serverLine = if (syncStatus.state == net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED) "Not connected. Connect to server"
                     else syncStatusText(syncStatus),
                 onSetup = { openWizard() },
@@ -670,7 +692,7 @@ fun AppRoot(
                 onReceipts = { go(Nav.Receipts) },
                 onParked = { go(Nav.ParkedBuys) },
                 onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
-                onBackup = { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) },
+                onBackup = if (host != null) null else { { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) } },
                 backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",
                 parkWait = parkWait,
                 onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
@@ -940,7 +962,7 @@ fun AppRoot(
                     // the first backup makes the recovery key and shows it once, before anything is saved
                     keys?.ensure()
                     showKeyThen {
-                    val name = net.darkrelay.deaddropfinance.backup.Backups.fileName(today)
+                    val name = net.darkrelay.deaddropfinance.backup.BackupNames.fileName(today)
                     platform.createBackupFile(name) { uri ->
                         if (uri == null) return@createBackupFile
                         scope.launch {
@@ -1050,7 +1072,7 @@ fun AppRoot(
                     onCancel = { importSetup = SetupImportState() },
                 )
             }
-            Nav.About -> AboutScreen(more.version, ::back, platform::openUrl, onLicenses = { go(Nav.Licenses) }, onDoc = { go(Nav.Document(it)) })
+            Nav.About -> AboutScreen(more.version, platform.appIcon(), ::back, platform::openUrl, onLicenses = { go(Nav.Licenses) }, onDoc = { go(Nav.Document(it)) })
             Nav.Licenses -> {
                 val files = remember { platform.docs() }
                 LicensesScreen(files, ::back) { go(Nav.Document(it)) }
@@ -1115,7 +1137,7 @@ fun AppRoot(
             }
             Nav.Erase -> EraseScreen(::back, working = erasing) { erasing = true; platform.eraseEverything() }
             Nav.Purge -> PurgeScreen(::back, working = erasing) {
-                if (sync?.connected == true) { back(); error = "Log out of the server (More > Server) before purging data." }
+                if (sync?.connected == true) { back(); error = "Log out of the server (${words.serverPlace}) before purging data." }
                 else { erasing = true; platform.purgeData() }
             }
             Nav.Server -> {
@@ -1279,19 +1301,19 @@ fun AppRoot(
                 setupDone = true
                 wizard = null
                 wizardForced = false
-                tab(Nav.Home)
+                tab(host?.start ?: Nav.Home)
             },
         )
         return
     }
 
     Scaffold(
-        bottomBar = { BottomTabs(stack.first()) { tab(it) } },
+        bottomBar = { if (host == null) BottomTabs(stack.first()) { tab(it) } },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            ReadOnlyBanner(syncStatus) { sync?.let { s -> scope.launch { s.takeOver() } } }
-            for (n in syncNotices) SyncNotice(n) { sync?.dismissNotice(n) }
-            if (keyArrived) SyncNotice("The account's recovery key reached this phone: backups made here now open on every device of the account.") { sync?.dismissKeyArrived() }
+            if (host == null) ReadOnlyBanner(syncStatus) { sync?.let { s -> scope.launch { s.takeOver() } } }
+            if (host == null) for (n in syncNotices) SyncNotice(n) { sync?.dismissNotice(n) }
+            if (keyArrived && host == null) SyncNotice("The account's recovery key reached this phone: backups made here now open on every device of the account.") { sync?.dismissKeyArrived() }
             // screens that don't show errors themselves get them here, so a failed action never goes unsaid
             val shown = top is Nav.Envelope || top in setOf(Nav.Home, Nav.Envelopes, Nav.Activity, Nav.Bills, Nav.Categories, Nav.More, Nav.Rules, Nav.Subscriptions, Nav.Receipts)
             val e = error
