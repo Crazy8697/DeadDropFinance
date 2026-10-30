@@ -98,7 +98,7 @@ private fun TableScope.EnvelopeRow(model: AppModel, b: Budget, e: EnvelopeEntity
                 modeTag(e)?.let { Tag(it, modifier = Modifier.padding(start = 6.dp)) }
             }
         }
-        Cell(0.12f, true) { T(target?.let { money(it) } ?: "", color = C.Dim, align = TextAlign.End) }
+        Cell(0.12f, true) { T(target?.let { money(it) } ?: "No target", color = C.Dim, align = TextAlign.End) }
         Cell(0.12f, true) { T(money(model.assignedTo(b, e)), color = C.Dim, align = TextAlign.End) }
         Cell(0.12f, true) { T(money(avail), color = moneyColor(avail), align = TextAlign.End, modifier = Modifier.testTag("avail.${e.name}")) }
         Cell(0.24f) {

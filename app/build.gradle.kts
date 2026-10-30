@@ -347,3 +347,17 @@ tasks.withType<Test>().configureEach {
         "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
     )
 }
+
+// On-device tests run only on the emulator (1.7.1), through tools\emulator.ps1's own adb server with mDNS off, so no
+// phone is ever reachable from a test run. Started any other way, a connected test task refuses before it does anything.
+tasks.matching { it.name.startsWith("connected") }.configureEach {
+    doFirst {
+        val env = System.getenv()
+        check((env["ANDROID_SERIAL"] ?: "").startsWith("emulator-")) {
+            "Connected tests run only on the emulator: start them with tools\\emulator.ps1 (ANDROID_SERIAL=emulator-...)."
+        }
+        check(env["ADB_MDNS"] == "0" && env["ADB_MDNS_AUTO_CONNECT"] == "0" && env["ANDROID_ADB_SERVER_PORT"] == "5038") {
+            "Connected tests need the emulator's own adb server with mDNS off: start them with tools\\emulator.ps1."
+        }
+    }
+}

@@ -238,6 +238,7 @@ class DesktopAccountTest {
             tag("currency.change").performClick()
             compose.waitForIdle()
             tag("currency.USD").assertExists()
+            tag("currency.JPY").assertDoesNotExist()
             tag("currency.search").performTextInput("euro")
             compose.waitForIdle()
             tag("currency.EUR").performClick()
@@ -271,6 +272,20 @@ class DesktopAccountTest {
         compose.waitForIdle()
         tag("f.key").assertExists()
         assertNull(m.savedKeyFor(withOther))
+    }
+
+    /** 0.12.1: an envelope with no target says so in words, as the phone does. */
+    @Test fun anEmptyTargetSaysNoTarget() {
+        val made = SampleBudget.filled(tmp.newFolder()).also { models += it.model }
+        val m = made.model
+        val none = m.budget!!.envelopes.first { m.targetOf(it) == null && it in m.envelopesInTable(m.budget!!) }
+        compose.setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } })) }
+        compose.waitForIdle()
+        compose.onAllNodes(androidx.compose.ui.test.hasText("No target"), useUnmergedTree = true).fetchSemanticsNodes().let { assertTrue(it.isNotEmpty()) }
+        m.drawerEnvelope = none.id
+        compose.waitForIdle()
+        compose.onNode(androidx.compose.ui.test.hasTestTag("drawer.target"), useUnmergedTree = true).assertExists()
+        compose.onAllNodes(androidx.compose.ui.test.hasText("No target"), useUnmergedTree = true).fetchSemanticsNodes().let { assertTrue(it.size >= 2) }
     }
 
     @Test fun noWindowsHelloIsLeftInTheProgram() {

@@ -91,12 +91,20 @@ class CurrencyTest {
         assertEquals("USD", Money.style.code)
     }
 
-    @Test fun thePickerListsTheCommonOnesFirstThenEveryCurrency() {
+    @Test fun thePickerListsTheCommonOnesFirstThenEveryTwoDecimalCurrency() {
         val list = Currencies.pickerList()
-        assertEquals(Currencies.COMMON, list.take(10).map { it.code })
-        assertTrue(list.size > 100, "the full ISO 4217 list")
+        assertEquals(listOf("USD", "EUR", "GBP", "CAD", "AUD", "MXN", "CHF", "INR", "NZD"), Currencies.commonOffered)
+        assertEquals(Currencies.commonOffered, list.take(9).map { it.code })
+        assertTrue(list.size > 100, "the rest of the ISO 4217 list")
         assertEquals(list.size, list.map { it.code }.toSet().size, "each once")
-        assertEquals(listOf("JPY"), Currencies.pickerList("yen").map { it.code })
+        // 1.7.1: only currencies whose usual convention is two decimals: amounts are hundredths
+        assertTrue(list.all { java.util.Currency.getInstance(it.code).defaultFractionDigits == 2 })
+        for (code in listOf("JPY", "KRW", "VND", "CLP", "ISK", "KWD", "BHD", "TND", "JOD", "OMR")) {
+            assertTrue(list.none { it.code == code }, "$code isn't offered")
+            assertTrue(Currencies.hidden().any { it.code == code }, "$code is listed as hidden")
+        }
+        assertEquals(Currencies.all().size, list.size + Currencies.hidden().size)
+        assertTrue(Currencies.pickerList("yen").isEmpty())
         assertTrue(Currencies.pickerList("eur").any { it.code == "EUR" })
         assertTrue(Currencies.pickerList("swiss").any { it.code == "CHF" })
         assertTrue(Currencies.pickerList("no such money").isEmpty())

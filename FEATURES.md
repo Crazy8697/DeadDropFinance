@@ -282,13 +282,15 @@ How the app behaves. Each section names the stage that builds it. Everything run
 
 - One currency for the whole budget, in More (phone) and Settings > Budget (program), and on setup's first page on the
   phone. A budget that never chose one is USD, as before; a new budget starts as USD unless it's changed in setup.
-- The picker lists the common currencies first (USD, EUR, GBP, CAD, AUD, MXN, JPY, CHF, INR, NZD), then every ISO 4217
-  currency the device knows, searchable by code or name. It uses the platform's own currency data: nothing is fetched.
+- The picker lists the common currencies first (USD, EUR, GBP, CAD, AUD, MXN, CHF, INR, NZD), then the other ISO 4217
+  currencies the device knows, searchable by code or name. It uses the platform's own currency data: nothing is fetched.
+- Only currencies whose usual convention is two decimal places are offered (1.7.1): amounts are stored as whole
+  hundredths. Those with none (JPY, KRW, VND, CLP, ISK and others) or three (KWD, BHD, TND, JOD, OMR and others), and
+  the funds and metals codes, aren't offered. A budget that already holds one keeps showing it and can change away.
 - Amounts show and are typed in the currency's usual convention: its symbol and where it goes, and its decimal and
   thousands separators ("1.234,56 €" for EUR). Everywhere money is shown or typed: the screens, reminders, CSV
   import (a file's own amounts decide its decimal comma; when they don't show it, the currency does).
-- Every currency shows two decimal places. Amounts are stored as whole hundredths, so a currency whose own convention
-  has no decimals (JPY) or three (KWD) still shows two: anything else would change what a stored amount means.
+- Every currency shows two decimal places, since amounts are stored as whole hundredths.
 - Display only: no exchange rates, no conversion, nothing sent anywhere. Changing it changes no stored amount.
 - It syncs to every device of the account as a meta change, like the budget start date, and a backup carries it.
 

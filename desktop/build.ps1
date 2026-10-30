@@ -162,16 +162,11 @@ function Invoke-Smoke {
     }
 }
 
-function Assert-SiteReady {
-    # the site repo must be clean, not behind its upstream (commits of its own still to push are fine: they go out
-    # with the link), and carry the program's download link exactly once
-    if (-not (Test-Path (Join-Path $Site ".git"))) { Fail "no darkrelay-site repo at $Site" }
-    if ((git -C $Site status --porcelain) -ne $null) { Fail "darkrelay-site has uncommitted changes; commit or stash them first" }
-    Run git @("-C", $Site, "fetch", "-q", "origin")
-    git -C $Site merge-base --is-ancestor '@{u}' HEAD
-    if ($LASTEXITCODE -ne 0) { Fail "darkrelay-site is behind or apart from its upstream (pull it first)" }
-    $n = [regex]::Matches([IO.File]::ReadAllText((Join-Path $Site "index.html")), $SiteHrefRe).Count
-    if ($n -ne 1) { Fail "darkrelay-site index.html has the program's download link $n times, not exactly once" }
+# the site step's git work (0.12.1): desktop\tools\site_link.ps1, so git's stderr notes never count as failures
+. (Join-Path $Desktop "tools\site_link.ps1")
+
+function Assert-SiteOk {
+    try { Assert-SiteReady $Site $SiteHrefRe } catch { Fail $_.Exception.Message }
 }
 
 if ($PrivacyCheck) {
@@ -214,7 +209,7 @@ try {
     if (git tag --list $tag) { Fail "tag $tag already exists locally" }
     $latestBefore = ((cmd /c "gh api repos/$Repo/releases/latest --jq .tag_name 2>nul") -join "").Trim()
     if ($latestBefore -notmatch '^v\d+\.\d+\.\d+$') { Fail "releases/latest isn't a phone release now ('$latestBefore')" }
-    Assert-SiteReady
+    Assert-SiteOk
 
     Step "1. build, tests, Setup"
     Invoke-Build
@@ -315,30 +310,8 @@ try {
 $siteHref = "https://github.com/$Repo/releases/download/$tag/$SetupName"
 try {
     Step "8. darkrelay.net: the program's download link to $tag (site origin only)"
-    Assert-SiteReady
-    $index = Join-Path $Site "index.html"
-    $utf8 = New-Object Text.UTF8Encoding($false)
-    $before = [IO.File]::ReadAllText($index)
-    $after = [regex]::Replace($before, $SiteHrefRe, "href=`"$siteHref`"")
-    if ($after -ceq $before) {
-        Write-Host "index.html already links $tag; no commit."
-    } else {
-        [IO.File]::WriteAllText($index, $after, $utf8)
-        $changed = @(git -C $Site status --porcelain)
-        $num = @(git -C $Site diff --numstat)
-        if ($changed.Count -ne 1 -or $changed[0] -ne " M index.html" -or $num.Count -ne 1 -or $num[0] -ne "1`t1`tindex.html") {
-            [IO.File]::WriteAllText($index, $before, $utf8)
-            Fail "darkrelay-site changed more than the one link line ($($changed -join '; ')); index.html was put back"
-        }
-        Run git @("-C", $Site, "add", "--", "index.html")
-        Run git @("-C", $Site, "commit", "-q", "-m", "Dead Drop Finance program download: $tag")
-        Write-Host "darkrelay-site: committed."
-    }
-    $ahead = "$(git -C $Site rev-list --count '@{u}..HEAD')".Trim()
-    if ($ahead -ne "0") {
-        Run git @("-C", $Site, "push", "-q", "origin", "HEAD")
-        Write-Host "darkrelay-site: $ahead commit(s) pushed to origin."
-    }
+    $did = try { Update-SiteLink $Site $SiteHrefRe $siteHref $tag } catch { Fail $_.Exception.Message }
+    Write-Host "darkrelay-site: $did."
 
     Step "9. live check: darkrelay.net shows the $tag link, and the link resolves"
     $deadline = (Get-Date).AddMinutes(10)

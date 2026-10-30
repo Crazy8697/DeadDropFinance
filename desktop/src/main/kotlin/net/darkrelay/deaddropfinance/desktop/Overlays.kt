@@ -64,7 +64,7 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String) {
             }
             Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard("Available", money(avail), null, Modifier.weight(1f), cyan = true, valueSize = 19.sp, tag = "drawer.available")
-                StatCard("Target", target?.let { money(it) } ?: "", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
+                StatCard("Target", target?.let { money(it) } ?: "No target", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp)) {
@@ -458,10 +458,10 @@ fun CurrencyDialog(model: AppModel, shell: Shell) {
     val close = { model.dialog = null }
     Modal("Currency", 470.dp, close, "dialog.currency", footer = { Btn("Close", close, ghost = true, tag = "dialog.cancel") }) {
         T("Amounts show and are typed in this currency on every device of the account. No amount changes, and there are no exchange rates.", 12.sp, C.Dim)
-        Field("Search by code or name", query, { query = it }, placeholder = "EUR, euro, yen", tag = "currency.search")
+        Field("Search by code or name", query, { query = it }, placeholder = "EUR, euro, pound", tag = "currency.search")
         Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
             for ((i, c) in list.withIndex()) {
-                if (query.isBlank() && i == net.darkrelay.deaddropfinance.domain.Currencies.COMMON.size) Label("ALL CURRENCIES")
+                if (query.isBlank() && i == net.darkrelay.deaddropfinance.domain.Currencies.commonOffered.size) Label("ALL CURRENCIES")
                 val chosen = c.code == model.currency
                 val example = remember(c.code) { net.darkrelay.deaddropfinance.domain.Money.format(123456, net.darkrelay.deaddropfinance.domain.Currencies.style(c.code)) }
                 Row(

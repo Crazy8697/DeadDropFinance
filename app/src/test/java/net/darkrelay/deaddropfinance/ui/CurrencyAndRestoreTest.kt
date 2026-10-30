@@ -46,11 +46,24 @@ class CurrencyAndRestoreTest {
         compose.onNodeWithText("USD (US Dollar)", substring = true).assertIsDisplayed()
         compose.onNodeWithText("Change").performClick()
         compose.onNodeWithText("Euro").assertIsDisplayed()
-        compose.onNodeWithText("Search by code or name").performTextInput("yen")
+        compose.onNodeWithText("Search by code or name").performTextInput("pound")
         compose.waitForIdle()
         compose.onNodeWithText("Euro").assertDoesNotExist()
-        compose.onNodeWithText("Japanese Yen").performClick()
-        assertEquals("JPY", picked)
+        compose.onNodeWithText("British Pound").performClick()
+        assertEquals("GBP", picked)
+    }
+
+    /** 1.7.1: a currency whose convention isn't two decimals isn't offered, but a budget that holds one still shows it. */
+    @Test fun aHiddenCurrencyStillShowsButIsNotOffered() {
+        var picked: String? = null
+        compose.setContent { CurrencySetting("JPY") { picked = it } }
+        compose.onNodeWithText("JPY (Japanese Yen)", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Change").performClick()
+        compose.onNodeWithText("Search by code or name").performTextInput("yen")
+        compose.waitForIdle()
+        compose.onNodeWithText("Japanese Yen").assertDoesNotExist()
+        compose.onNodeWithText("No currency matches that.").assertExists()
+        assertNull(picked)
     }
 
     @Test fun aSavedKeyRestoresWithoutTypingAndOtherwiseItIsAsked() {

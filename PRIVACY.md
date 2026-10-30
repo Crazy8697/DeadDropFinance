@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.7.0.
+Effective with version 1.7.1.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
@@ -38,14 +38,15 @@ Android's own backup is turned off for the app, so none of this leaves the phone
   installs it through Android's own installer. Nothing about you is sent there either.
 - Your own Dead Drop server (from 1.4.0, only if you connect to one in More > Server): the app sends your budget's
   changes to it and takes in the changes your other devices made. That server is yours, on your own network; it is
-  not DarkRelay's, and DarkRelay never sees it. Everything between the app and it is encrypted end to end with
-  libsodium, to the server's key the app pinned the first time; the network sees only ciphertext. The password is
+  not DarkRelay's, and DarkRelay never sees it. The connection between the app and it is encrypted with libsodium, to
+  the server's key the app pinned the first time; the network sees only ciphertext. The server itself reads and keeps
+  the budget: it holds the readable master copy that your devices sync with, on your own hardware. The password is
   sent only when you create the account, log in or change it, inside that encryption. Logging out lets go of the
   server and deletes this phone's server key; the budget stays on the phone. With Stay logged in off, closing the app
   logs out the same way.
 - The recovery key and your server (1.6.0): so a backup opens on every device of the account, your devices pass the
-  recovery key to each other through your server, each copy sealed to one device's own key. Your server stores only
-  those sealed copies and can't open them.
+  recovery key to each other through your server, each copy sealed to one device's own key. Your server keeps the
+  recovery key only as those sealed copies, which it can't open. (It can read the budget itself, as above.)
 - Before a login replaces this phone's budget with the server's, a backup of it, encrypted with the phone's recovery
   key, is saved to Downloads/DeadDropFinance on the phone.
 - Links you tap (darkrelay.net, support) open in your browser.

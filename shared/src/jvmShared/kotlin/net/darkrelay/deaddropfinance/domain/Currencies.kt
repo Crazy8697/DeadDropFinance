@@ -48,12 +48,25 @@ object Currencies {
         .map { Info(it.currencyCode, it.getDisplayName(Locale.ENGLISH)) }
         .sortedBy { it.code }
 
-    /** The picker's list: the common ones first, then the rest by code; [query] matches a code or a name. */
+    /**
+     * Offered in the picker (1.7.1): only currencies whose usual convention is two decimal places. Amounts are stored as
+     * hundredths, so a currency with none (JPY) or three (KWD, BHD, TND) can't be shown its own way; it isn't offered.
+     * A budget that already holds one keeps showing it, and can change away from it.
+     */
+    fun offered(code: String): Boolean = runCatching { Currency.getInstance(code).defaultFractionDigits == 2 }.getOrDefault(false)
+
+    /** The common ones the picker offers first (1.7.1: without JPY, whose convention has no decimals). */
+    val commonOffered: List<String> get() = COMMON.filter(::offered)
+
+    /** The currencies left out of the picker: their usual convention isn't two decimal places. */
+    fun hidden(): List<Info> = all().filter { !offered(it.code) }
+
+    /** The picker's list: the common ones first, then the rest by code, two-decimal ones only; [query] matches a code or a name. */
     fun pickerList(query: String = ""): List<Info> {
         val q = query.trim().lowercase(Locale.ROOT)
-        val every = all()
+        val every = all().filter { offered(it.code) }
         val byCode = every.associateBy { it.code }
-        val common = COMMON.mapNotNull { byCode[it] }
+        val common = commonOffered.mapNotNull { byCode[it] }
         val list = common + every.filter { it.code !in COMMON }
         if (q.isEmpty()) return list
         return list.filter { it.code.lowercase(Locale.ROOT).contains(q) || it.name.lowercase(Locale.ROOT).contains(q) }
