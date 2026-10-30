@@ -177,8 +177,8 @@ interface Platform {
     val recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? get() = null
     /** Writes the backup to [uri], under the recovery key (1.6.0). Runs off the main thread. */
     suspend fun writeBackup(uri: android.net.Uri): net.darkrelay.deaddropfinance.backup.Backups.Summary
-    /** What a picked backup opens with (1.6.0): the recovery key, or an older backup's password; null when it isn't one. */
-    suspend fun backupKind(uri: android.net.Uri): Class<out net.darkrelay.deaddropfinance.backup.BackupSecret>? = null
+    /** A picked backup's first bytes (BackupCrypto.HEAD_BYTES): what it opens with, and which recovery key (1.7.0). */
+    suspend fun backupHead(uri: android.net.Uri): ByteArray? = null
     /** Restores from [uri] with [secret]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
     suspend fun restoreBackup(uri: android.net.Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.Backups.Summary
     /** Server login (1.4.0): this phone's budget, backed up to Downloads under its recovery key before the server's replaces it; returns where. */
@@ -224,6 +224,10 @@ fun AppRoot(
     val noNotices = remember { kotlinx.coroutines.flow.MutableStateFlow(emptyList<String>()) }
     val syncStatus by (sync?.status ?: noSync).collectAsState()
     val syncNotices by (sync?.notices ?: noNotices).collectAsState()
+    // the budget's currency (1.7.0): set here, or brought by a restore or another device; every screen redraws in it
+    val currencyMeta by remember(store) { store.dao.metaFlow(BudgetStore.META_CURRENCY) }.collectAsState(initial = null)
+    val currency = currencyMeta?.takeIf { net.darkrelay.deaddropfinance.domain.Currencies.isKnown(it) } ?: net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT
+    remember(currency) { net.darkrelay.deaddropfinance.domain.Money.use(currency); currency }
     var serverUi by remember { mutableStateOf(ServerUi()) }
     /** The recovery key shown once (1.6.0), and what runs after "I saved it". */
     var keyShown by remember { mutableStateOf<ByteArray?>(null) }
@@ -251,6 +255,8 @@ fun AppRoot(
     var backupState by remember { mutableStateOf(BackupState()) }
     var importSetup by remember { mutableStateOf(SetupImportState()) }
     var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    /** 1.7.0: the recovery key saved on this phone that the picked backup opens with, if any. */
+    var restoreKey by remember { mutableStateOf<ByteArray?>(null) }
     // a parked buy turns ready with time alone, so the clock is checked every minute
     var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
@@ -606,6 +612,8 @@ fun AppRoot(
                 updateBar = release?.takeIf { updateFromMore }?.let { r -> { updateBar(r) } },
                 budgetStart = b.budgetStart,
                 onBudgetStart = { d -> run(scope) { store.setBudgetStart(d); sorting.labelHistory() } },
+                currency = currency,
+                onCurrency = { code -> run(scope) { store.setCurrency(code) } },
                 onServer = sync?.let { { serverUi = ServerUi(); go(Nav.Server) } },
                 serverLine = if (syncStatus.state == net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED) "Not connected. Connect to server"
                     else syncStatusText(syncStatus),
@@ -909,14 +917,17 @@ fun AppRoot(
                 onPickRestore = {
                     platform.pickBackupFile { uri ->
                         if (uri != null) scope.launch {
-                            val kind = platform.backupKind(uri)
+                            val head = platform.backupHead(uri) ?: ByteArray(0)
+                            val kind = net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(head)
+                            // 1.7.0: the keys saved here first (the account's, then older ones); typed only if none opens it
+                            restoreKey = keys?.savedKeyFor(net.darkrelay.deaddropfinance.backup.BackupCrypto.keyIdOf(head))
                             if (kind == null) {
                                 backupState = backupState.copy(error = "That isn't a Dead Drop Finance backup file, or it was made by a newer version. Nothing was changed.")
                                 return@launch
                             }
                             restoreUri = uri
                             backupState = backupState.copy(restoreName = platform.displayName(uri), message = null, error = null,
-                                restoreWithKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java)
+                                restoreWithKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java, restoreSavedKey = restoreKey != null)
                         }
                     }
                 },
@@ -927,7 +938,9 @@ fun AppRoot(
                     } else if (uri != null) scope.launch {
                         backupState = backupState.copy(working = "Restoring...", message = null, error = null)
                         backupState = try {
-                            val secret = if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
+                            val saved = restoreKey
+                            val secret = if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
+                                else if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
                                 else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
                             val s = platform.restoreBackup(uri, secret)
                             reloadSettings()
@@ -945,7 +958,7 @@ fun AppRoot(
                         }
                     }
                 },
-                onCancelRestore = { restoreUri = null; backupState = backupState.copy(restoreName = null, error = null) },
+                onCancelRestore = { restoreUri = null; restoreKey = null; backupState = backupState.copy(restoreName = null, restoreSavedKey = false, error = null) },
             )
             Nav.SetupImport -> {
                 val importer = remember(store) { net.darkrelay.deaddropfinance.domain.SetupImporter(store, actions) }
@@ -1208,6 +1221,8 @@ fun AppRoot(
                     wizard = WizardPage.FINISH
                 }
             },
+            currency = currency,
+            onCurrency = { code -> run(scope) { store.setCurrency(code) } },
             onFinish = {
                 // the budget starts the day setup finishes (a new install, or after Purge or Erase); running setup again keeps it
                 scope.launch {
@@ -1244,7 +1259,8 @@ fun AppRoot(
                     TextButton(onClick = { error = null }) { Text("OK") }
                 }
             }
-            Box(Modifier.fillMaxSize()) { screen(top) }
+            // keyed by the currency, so every amount on screen redraws when it changes
+            androidx.compose.runtime.key(currency) { Box(Modifier.fillMaxSize()) { screen(top) } }
         }
     }
     keyShown?.let { k ->

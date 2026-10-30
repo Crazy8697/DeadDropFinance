@@ -42,6 +42,7 @@ import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.BudgetActions
 import net.darkrelay.deaddropfinance.domain.CsvImport
+import net.darkrelay.deaddropfinance.domain.Money
 
 // ---- the envelope drawer ------------------------------------------------------------------------------------------
 
@@ -63,7 +64,7 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String) {
             }
             Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard("Available", money(avail), null, Modifier.weight(1f), cyan = true, valueSize = 19.sp, tag = "drawer.available")
-                StatCard("Target", target?.let { money(it) } ?: "–", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
+                StatCard("Target", target?.let { money(it) } ?: "", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp)) {
@@ -106,6 +107,7 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.Backup -> BackupDialog(model, shell)
         is Dialog.Restore -> RestoreDialog(model, shell, d)
         is Dialog.ShowRecoveryKey -> RecoveryKeyDialog(model, d)
+        is Dialog.CurrencyPicker -> CurrencyDialog(model, shell)
         is Dialog.ServerDialog -> {}   // DesktopApp shows these, with the server
     }
 }
@@ -137,7 +139,8 @@ private fun Two(content: @Composable (Modifier) -> Unit) {
 }
 
 /** "12.34" or "$1,234.56" -> cents; null when it isn't an amount. */
-fun parseAmount(s: String): Long? = CsvImport.parseCents(s.trim().removePrefix("$").replace(",", ""), false)
+/** Typed amount to cents, in the budget's currency (0.12.0: "12,50" in EUR). */
+fun parseAmount(s: String): Long? = Money.parse(s)
 
 private class LineState(category: String? = null, envelope: String? = null, amount: String = "") {
     var category by mutableStateOf(category)
@@ -196,7 +199,7 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
             }
         }, tag = "dialog.save")
     }) {
-        Two { m -> Field("Date", date, { date = it }, m, tag = "f.date"); Field("Amount", amount, { amount = it }, m, "0.00", tag = "f.amount") }
+        Two { m -> Field("Date", date, { date = it }, m, tag = "f.date"); Field("Amount", amount, { amount = it }, m, Money.plain(0), tag = "f.amount") }
         Field("Payee", payee, { payee = it }, placeholder = "Who it went to", tag = "f.payee")
         if (!split) {
             Two { m ->
@@ -245,7 +248,7 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                         Select("Category", categories, l.category, { c -> l.category = c; claim(c)?.let { l.envelope = it } }, Modifier.weight(1.2f), tag = "split.$i.category", placeholder = "Choose a category")
                         Select<String?>("Envelope", envelopes.map { it.id to it.name }, l.envelope, { l.envelope = it }, Modifier.weight(1f), tag = "split.$i.envelope", placeholder = "By category")
                     }
-                    Field("Amount", l.amount, { l.amount = it }, Modifier.weight(0.7f), "0.00", tag = "split.$i.amount")
+                    Field("Amount", l.amount, { l.amount = it }, Modifier.weight(0.7f), Money.plain(0), tag = "split.$i.amount")
                     Box(Modifier.width(22.dp).padding(bottom = 9.dp)) {
                         if (lines.size > 2) Box(Modifier.clickable { lines.removeAt(i) }.testTag("split.$i.remove")) { T("✕", 13.sp, C.Dim) }
                     }
@@ -287,7 +290,7 @@ private fun MoveMoneyDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.
     }) {
         Select("From", places, from, { from = it }, tag = "f.from")
         Select("To", places, to, { to = it }, tag = "f.to")
-        Field("Amount", amount, { amount = it }, placeholder = "0.00", tag = "f.amount")
+        Field("Amount", amount, { amount = it }, placeholder = Money.plain(0), tag = "f.amount")
         val available = if (from == READY_TO_ASSIGN) b.readyToAssign else b.envelopeBalance(from)
         T("Available to move: ${money(available)}", 11.5.sp, C.Dim2)
     }
@@ -299,7 +302,7 @@ private fun EnvelopeDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.E
     var name by remember { mutableStateOf(e?.name ?: "") }
     var mode by remember { mutableStateOf(e?.mode ?: EnvelopeMode.FILL_TO_TARGET) }
     var amount by remember {
-        mutableStateOf((when (e?.mode) { EnvelopeMode.GOAL -> e.goalAmount; EnvelopeMode.FILL_TO_TARGET, null -> e?.target; else -> e.perPayday })?.let { "%d.%02d".format(it / 100, it % 100) } ?: "")
+        mutableStateOf((when (e?.mode) { EnvelopeMode.GOAL -> e.goalAmount; EnvelopeMode.FILL_TO_TARGET, null -> e?.target; else -> e.perPayday })?.let { Money.plain(it) } ?: "")
     }
     var everyday by remember { mutableStateOf(e?.everyday ?: false) }
     val close = { model.dialog = null }
@@ -323,7 +326,7 @@ private fun EnvelopeDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.E
         Field("Name", name, { name = it }, placeholder = "Groceries", tag = "f.name")
         Two { m ->
             Select("Kind", modes.map { it to modeName(it) }, mode, { mode = it }, m, tag = "f.mode")
-            Field(when (mode) { EnvelopeMode.FILL_TO_TARGET -> "Target"; EnvelopeMode.GOAL -> "Goal amount"; else -> "Each payday" }, amount, { amount = it }, m, "0.00", tag = "f.amount")
+            Field(when (mode) { EnvelopeMode.FILL_TO_TARGET -> "Target"; EnvelopeMode.GOAL -> "Goal amount"; else -> "Each payday" }, amount, { amount = it }, m, Money.plain(0), tag = "f.amount")
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -343,7 +346,7 @@ private fun AccountDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Ac
     var start by remember { mutableStateOf(a?.startingBalance?.let { "%s%d.%02d".format(if (it < 0) "-" else "", kotlin.math.abs(it) / 100, kotlin.math.abs(it) % 100) } ?: "") }
     var date by remember { mutableStateOf((a?.startDate ?: model.today()).toString()) }
     var trackOnly by remember { mutableStateOf(a?.trackOnly ?: false) }
-    var held by remember { mutableStateOf(a?.heldAmount?.takeIf { it > 0 }?.let { "%d.%02d".format(it / 100, it % 100) } ?: "") }
+    var held by remember { mutableStateOf(a?.heldAmount?.takeIf { it > 0 }?.let { Money.plain(it) } ?: "") }
     var show by remember { mutableStateOf(a?.showInActivity ?: true) }
     val close = { model.dialog = null }
     Modal(if (a == null) "New account" else "Edit account", 470.dp, close, "dialog.account", footer = {
@@ -364,7 +367,7 @@ private fun AccountDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Ac
         Field("Name", name, { name = it }, placeholder = "Checking", tag = "f.name")
         Two { m ->
             Select("Type", AccountType.entries.map { it to accountTypeName(it) }, type, { type = it }, m, tag = "f.type")
-            Field("Starting balance", start, { start = it }, m, "0.00", tag = "f.start")
+            Field("Starting balance", start, { start = it }, m, Money.plain(0), tag = "f.start")
         }
         Two { m ->
             Field("Balance as of", date, { date = it }, m, tag = "f.startDate")
@@ -444,6 +447,37 @@ fun RecoveryKeyDialog(model: AppModel, d: Dialog.ShowRecoveryKey) {
     }
 }
 
+/**
+ * Settings > Currency (0.12.0): the common currencies first, then every ISO 4217 currency the computer knows, searchable
+ * by code or name. Display only: picking one changes how amounts look and are typed, never an amount.
+ */
+@Composable
+fun CurrencyDialog(model: AppModel, shell: Shell) {
+    var query by remember { mutableStateOf("") }
+    val list = remember(query) { net.darkrelay.deaddropfinance.domain.Currencies.pickerList(query) }
+    val close = { model.dialog = null }
+    Modal("Currency", 470.dp, close, "dialog.currency", footer = { Btn("Close", close, ghost = true, tag = "dialog.cancel") }) {
+        T("Amounts show and are typed in this currency on every device of the account. No amount changes, and there are no exchange rates.", 12.sp, C.Dim)
+        Field("Search by code or name", query, { query = it }, placeholder = "EUR, euro, yen", tag = "currency.search")
+        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+            for ((i, c) in list.withIndex()) {
+                if (query.isBlank() && i == net.darkrelay.deaddropfinance.domain.Currencies.COMMON.size) Label("ALL CURRENCIES")
+                val chosen = c.code == model.currency
+                val example = remember(c.code) { net.darkrelay.deaddropfinance.domain.Money.format(123456, net.darkrelay.deaddropfinance.domain.Currencies.style(c.code)) }
+                Row(
+                    Modifier.fillMaxWidth().clickable { shell.run { if (model.setCurrency(c.code)) model.dialog = null } }.padding(vertical = 7.dp).testTag("currency.${c.code}"),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    T(c.code, 13.sp, weight = FontWeight.Bold, modifier = Modifier.width(52.dp))
+                    T(c.name, 13.sp, if (chosen) C.Cyan else C.Text, modifier = Modifier.weight(1f))
+                    T(example, 12.sp, C.Dim2)
+                }
+            }
+            if (list.isEmpty()) T("No currency matches that.", 12.sp, C.Dim)
+        }
+    }
+}
+
 /** Restore: the backup's recovery key (or, for one made before 0.11.0, its password), then a confirmation before the budget is replaced. */
 @Composable
 fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
@@ -452,9 +486,12 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
     var confirming by remember { mutableStateOf(d.confirm) }
     val kind = remember(d.file) { model.backupKind(d.file) }
     val withKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java
+    // 0.12.0: a key saved on this computer that opens it is used, and nothing is typed
+    val saved = remember(d.file) { if (withKey) model.savedKeyFor(d.file) else null }
     val close = { model.dialog = null }
     fun parsed(): net.darkrelay.deaddropfinance.backup.BackupSecret? =
-        if (withKey) runCatching { net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(secret)) }
+        if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
+        else if (withKey) runCatching { net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(secret)) }
             .onFailure { problem = it.message }.getOrNull()
         else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(secret.toCharArray())
     if (kind == null) {
@@ -462,7 +499,7 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
             T(d.file.name, 13.5.sp, modifier = Modifier.testTag("restore.file"))
             T("That isn't a Dead Drop Finance backup file, or it was made by a newer version. Nothing was changed.", 13.sp, C.Bad, modifier = Modifier.testTag("restore.notBackup"))
         }
-    } else if (!confirming) {
+    } else if (!confirming && saved == null) {
         Modal("Restore", 470.dp, close, "dialog.restore", footer = {
             Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
             Btn("Next", { problem = null; if (parsed() != null) confirming = true }, enabled = secret.isNotEmpty(), tag = "dialog.save")
@@ -486,6 +523,7 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
             }, tag = "dialog.confirm")
         }) {
             T("Everything in this computer's budget is replaced with the backup in ${d.file.name}.", 13.5.sp)
+            if (saved != null) T("It opens with the recovery key saved on this computer, so there's nothing to type.", 12.sp, C.Dim, modifier = Modifier.testTag("restore.savedKey"))
             T("A copy of the current budget is kept until the restore has been checked. A wrong key or password, or a damaged file, changes nothing.", 12.sp, C.Dim)
         }
     }

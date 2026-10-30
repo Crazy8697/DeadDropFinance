@@ -60,10 +60,15 @@ fun WizardFrame(
 }
 
 @Composable
-fun WelcomePage() {
+fun WelcomePage(currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT, onCurrency: ((String) -> Unit)? = null) {
     Text("Dead Drop Finance is an envelope budget that lives on this phone. Your budget is encrypted here and nothing about it is sent anywhere.")
     Gap()
     Text("Setup takes a few steps: app lock, how your transactions get in, and optional starter envelopes. You can rerun it any time from More, Setup.", color = DdfColors.Muted)
+    // 1.7.0: the budget's currency, USD unless changed here (or later in More)
+    if (onCurrency != null) {
+        Gap()
+        CurrencySetting(currency, onCurrency)
+    }
 }
 
 @Composable
@@ -114,9 +119,13 @@ fun SetupWizardHost(
     onToggleStarter: (String) -> Unit,
     onAddStarters: () -> Unit,
     onFinish: () -> Unit,
+    currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT,
+    onCurrency: ((String) -> Unit)? = null,
 ) {
     when (page) {
-        WizardPage.WELCOME -> WizardFrame(page, "Welcome", onBack = if (forced) null else { { onPage(null) } }, next = "Start" to { onPage(WizardPage.LOCK) }) { WelcomePage() }
+        WizardPage.WELCOME -> WizardFrame(page, "Welcome", onBack = if (forced) null else { { onPage(null) } }, next = "Start" to { onPage(WizardPage.LOCK) }) {
+            WelcomePage(currency, onCurrency)
+        }
         WizardPage.LOCK -> WizardFrame(page, "App lock", { onPage(WizardPage.WELCOME) }, "Next" to { onPage(WizardPage.CONNECT) }) {
             LockPage(more.lockEnabled && more.lockAvailable, more.lockAvailable, onLock)
         }

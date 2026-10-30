@@ -32,6 +32,8 @@ sealed class Dialog {
     data class Restore(val file: java.io.File, val confirm: Boolean = false) : Dialog()
     /** The recovery key, shown once (0.11.0), then [next]. */
     data class ShowRecoveryKey(val next: Dialog? = null) : Dialog()
+    /** Settings > Currency (0.12.0): the common currencies, then every ISO 4217 one, searchable. */
+    object CurrencyPicker : Dialog()
 
     /** The server's dialogs (0.10.0). */
     sealed class ServerDialog : Dialog()
@@ -82,6 +84,28 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     var message by mutableStateOf<Pair<String, Boolean>?>(null)
     /** The server connection (0.10.0), once the budget is open. */
     var server by mutableStateOf<ServerModel?>(null)
+    /** The budget's currency (0.12.0), an ISO 4217 code; amounts redraw when it changes. */
+    var currency by mutableStateOf(net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT)
+        private set
+
+    private fun store(): net.darkrelay.deaddropfinance.data.BudgetStore? = (engine?.opened as? DesktopDatabase.Opened.Ok)?.store
+
+    /** Settings > Currency: display only, no amount changes; synced to the account's other devices as the budget start is. */
+    suspend fun setCurrency(code: String): Boolean {
+        val st = store() ?: return false
+        return try {
+            st.setCurrency(code)
+            refresh()
+            message = "Amounts now show in $code. No amount was changed." to false
+            true
+        } catch (e: net.darkrelay.deaddropfinance.data.ReadOnlyException) {
+            message = (e.message ?: "Read only.") to true
+            false
+        } catch (e: IllegalArgumentException) {
+            message = (e.message ?: "That isn't a currency code.") to true
+            false
+        }
+    }
 
     /** The phone's rules: a purchase entered by hand needs a category (0.8.0). */
     val actions: BudgetActions? = engine?.actions?.also { it.requireCategories = true }
@@ -100,6 +124,8 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
 
     /** Reads the budget again (after every write). */
     suspend fun refresh() {
+        // the currency may have come from a restore or another device (0.12.0)
+        currency = store()?.applyCurrency() ?: currency
         budget = actions?.snapshot()
         if (monthIndex >= months.size) monthIndex = 0
     }
@@ -295,6 +321,15 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         if (server?.connected != true) return true
         message = "Log out of the server (Settings > Server) before restoring a backup: a restore would replace the budget the server keeps in step." to true
         return false
+    }
+
+    /**
+     * Restore (0.12.0): the recovery key saved on this computer that [file] opens with (the account's key first, then
+     * this computer's older keys), or null when none of them is it and the key is typed.
+     */
+    fun savedKeyFor(file: java.io.File): ByteArray? {
+        val head = runCatching { file.inputStream().use { it.readNBytes(net.darkrelay.deaddropfinance.backup.BackupCrypto.HEAD_BYTES) } }.getOrNull() ?: return null
+        return recoveryKeys?.savedKeyFor(net.darkrelay.deaddropfinance.backup.BackupCrypto.keyIdOf(head))
     }
 
     /** What a backup file opens with: the recovery key, or (made before 0.11.0) its password; null when it isn't one. */

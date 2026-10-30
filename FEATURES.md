@@ -213,7 +213,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - The file is encrypted with the recovery key (1.6.0): 256 random bits, made on the first backup (or when the server account is created) and shown once, as 14 groups of 4 letters and digits with Copy and "I saved it". It is never shown again, never logged and never stored in plain text (it lives in the Keystore-wrapped secrets file, the program's in a DPAPI-protected file). The contents are sealed with AES-256-GCM in chunks that can't be reordered, swapped or cut short unnoticed. Lose the key and the backups made with it are gone; the screens say so when it is shown.
 - With a server account, the account has one recovery key: the creating device's own, or one made then. It reaches the account's other devices through the server, sealed to each device's own key (the server stores only those sealed copies and can't open them), so a backup made on one device opens on any of them. A device that logs in takes the account's key; its own earlier key is kept only to open its older backups. Without a server, each device has its own.
 - Before a login or a QR pairing replaces a device's budget, its backup uses the device's recovery key, made and shown first if it has none.
-- A backup made before 1.6.0 was encrypted with a password the user typed (PBKDF2 with HMAC-SHA256, 600,000 rounds); it still restores with that password. Restore asks for the recovery key, or for an older backup, its password.
+- A backup made before 1.6.0 was encrypted with a password the user typed (PBKDF2 with HMAC-SHA256, 600,000 rounds); it still restores with that password. Restore (1.7.0) first tries the recovery keys saved on the device: the account's key, then the device's older keys. Only when none of them opens the backup is the key typed. An older backup asks for its password.
 - It holds the whole budget (every budget table, the change log included), the receipt photos, and the user's settings (sorting, alerts, app lock, Hide screen, update checks). Saved secrets never travel in the backup. A backup made before 1.3.0 still restores: bank sync's ids on its transactions are dropped, a synced row still pending becomes posted, and bank sync's settings in it are ignored.
 - Restore replaces everything in the app with the backup's, after a warning on the screen. The whole file is read and checked first (key or password, every table, every photo); only then is the budget replaced, in one step, and the photos swapped in. A wrong or mistyped key, a wrong password, a file that isn't a backup, a damaged or cut-short file, or a backup from a newer version is refused with a plain reason, and nothing changes. The phone's own bank connections stay as they are.
 - The screen shows when the last backup was made and its file name. Dropbox shows as "later" (Stage 69D).
@@ -277,6 +277,20 @@ How the app behaves. Each section names the stage that builds it. Everything run
   assigning, moving money and new income right away. Income put straight into an envelope (not through Ready to
   Assign) counts in Y as income and in X as assigned (1.1.1). A Rollover sweep (envelope to Rollover) and a return
   count in neither.
+
+## Currency (1.7.0)
+
+- One currency for the whole budget, in More (phone) and Settings > Budget (program), and on setup's first page on the
+  phone. A budget that never chose one is USD, as before; a new budget starts as USD unless it's changed in setup.
+- The picker lists the common currencies first (USD, EUR, GBP, CAD, AUD, MXN, JPY, CHF, INR, NZD), then every ISO 4217
+  currency the device knows, searchable by code or name. It uses the platform's own currency data: nothing is fetched.
+- Amounts show and are typed in the currency's usual convention: its symbol and where it goes, and its decimal and
+  thousands separators ("1.234,56 €" for EUR). Everywhere money is shown or typed: the screens, reminders, CSV
+  import (a file's own amounts decide its decimal comma; when they don't show it, the currency does).
+- Every currency shows two decimal places. Amounts are stored as whole hundredths, so a currency whose own convention
+  has no decimals (JPY) or three (KWD) still shows two: anything else would change what a stored amount means.
+- Display only: no exchange rates, no conversion, nothing sent anywhere. Changing it changes no stored amount.
+- It syncs to every device of the account as a meta change, like the budget start date, and a backup carries it.
 
 ## Budget start date (1.1.1)
 
@@ -398,4 +412,4 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Receipt photos stay on the phone that took them; the receipts themselves sync.
 - Scan QR code (1.5.0): Connect to server has Scan QR code beside the typed address. The camera is asked for only when it's tapped; refused, a short note says to type the address instead. The code (the desktop program's Settings > Server > Add a phone) holds the server's address, its key fingerprint and a one-time pairing code, never a password or key. The app checks the server's key against the fingerprint (a mismatch is refused and nothing is sent), then redeems the code for this phone's own key (it works once, for 10 minutes), and then it's the same as a login: the server's budget replaces this phone's, after an encrypted backup of the phone's own budget under its recovery key (1.6.0; before that, a password typed twice).
 - The desktop program (0.10.0) syncs the same way: Settings > Server, the same lock (held while its window is open and not minimized), Take over editing, devices and Log out, and Add a phone. From 0.11.0 it also creates the account, has Stay logged in (unticked, closing the program logs out), Change password, and backups under the recovery key.
-- Windows Hello unlock (desktop 0.11.0): Settings, off by default, through Windows' UserConsentVerifier. Turning it on asks for a Hello check first; without Hello set up on the computer it says so and stays off. While on, the program opens locked and shows nothing of the budget until Hello passes. The phone's own App lock (Stage 6) is unchanged.
+- Windows Hello unlock was in desktop 0.11.0 only; it was removed in 0.12.0 (the setting and its code). The phone's own App lock (Stage 6) is unchanged.

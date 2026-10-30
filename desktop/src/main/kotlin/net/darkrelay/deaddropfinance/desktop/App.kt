@@ -64,10 +64,6 @@ class Shell(
     val pickBackupSave: (suggested: String) -> java.io.File? = { null },
     /** Asks for a backup file to restore; null when cancelled. */
     val pickBackupOpen: () -> java.io.File? = { null },
-    /** Windows Hello unlock (0.11.0); null where there is none (the tests that don't use it). */
-    val hello: HelloLock? = null,
-    /** The program window's handle, for Windows Hello's prompt; 0 when there's no window. */
-    val windowHandle: () -> Long = { 0L },
 )
 
 @Composable
@@ -108,6 +104,7 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                 is Dialog.Backup -> BackupDialog(model, shell)
                 is Dialog.Restore -> RestoreDialog(model, shell, d)
                 is Dialog.ShowRecoveryKey -> RecoveryKeyDialog(model, d)
+                is Dialog.CurrencyPicker -> CurrencyDialog(model, shell)
                 else -> model.budget?.let { b -> DialogHost(model, shell, b, d) }
             }
         }

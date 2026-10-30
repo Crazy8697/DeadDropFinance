@@ -58,9 +58,6 @@ fun main(args: Array<String>) {
         var checkAtStartup by remember { mutableStateOf(settings.checkUpdatesAtStartup) }
         var model by remember { mutableStateOf(AppModel(null)) }
         val scope = rememberCoroutineScope()
-        // Windows Hello unlock (0.11.0): off unless turned on in Settings; never in the smoke test
-        val hello = remember { HelloLock(settings).takeIf { smoke == null } }
-        var helloTried by remember { mutableStateOf(false) }
         updates.onChange = { update = it }
 
         LaunchedEffect(Unit) {
@@ -132,8 +129,6 @@ fun main(args: Array<String>) {
                 onOpenDataFolder = { openFile(settings.dir) },
                 onLicenses = if (installed) ({ openFile(File(installDir(), "THIRD-PARTY-NOTICES.md")) }) else null,
                 onExit = ::quit,
-                hello = hello,
-                windowHandle = { runCatching { window.windowHandle }.getOrDefault(0L) },
                 run = { block -> scope.launch(Dispatchers.IO) { block() } },
                 pickCsv = {
                     val d = FileDialog(window, "Import CSV", FileDialog.LOAD).apply { setFilenameFilter { _, n -> n.lowercase().endsWith(".csv") }; file = "*.csv"; isVisible = true }
@@ -148,23 +143,7 @@ fun main(args: Array<String>) {
                     d.file?.let { File(d.directory, it) }
                 },
             )
-            if (hello != null && hello.locked) {
-                // nothing of the budget shows until Windows Hello says it's you; it asks once on its own, then on Unlock
-                LaunchedEffect(Unit) {
-                    if (!helloTried) {
-                        helloTried = true
-                        delay(300)
-                        val hwnd = runCatching { window.windowHandle }.getOrDefault(0L)
-                        withContext(Dispatchers.IO) { hello.unlock(hwnd) }
-                    }
-                }
-                HelloLockScreen(hello, onUnlock = {
-                    val hwnd = runCatching { window.windowHandle }.getOrDefault(0L)
-                    scope.launch(Dispatchers.IO) { hello.unlock(hwnd) }
-                }, onExit = ::quit)
-            } else {
-                DesktopApp(model, shell)
-            }
+            DesktopApp(model, shell)
             if (smoke != null) {
                 LaunchedEffect(Unit) {
                     delay(1500)

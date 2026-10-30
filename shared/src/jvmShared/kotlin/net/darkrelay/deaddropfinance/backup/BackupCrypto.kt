@@ -85,6 +85,15 @@ object BackupCrypto {
         }
     }
 
+    /** How many first bytes [keyIdOf] needs. */
+    const val HEAD_BYTES = 6 + 1 + 16
+
+    /** The recovery key id a format 2 backup was made with (from its first [HEAD_BYTES] bytes), or null for any other file. */
+    fun keyIdOf(head: ByteArray): String? {
+        if (kindOf(head) != BackupSecret.Key::class.java || head.size < HEAD_BYTES) return null
+        return head.copyOfRange(MAGIC.size + 1, MAGIC.size + 1 + KEY_ID).joinToString("") { "%02x".format(it) }
+    }
+
     /**
      * Wraps [out]: what's written is encrypted under [passphrase] (format 1). Since 1.6.0 new backups use the recovery
      * key ([encryptingWithKey]); this stays for the tests of older backups.

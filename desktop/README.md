@@ -33,9 +33,10 @@ Download `DeadDropFinance-Setup.exe` from the newest `desktop-v` release on the
 - The recovery key (0.11.0), which encrypts every backup: `recovery.key`, protected by Windows DPAPI, never in plain
   text. It is shown once. Its copies for the account's other devices go through your server sealed to each device's
   key; the server can't open them. A backup made before 0.11.0 still restores with its password.
-- Windows Hello unlock (0.11.0): a Settings option, off by default, kept in `settings.properties`. While on, the
-  program opens locked until Windows Hello passes. If Hello later stops working on the computer, set
-  `hello_unlock=false` in `settings.properties` to open the program without it.
+  Restore (0.12.0) uses a key saved on this computer when one opens the backup; otherwise it asks for it.
+- The currency (0.12.0): one setting for the whole budget (Settings > Budget), kept in the budget itself and synced
+  to the account's other devices. Display only: the currencies and their formats come from Windows' own Java runtime
+  data, nothing is fetched, and no amount changes.
 - Network: GitHub, for the update check and an update's download, and, once you log in, your own Dead Drop server at
   the address you typed (every request and reply a libsodium envelope, the server's key pinned on first contact). The check is an anonymous GET of the repo's
   release list a few seconds after startup (Help > Check for updates at startup turns it off) or from

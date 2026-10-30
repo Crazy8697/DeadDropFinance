@@ -1,5 +1,7 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
@@ -33,8 +35,7 @@ import kotlin.test.assertTrue
 
 /**
  * The program 0.11.0: creating the account from this computer (the recovery key shown once), Stay logged in, password
- * change, the recovery key arriving from another device, the DPAPI-protected key file, and Windows Hello unlock with a
- * stand-in for Hello (the real prompt is never shown in a test). Against the shared tests' in-memory server: no network,
+ * change, the recovery key arriving from another device, and the DPAPI-protected key file. Against the shared tests' in-memory server: no network,
  * test keys, invented budgets in temp folders.
  */
 class DesktopAccountTest {
@@ -221,78 +222,62 @@ class DesktopAccountTest {
         assertNull(d.keys.toShow(), "not shown here: it was shown where it was made")
     }
 
-    // ---- Windows Hello unlock (a stand-in for Hello)
+    // ---- 0.12.0: the currency, restore with a saved key, no Windows Hello
 
-    private class FakeHello(var availability: HelloVerifier.Availability = HelloVerifier.Availability.AVAILABLE,
-                            var result: HelloVerifier.Result = HelloVerifier.Result.VERIFIED) : HelloVerifier {
-        var asked = 0
-        override fun availability() = availability
-        override fun verify(message: String, hwnd: Long): HelloVerifier.Result { asked++; return result }
-    }
-
-    @Test fun helloIsOffByDefaultAndTurnsOnOnlyAfterACheck() {
-        val settings = Settings(tmp.newFolder())
-        val hello = FakeHello()
-        val lock = HelloLock(settings, hello)
-        assertFalse(lock.enabled)
-        assertFalse(lock.locked)
-        hello.result = HelloVerifier.Result.CANCELED
-        lock.set(true, 0)
-        assertFalse(lock.enabled, "a cancelled check leaves it off")
-        assertFalse(settings.helloUnlock)
-        hello.result = HelloVerifier.Result.VERIFIED
-        lock.set(true, 0)
-        assertTrue(lock.enabled)
-        assertTrue(Settings(settings.dir).helloUnlock, "kept for the next open")
-        assertEquals(2, hello.asked)
-        lock.set(false, 0)
-        assertFalse(Settings(settings.dir).helloUnlock)
-    }
-
-    @Test fun withoutHelloSetUpItSaysSoAndStaysOff() {
-        val settings = Settings(tmp.newFolder())
-        val hello = FakeHello(HelloVerifier.Availability.NOT_SET_UP)
-        val lock = HelloLock(settings, hello)
-        lock.set(true, 0)
-        assertFalse(lock.enabled)
-        assertEquals(HelloLock.NOT_SET_UP, lock.message)
-        assertEquals(0, hello.asked, "no prompt when Hello isn't set up")
-    }
-
-    @Test fun whenOnTheProgramOpensLockedUntilHelloPasses() {
-        val settings = Settings(tmp.newFolder()).also { it.helloUnlock = true }
-        val hello = FakeHello(result = HelloVerifier.Result.FAILED)
-        val lock = HelloLock(settings, hello)
-        assertTrue(lock.locked)
-        compose.setContent { if (lock.locked) HelloLockScreen(lock, onUnlock = { lock.unlock(0) }, onExit = {}) else androidx.compose.material3.Text("budget") }
-        compose.waitForIdle()
-        tag("helloLock").assertExists()
-        tag("hello.unlock").performClick()
-        compose.waitForIdle()
-        assertTrue(lock.locked, "a failed check keeps it locked")
-        tag("hello.lockMessage").assertExists()
-        hello.result = HelloVerifier.Result.VERIFIED
-        tag("hello.unlock").performClick()
-        compose.waitForIdle()
-        assertFalse(lock.locked)
-        tag("helloLock").assertDoesNotExist()
-    }
-
-    @Test fun theSettingsToggleUsesTheCheck() {
+    @Test fun theCurrencyPickerChangesHowAmountsShowAndNoAmount() {
         val made = SampleBudget.filled(tmp.newFolder()).also { models += it.model }
-        val settings = Settings(tmp.newFolder())
-        val hello = FakeHello()
-        val lock = HelloLock(settings, hello)
-        compose.setContent { DesktopApp(made.model, Shell(run = { b -> runBlocking { b() } }, hello = lock)) }
+        val m = made.model
+        val before = m.budget!!.accounts.map { it.id to m.budget!!.accountBalance(it.id) }
+        try {
+            compose.setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } })) }
+            compose.waitForIdle()
+            tag("nav.SETTINGS").performClick()
+            compose.waitForIdle()
+            tag("currency").assertExists()
+            assertEquals("USD", m.currency, "a budget stays USD until one is chosen")
+            tag("currency.change").performClick()
+            compose.waitForIdle()
+            tag("currency.USD").assertExists()
+            tag("currency.search").performTextInput("euro")
+            compose.waitForIdle()
+            tag("currency.EUR").performClick()
+            compose.waitForIdle()
+            assertEquals("EUR", m.currency)
+            assertNull(m.dialog)
+            assertEquals(before, m.budget!!.accounts.map { it.id to m.budget!!.accountBalance(it.id) }, "no amount changes")
+            assertEquals("1.234,56 €", money(123456).replace(' ', ' '))
+            assertEquals(123456L, parseAmount("1.234,56"))
+        } finally {
+            net.darkrelay.deaddropfinance.domain.Money.use(null)
+        }
+    }
+
+    @Test fun restoreUsesTheKeySavedHereAndAsksOnlyWhenNoneOpensIt() {
+        val made = SampleBudget.filled(tmp.newFolder()).also { models += it.model }
+        val m = made.model
+        val keys = RecoveryKeys(net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore()).also { m.recoveryKeys = it }
+        val own = keys.ensure(); keys.confirmSaved()
+        val ok = m.engine!!.opened as DesktopDatabase.Opened.Ok
+        val withSaved = File(tmp.root, "saved.ddfbak").also { f -> runBlocking { f.outputStream().use { net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "t").write(it, own) } } }
+        val withOther = File(tmp.root, "other.ddfbak").also { f -> runBlocking { f.outputStream().use { net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "t").write(it, RecoveryKey.generate()) } } }
+        var dialog by androidx.compose.runtime.mutableStateOf<Dialog.Restore>(Dialog.Restore(withSaved))
+        compose.setContent { RestoreDialog(m, Shell(run = { b -> runBlocking { b() } }), dialog) }
         compose.waitForIdle()
-        tag("nav.SETTINGS").performClick()
+        // a key saved here opens it: straight to the confirmation, nothing typed
+        tag("dialog.confirmRestore").assertExists()
+        tag("restore.savedKey").assertExists()
+        tag("f.key").assertDoesNotExist()
+        dialog = Dialog.Restore(withOther)
         compose.waitForIdle()
-        assertFalse(lock.enabled)
-        tag("setting.hello").performClick()
-        compose.waitForIdle()
-        assertTrue(lock.enabled)
-        tag("hello.message").assertExists()
-        assertEquals(1, hello.asked)
-        assertTrue(settings.helloUnlock)
+        tag("f.key").assertExists()
+        assertNull(m.savedKeyFor(withOther))
+    }
+
+    @Test fun noWindowsHelloIsLeftInTheProgram() {
+        val src = listOf(File("src/main"), File("desktop/src/main")).first { it.isDirectory }
+        val hits = src.walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { f -> f.readText().let { it.contains("Hello", ignoreCase = false) || it.contains("UserConsentVerifier") || it.contains("hello_unlock") } }
+            .map { it.name }.toList()
+        assertEquals(emptyList(), hits)
     }
 }

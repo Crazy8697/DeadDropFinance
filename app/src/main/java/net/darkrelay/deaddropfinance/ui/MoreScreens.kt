@@ -63,6 +63,9 @@ fun MoreScreen(
     /** The budget start date (1.1.1) and changing it; null [onBudgetStart] hides the setting. */
     budgetStart: java.time.LocalDate? = null,
     onBudgetStart: ((java.time.LocalDate) -> Unit)? = null,
+    /** The budget's currency (1.7.0) and changing it; null [onCurrency] hides the setting. */
+    currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT,
+    onCurrency: ((String) -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
     onParked: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
@@ -101,6 +104,7 @@ fun MoreScreen(
         }
         sortAlerts?.invoke()
         if (onBudgetStart != null) BudgetStartSetting(budgetStart, onBudgetStart)
+        if (onCurrency != null) CurrencySetting(currency, onCurrency)
         SectionTitle("Privacy")
         SettingRow(
             "App lock",

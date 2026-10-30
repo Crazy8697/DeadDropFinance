@@ -129,7 +129,15 @@ object CsvImport {
         val dates = if (dateCol >= 0) data.map { it[dateCol] } else emptyList()
         val (fmt, ambiguous) = detectDateFormat(dates)
         val moneyCols = roles.indices.filter { roles[it] in setOf(Role.AMOUNT, Role.DEBIT, Role.CREDIT) }
-        val decimalComma = d != ',' && data.flatMap { r -> moneyCols.map { r[it] } }.any { Regex("""\d,\d{2}$""").containsMatchIn(it) }
+        // the file's own amounts decide; when they don't show it either way, the budget's currency does (1.7.0: EUR "1.234,56")
+        val amounts = data.flatMap { r -> moneyCols.map { r[it] } }
+        val commaDec = amounts.any { Regex("""\d,\d{2}(\s*\D{0,3})$""").containsMatchIn(it.trim()) }
+        val dotDec = amounts.any { Regex("""\d\.\d{2}(\s*\D{0,3})$""").containsMatchIn(it.trim()) }
+        val decimalComma = d != ',' && when {
+            commaDec && !dotDec -> true
+            dotDec && !commaDec -> false
+            else -> Money.style.decimal == ','
+        }
         return Layout(d, headerRow, headers, roles, fmt, ambiguous, decimalComma)
     }
 
@@ -177,7 +185,7 @@ object CsvImport {
      * "12.34 CR" / "DR", and with [decimalComma] "1.234,56". Null if it isn't an amount.
      */
     fun parseCents(raw: String, decimalComma: Boolean): Long? {
-        var s = raw.trim().replace(" ", "").replace(" ", "")
+        var s = raw.trim().replace("\u00A0", "").replace(" ", "")
         if (s.isEmpty()) return null
         var negative = false
         val upper = s.uppercase(Locale.ROOT)
@@ -185,7 +193,10 @@ object CsvImport {
         if (s.startsWith("(") && s.endsWith(")")) { negative = !negative; s = s.substring(1, s.length - 1) }
         if (s.endsWith("-")) { negative = !negative; s = s.dropLast(1) }
         if (s.startsWith("-")) { negative = !negative; s = s.substring(1) } else if (s.startsWith("+")) s = s.substring(1)
-        s = s.trimStart('$', '€', '£')
+        // a currency sign or the budget's currency code at either end ("$12.34", "12,34 €", "12.34 EUR")
+        s = s.trimStart { Character.getType(it) == Character.CURRENCY_SYMBOL.toInt() }.trimEnd { Character.getType(it) == Character.CURRENCY_SYMBOL.toInt() }
+        val code = Money.style.code
+        if (s.uppercase(Locale.ROOT).endsWith(code)) s = s.dropLast(code.length) else if (s.uppercase(Locale.ROOT).startsWith(code)) s = s.drop(code.length)
         if (s.startsWith("-")) { negative = !negative; s = s.substring(1) }
         s = if (decimalComma) s.replace(".", "").replace(",", ".") else s.replace(",", "")
         val m = Regex("""^(\d+)(?:\.(\d{1,2}))?$""").matchEntire(s) ?: return null

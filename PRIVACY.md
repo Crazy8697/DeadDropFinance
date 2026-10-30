@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.6.0.
+Effective with version 1.7.0.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
@@ -16,7 +16,8 @@ DarkRelay never receives your budget, your bank data, your bank logins or anythi
   database encrypted with a key that's protected by your phone's secure hardware (the Android Keystore).
 - Receipt photos you take or pick, encrypted in the app's private storage. They never go to the phone's gallery or
   shared storage.
-- Your settings.
+- Your settings, including the budget's currency (1.7.0): a display setting only. Picking one sends nothing anywhere
+  and fetches nothing: the currencies and their formats come from the phone's own data, and there are no exchange rates.
 - If you connect to your own Dead Drop server (1.4.0): its address, its public key (pinned the first time), the
   username, this phone's name and id on the server, and its own server key (in the encrypted secrets file, protected
   by the Android Keystore). The account password is never kept on the phone.

@@ -30,6 +30,8 @@ data class BackupState(
     val restoreName: String? = null,
     /** The picked backup opens with a recovery key (1.6.0); false: an older backup, opened with its password. */
     val restoreWithKey: Boolean = true,
+    /** 1.7.0: a recovery key saved on this phone opens it, so nothing is typed. */
+    val restoreSavedKey: Boolean = false,
     val working: String? = null,
     val message: String? = null,
     val error: String? = null,
@@ -92,7 +94,9 @@ fun BackupScreen(
             OutlinedButton(onClick = onPickRestore, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Restore from file") }
         } else {
             Text("Restore ${s.restoreName}", modifier = Modifier.padding(top = 8.dp))
-            if (s.restoreWithKey) {
+            if (s.restoreSavedKey) {
+                Text("It opens with the recovery key saved on this phone, so there's nothing to type.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            } else if (s.restoreWithKey) {
                 OutlinedTextField(
                     value = restoreSecret, onValueChange = { restoreSecret = it }, label = { Text("Recovery key") }, singleLine = false,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false),
@@ -105,7 +109,7 @@ fun BackupScreen(
             }
             Row {
                 Button(
-                    onClick = { onRestore(restoreSecret) }, enabled = !busy && restoreSecret.isNotEmpty(),
+                    onClick = { onRestore(restoreSecret) }, enabled = !busy && (s.restoreSavedKey || restoreSecret.isNotEmpty()),
                     colors = ButtonDefaults.buttonColors(containerColor = DdfColors.Error, contentColor = DdfColors.Background),
                 ) { Text("Replace everything and restore") }
                 TextButton(onClick = onCancelRestore, enabled = !busy) { Text("Cancel") }

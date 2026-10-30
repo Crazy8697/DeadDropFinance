@@ -208,4 +208,44 @@ class AccountsE2ETest {
             models.forEach { it.engine?.close() }
         }
     }
+
+    /**
+     * 1.7.0 / 0.12.0 (DDF_E2E_SCENARIO=CURRENCY): the phone picks EUR and the program shows amounts in it; a backup made
+     * on the phone restores on the program with the key saved there, nothing typed.
+     */
+    @Test fun theCurrencyAndASavedKeyRestoreThroughARealServer() = runBlocking<Unit> {
+        ready("CURRENCY")
+        try {
+            val phone = Phone("P", account = "E2E Phone Checking")
+            phone.sync.createAccount(url, code, "e2e", pw, "E2E phone")
+            phone.keys.confirmSaved()
+            phone.sync.background()
+            val desk = Program("D")
+            assertTrue(desk.server.connect(url), desk.server.error)
+            assertTrue(desk.server.login("e2e", pw, "E2E desktop"), desk.server.error)
+            assertEquals("USD", desk.model.currency)
+            // the phone picks EUR; the program shows it after the next sync
+            phone.sync.foreground()
+            phone.ok.store.setCurrency("EUR")
+            phone.sync.syncNow()
+            phone.sync.background()
+            net.darkrelay.deaddropfinance.domain.Money.use(null)
+            desk.sync.syncNow()
+            desk.model.refresh()
+            assertEquals("EUR", desk.model.currency)
+            assertEquals("1.234,56 €", money(123456).replace(' ', ' '))
+            // the account's key reached the program; a phone backup restores there with it, nothing typed
+            assertContentEquals(phone.keys.current(), desk.keys.current())
+            val file = phone.backup()
+            desk.server.logout()
+            val saved = assertNotNull(desk.model.savedKeyFor(file), "a key saved on the program opens it")
+            assertTrue(desk.model.restore(file, BackupSecret.Key(saved)), desk.model.message?.first)
+            assertEquals(names(phone.model), names(desk.model))
+            assertEquals("EUR", desk.model.currency, "the backup carries the currency too")
+        } finally {
+            net.darkrelay.deaddropfinance.domain.Money.use(null)
+            scope.cancel()
+            models.forEach { it.engine?.close() }
+        }
+    }
 }

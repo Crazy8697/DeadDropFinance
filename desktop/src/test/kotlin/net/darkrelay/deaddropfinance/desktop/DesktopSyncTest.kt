@@ -4,6 +4,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.RGBLuminanceSource
 import com.google.zxing.common.HybridBinarizer
@@ -238,7 +239,8 @@ class DesktopSyncTest {
         runBlocking { d.server.login("tester", pw, "Test desktop") }
         until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
         compose.waitForIdle()
-        tag("server.addPhone").performClick()
+        // Settings is taller since the currency row (0.12.0): scroll the button into the window first
+        tag("server.addPhone").performScrollTo().performClick()
         compose.waitUntil(10_000) { d.server.pairing != null }
         compose.waitForIdle()
         tag("pair.code").assertExists()

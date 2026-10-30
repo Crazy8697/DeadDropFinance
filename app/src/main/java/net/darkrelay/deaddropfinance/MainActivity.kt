@@ -443,8 +443,8 @@ class MainActivity : ComponentActivity() {
             return app.backupBeforeServer(store, key)
         }
 
-        override suspend fun backupKind(uri: Uri) = withContext(Dispatchers.IO) {
-            runCatching { contentResolver.openInputStream(uri)?.use { net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(it.readNBytes(7)) } }.getOrNull()
+        override suspend fun backupHead(uri: Uri) = withContext(Dispatchers.IO) {
+            runCatching { contentResolver.openInputStream(uri)?.use { it.readNBytes(net.darkrelay.deaddropfinance.backup.BackupCrypto.HEAD_BYTES) } }.getOrNull()
         }
 
         override suspend fun restoreBackup(uri: Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret) = withContext(Dispatchers.IO) {

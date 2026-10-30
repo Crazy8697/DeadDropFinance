@@ -98,7 +98,7 @@ private fun TableScope.EnvelopeRow(model: AppModel, b: Budget, e: EnvelopeEntity
                 modeTag(e)?.let { Tag(it, modifier = Modifier.padding(start = 6.dp)) }
             }
         }
-        Cell(0.12f, true) { T(target?.let { money(it) } ?: "–", color = C.Dim, align = TextAlign.End) }
+        Cell(0.12f, true) { T(target?.let { money(it) } ?: "", color = C.Dim, align = TextAlign.End) }
         Cell(0.12f, true) { T(money(model.assignedTo(b, e)), color = C.Dim, align = TextAlign.End) }
         Cell(0.12f, true) { T(money(avail), color = moneyColor(avail), align = TextAlign.End, modifier = Modifier.testTag("avail.${e.name}")) }
         Cell(0.24f) {
@@ -510,17 +510,16 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Panel("General", "Stored in your user folder. Nothing is written next to the program.", Modifier.weight(1f)) {
                 ToggleRow("Check for updates at startup", "Silent when you are already current", shell.checkAtStartup, "setting.checkUpdates", shell.onCheckAtStartup)
-                shell.hello?.let { h ->
-                    ToggleRow("Windows Hello unlock", "Asks for Windows Hello each time the program opens. Off by default.", h.enabled, "setting.hello") { on ->
-                        val hwnd = shell.windowHandle()
-                        shell.run { h.set(on, hwnd) }
-                    }
-                    h.message?.let { T(it, 12.sp, C.Dim, modifier = Modifier.padding(top = 4.dp).testTag("hello.message")) }
-                }
             }
             Panel("Budget", "The phone app's budget settings, for this computer's budget.", Modifier.weight(1f)) {
                 val start = model.budget?.budgetStart
-                Kv("Budget start date", start?.format(startFormat) ?: "Not set", last = true, tag = "budgetStart")
+                Kv("Budget start date", start?.format(startFormat) ?: "Not set", tag = "budgetStart")
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    T("Currency", 13.sp, C.Dim, modifier = Modifier.weight(1f))
+                    T(currencyLabel(model.currency), 13.sp, weight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp).testTag("currency"))
+                    Btn("Change...", { model.dialog = Dialog.CurrencyPicker }, ghost = true, small = true, enabled = model.budget != null, tag = "currency.change")
+                }
+                T("How amounts look and are typed, on every device of the account. It changes no amount: there are no exchange rates.", 11.5.sp, C.Dim2)
                 T("Transactions before this date are bank history: they stay in account balances, but not in envelopes or Ready to assign.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 4.dp))
             }
         }
@@ -546,3 +545,7 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         }
     }
 }
+
+/** "EUR (Euro)": the code and its English name. */
+fun currencyLabel(code: String): String =
+    net.darkrelay.deaddropfinance.domain.Currencies.all().firstOrNull { it.code == code }?.let { "${it.code} (${it.name})" } ?: code

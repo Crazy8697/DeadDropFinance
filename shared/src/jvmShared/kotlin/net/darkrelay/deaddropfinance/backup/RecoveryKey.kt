@@ -109,6 +109,16 @@ class RecoveryKeys(private val store: RecoveryKeyStore) {
 
     fun confirmSaved() = store.confirm()
 
+    /**
+     * Restore (1.7.0): the key saved on this device that a backup made with [keyId] opens with: the current key (the
+     * account's, once logged in) first, then this device's older keys. Null when none of them is it, and the key is
+     * typed instead.
+     */
+    fun savedKeyFor(keyId: String?): ByteArray? {
+        if (keyId == null) return null
+        return (listOfNotNull(store.current()) + store.old()).firstOrNull { RecoveryKey.id(it) == keyId }
+    }
+
     /** A device that logged in takes the account's key; its own earlier key is kept in [old]. Nothing to show: it was shown where it was made. */
     fun adopt(accountKey: ByteArray) {
         require(accountKey.size == RecoveryKey.BYTES)

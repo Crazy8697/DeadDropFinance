@@ -293,6 +293,8 @@ class AddAndBackupTest {
         save()
         assertNotEquals(before, b().accounts.map { it.name to b().accountBalance(it.id) })
         openFrom = saveTo
+        // as on another computer, where no key saved there opens it (0.12.0: here the saved key would be used)
+        m.recoveryKeys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(net.darkrelay.deaddropfinance.backup.MemoryRecoveryKeyStore())
         tag("nav.SETTINGS").performClick()
         tag("settings.restore").performClick()
         compose.waitForIdle()

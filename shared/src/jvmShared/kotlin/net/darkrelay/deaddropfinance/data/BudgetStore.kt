@@ -4,6 +4,8 @@ import java.time.LocalDate
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.currentCoroutineContext
+import net.darkrelay.deaddropfinance.domain.Currencies
+import net.darkrelay.deaddropfinance.domain.Money
 import org.json.JSONObject
 
 /** Another device holds the server's edit lock (1.4.0), so this one is read only until it lets go. */
@@ -186,11 +188,46 @@ class BudgetStore(
         onWrite?.invoke()
     }
 
+    /**
+     * The budget's currency (1.7.0), an ISO 4217 code: USD until one is chosen, so an existing budget stays USD. Display
+     * only; no stored amount depends on it. Kept in `meta`, so backup carries it.
+     */
+    suspend fun currency(): String = dao.meta(META_CURRENCY)?.takeIf { Currencies.isKnown(it) } ?: Currencies.DEFAULT
+
+    /** Reads the budget's currency into [Money] (when the budget opens, and after a restore or a sync brings a new one). */
+    suspend fun applyCurrency(): String = currency().also { Money.use(it) }
+
+    /**
+     * Sets the budget's currency. Changes no amount: only how amounts look and are typed. Logged as a change of the
+     * "meta" entity currency, so server sync carries it to every device of the account, as the budget start date.
+     */
+    suspend fun setCurrency(code: String) {
+        require(Currencies.isKnown(code)) { "That isn't a currency code." }
+        if (dao.meta(META_CURRENCY) == code) { Money.use(code); return }
+        checkGuard()
+        db.atomically {
+            dao.putMeta(MetaEntity(META_CURRENCY, code))
+            dao.insertChange(
+                ChangeLogEntity(
+                    entityType = META_ENTITY, entityId = META_CURRENCY, operation = ChangeOperation.UPDATE,
+                    changedFields = JSONObject().put("value", code).toString(), timestamp = clock(), deviceId = deviceId(),
+                    seq = dao.lastSeq() + 1,
+                ),
+            )
+        }
+        Money.use(code)
+        onWrite?.invoke()
+    }
+
     companion object {
         const val META_DEVICE_ID = "device_id"
         const val META_BUDGET_START = "budget_start"
-        /** The change log's entity type for a synced meta value (budget_start). */
+        /** The budget's currency (1.7.0), synced as a meta value like the budget start. */
+        const val META_CURRENCY = "currency"
+        /** The change log's entity type for a synced meta value (budget_start, currency). */
         const val META_ENTITY = "meta"
+        /** The meta values that sync. */
+        val SYNCED_META = setOf(META_BUDGET_START, META_CURRENCY)
 
         fun entityType(e: Synced): String = when (e) {
             is AccountEntity -> "account"

@@ -49,6 +49,8 @@ class Engine private constructor(val opened: DesktopDatabase.Opened) {
                 try {
                     opened.store.ensureSystemEnvelopes()
                     opened.store.ensureCategories()
+                    // amounts show in the budget's currency (0.12.0)
+                    opened.store.applyCurrency()
                 } catch (e: Exception) {
                     opened.store.db.close()
                     return Engine(DesktopDatabase.Opened.Unavailable("the budget database can't be opened"))

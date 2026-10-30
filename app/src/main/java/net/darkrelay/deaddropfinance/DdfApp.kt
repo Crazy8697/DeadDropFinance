@@ -126,7 +126,11 @@ class DdfApp : Application() {
 
     /** Opens the database once. Call off the main thread. */
     suspend fun open(): DatabaseOpener.Opened = openLock.withLock {
-        opened ?: DatabaseOpener.open(this).also { opened = it }
+        opened ?: DatabaseOpener.open(this).also { o ->
+            opened = o
+            // amounts show in the budget's currency (1.7.0), in the app and in its reminders alike
+            if (o is DatabaseOpener.Opened.Ok) o.store.applyCurrency()
+        }
     }
 
     /**

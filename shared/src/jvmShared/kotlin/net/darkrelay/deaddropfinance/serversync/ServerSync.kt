@@ -408,8 +408,11 @@ class ServerSync(
             f.put("created_at", e.createdAt).put("updated_at", e.updatedAt)
             Change(newId(), BudgetStore.entityType(e), e.id, "INSERT", f, t)
         }
-        val start = store.budgetStart() ?: return out
-        return out + Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_BUDGET_START, "UPDATE", JSONObject().put("value", start.toString()), t)
+        val meta = mutableListOf<Change>()
+        store.budgetStart()?.let { meta += Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_BUDGET_START, "UPDATE", JSONObject().put("value", it.toString()), t) }
+        // the currency (1.7.0), when one was chosen (a budget without one is USD everywhere)
+        store.dao.meta(BudgetStore.META_CURRENCY)?.let { meta += Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_CURRENCY, "UPDATE", JSONObject().put("value", it), t) }
+        return out + meta
     }
 
     /** A device that logged in: the server's copy replaces this one's (the backup was made before logging in). */
@@ -426,11 +429,11 @@ class ServerSync(
         store.db.rawTransaction { raw ->
             for (t in TABLES.values) raw.exec("DELETE FROM `$t`")
             raw.exec("DELETE FROM change_log")
-            raw.exec("DELETE FROM meta WHERE `key` = ?", listOf(BudgetStore.META_BUDGET_START))
+            for (k in BudgetStore.SYNCED_META) raw.exec("DELETE FROM meta WHERE `key` = ?", listOf(k))
             val cols = mutableMapOf<String, Set<String>>()
             for (r in records) {
                 if (r.entityType == BudgetStore.META_ENTITY) {
-                    if (r.entityId == BudgetStore.META_BUDGET_START && !r.deleted) writeMeta(raw, r.data)
+                    if (r.entityId in BudgetStore.SYNCED_META && !r.deleted) writeMeta(raw, r.entityId, r.data)
                     continue
                 }
                 val table = TABLES[r.entityType] ?: continue
@@ -441,6 +444,8 @@ class ServerSync(
         prefs.pushedSeq = store.dao.lastSeq()
         prefs.pulledSeq = serverLastSeq
         prefs.phase = PHASE_READY
+        // the server's budget may have its own currency (1.7.0)
+        store.applyCurrency()
     }
 
     private suspend fun pullAll(c: ServerClient) {
@@ -463,12 +468,12 @@ class ServerSync(
             for (ch in changes) {
                 if (raw.query("SELECT 1 FROM change_log WHERE change_id = ?", listOf(ch.changeId)).isNotEmpty()) continue
                 val table = TABLES[ch.entityType]
-                if (table == null && !(ch.entityType == BudgetStore.META_ENTITY && ch.entityId == BudgetStore.META_BUDGET_START)) continue
+                if (table == null && !(ch.entityType == BudgetStore.META_ENTITY && ch.entityId in BudgetStore.SYNCED_META)) continue
                 val newest = raw.query("SELECT MAX(timestamp) FROM change_log WHERE entity_type = ? AND entity_id = ?", listOf(ch.entityType, ch.entityId))
                     .single()[0] as Long?
                 if (newest == null || newest <= ch.timestamp) {
                     try {
-                        if (table == null) writeMeta(raw, ch.changedFields)
+                        if (table == null) writeMeta(raw, ch.entityId, ch.changedFields)
                         else upsertRow(raw, table, cols.getOrPut(table) { columns(raw, table) }, ch.entityId, deletedAs(ch), ch.timestamp)
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
@@ -481,6 +486,8 @@ class ServerSync(
                 )
             }
         }
+        // another device chose the currency (1.7.0): amounts show in it from now on
+        if (changes.any { it.entityType == BudgetStore.META_ENTITY && it.entityId == BudgetStore.META_CURRENCY }) store.applyCurrency()
     }
 
     private fun deletedAs(ch: ServerChange): JSONObject =
@@ -522,7 +529,7 @@ class ServerSync(
         if (fresh.isEmpty()) return
         prefs.conflictsSeenAt = fresh.last().at
         _notices.value = (_notices.value + fresh.map {
-            "Your change to ${what(it.entityType)} was replaced by a newer one from ${names[it.winnerDevice] ?: "another device"} (the last change wins)."
+            "Your change to ${what(it.entityType, it.entityId)} was replaced by a newer one from ${names[it.winnerDevice] ?: "another device"} (the last change wins)."
         }).distinct()
     }
 
@@ -665,7 +672,7 @@ class ServerSync(
             "category" to "category",
         )
 
-        private fun what(type: String) = when (type) {
+        private fun what(type: String, id: String) = when (type) {
             "account" -> "an account"
             "envelope" -> "an envelope"
             "transaction" -> "a transaction"
@@ -680,16 +687,19 @@ class ServerSync(
             "subscription" -> "a subscription"
             "parked_buy" -> "a parked buy"
             "category" -> "a category"
-            BudgetStore.META_ENTITY -> "the budget start date"
+            BudgetStore.META_ENTITY -> if (id == BudgetStore.META_CURRENCY) "the currency" else "the budget start date"
             else -> "a record"
         }
 
         internal suspend fun columns(raw: RawSql, table: String): Set<String> =
             raw.query("SELECT name FROM pragma_table_info(?)", listOf(table)).map { it[0] as String }.toSet()
 
-        internal suspend fun writeMeta(raw: RawSql, data: JSONObject) {
+        /** A synced meta value ([key]: budget_start, or the currency from 1.7.0) from the server. */
+        internal suspend fun writeMeta(raw: RawSql, key: String, data: JSONObject) {
+            if (key !in BudgetStore.SYNCED_META) return
             val v = data.optStringOrNull("value") ?: return
-            raw.exec("INSERT OR REPLACE INTO meta (`key`, value) VALUES (?, ?)", listOf(BudgetStore.META_BUDGET_START, v))
+            if (key == BudgetStore.META_CURRENCY && !net.darkrelay.deaddropfinance.domain.Currencies.isKnown(v)) return
+            raw.exec("INSERT OR REPLACE INTO meta (`key`, value) VALUES (?, ?)", listOf(key, v))
         }
 
         /** Writes [fields] into row [id] of [table]: an update of those columns, or an insert when the row is new. */
