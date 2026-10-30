@@ -21,7 +21,15 @@ enum class Screen(val title: String) { BUDGET("Budget"), ACTIVITY("Activity"), A
 /** An open dialog: Add transaction, Move money, an envelope or account form, or a CSV import's confirmation. */
 sealed class Dialog {
     /** [payday], [fill], [split]: how the dialog starts (Payday ticked, split lines), as when picked by hand. */
-    data class AddTransaction(val accountId: String? = null, val envelopeId: String? = null, val payday: Boolean = false, val fill: Boolean = false, val split: Boolean = false) : Dialog()
+    data class AddTransaction(val accountId: String? = null, val envelopeId: String? = null, val payday: Boolean = false, val fill: Boolean = false, val split: Boolean = false,
+                              /** 0.12.3: an existing transaction, opened from its row to edit (and delete). */
+                              val editId: String? = null) : Dialog()
+    /** A transfer between the user's own accounts, or an ATM withdrawal (0.12.3); [editId] edits one. */
+    data class Transfer(val editId: String? = null, val fromId: String? = null) : Dialog()
+    /** Bonus income (0.12.3): money in outside the bank, to Ready to assign; [editId] edits one. */
+    data class Bonus(val editId: String? = null) : Dialog()
+    /** Budget start date (0.12.3): change it, after a plain warning. */
+    object BudgetStart : Dialog()
     data class MoveMoney(val fromId: String? = null, val toId: String? = null) : Dialog()
     data class EnvelopeForm(val envelopeId: String? = null) : Dialog()
     data class AccountForm(val accountId: String? = null) : Dialog()
@@ -167,30 +175,45 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     suspend fun addTransaction(
         accountId: String, date: LocalDate, payee: String, amount: Long, envelope: String?, note: String,
         category: String? = null, payday: Boolean = false, fill: Boolean = false,
+        /** 0.12.3: [id] edits that transaction; [pending] as the phone's box; [moneyIn] puts money straight into the envelope. */
+        id: String? = null, pending: Boolean = false, moneyIn: Boolean? = null,
     ): Boolean {
         if (amount <= 0) { message = "Enter an amount above zero." to true; return false }
-        val line = when (envelope) {
-            READY_TO_ASSIGN -> BudgetActions.LineDraft(null, amount, toReadyToAssign = true)
-            TO_SORT -> BudgetActions.LineDraft(null, amount)
+        // money in unless said otherwise only for Ready to assign and To sort, as before 0.12.3
+        val incoming = moneyIn ?: (envelope == READY_TO_ASSIGN || envelope == TO_SORT)
+        if (!incoming && envelope == READY_TO_ASSIGN) { message = "Ready to assign is only for money in." to true; return false }
+        val line = when {
+            envelope == READY_TO_ASSIGN -> BudgetActions.LineDraft(null, amount, toReadyToAssign = true)
+            envelope == TO_SORT -> BudgetActions.LineDraft(null, if (incoming) amount else -amount, categoryId = category.takeIf { !incoming })
+            incoming -> BudgetActions.LineDraft(envelope, amount)
             else -> BudgetActions.LineDraft(envelope, -amount, categoryId = category)
         }
-        val signed = if (envelope == READY_TO_ASSIGN || envelope == TO_SORT) amount else -amount
-        val draft = BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), signed, listOf(line))
+        val signed = if (incoming) amount else -amount
+        val draft = BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), signed, listOf(line), pending = pending)
         if (payday && envelope != READY_TO_ASSIGN) { message = "Only money in to Ready to assign can be a payday." to true; return false }
-        if (!payday) return act("Saved.") { saveTransaction(null, draft) }
+        // an existing deposit to Ready to assign: the Payday box marks or unmarks it, as the phone's edit does
+        if (id != null && envelope == READY_TO_ASSIGN) {
+            var plan: net.darkrelay.deaddropfinance.domain.Payday.Plan? = null
+            val ok = act { plan = saveDeposit(id, draft, payday, fill, today()) }
+            if (ok) message = (plan?.let { paydayText(it, fill, date) } ?: "Saved. It isn't a payday now.") to false
+            return ok
+        }
+        if (!payday) return act("Saved.") { saveTransaction(id, draft) }
         var plan: net.darkrelay.deaddropfinance.domain.Payday.Plan? = null
         val ok = act { plan = savePayday(draft, fill, today()).second }
         val p = plan
-        if (ok && p != null) {
-            val names = budget?.envelopes?.associate { it.id to it.name }.orEmpty()
-            message = when {
-                !fill -> "Payday: the new budget month starts $date." + if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover."
-                p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover."
-                else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover. Short: " +
-                    p.shortfalls.joinToString(", ") { "${names[it.envelopeId] ?: "an envelope"} ${money(it.short)}" } + "."
-            } to false
-        }
+        if (ok && p != null) message = paydayText(p, fill, date) to false
         return ok
+    }
+
+    private fun paydayText(p: net.darkrelay.deaddropfinance.domain.Payday.Plan, fill: Boolean, date: LocalDate): String {
+        val names = budget?.envelopes?.associate { it.id to it.name }.orEmpty()
+        return when {
+            !fill -> "Payday: the new budget month starts $date." + if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover."
+            p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover."
+            else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover. Short: " +
+                p.shortfalls.joinToString(", ") { "${names[it.envelopeId] ?: "an envelope"} ${money(it.short)}" } + "."
+        }
     }
 
     /** One line of a split purchase: its category (required), its envelope (the category's by default) and amount. */
@@ -200,7 +223,8 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
      * A purchase split into lines (one trip: groceries, electronics, fishing), as the phone's split. [income] (0.9.0):
      * money in split across envelopes, Ready to assign (READY_TO_ASSIGN) and To sort (TO_SORT), as the phone's.
      */
-    suspend fun addSplit(accountId: String, date: LocalDate, payee: String, note: String, total: Long, lines: List<SplitLine>, income: Boolean = false): Boolean {
+    suspend fun addSplit(accountId: String, date: LocalDate, payee: String, note: String, total: Long, lines: List<SplitLine>, income: Boolean = false,
+                         id: String? = null, pending: Boolean = false): Boolean {
         if (total <= 0) { message = "Enter an amount above zero." to true; return false }
         if (lines.size < 2) { message = "A split needs at least two lines." to true; return false }
         if (income) {
@@ -212,10 +236,64 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
                     else -> BudgetActions.LineDraft(it.envelope, it.amount)
                 }
             }
-            return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), total, drafts)) }
+            return act("Saved.") { saveTransaction(id, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), total, drafts, pending = pending)) }
         }
         val drafts = lines.map { BudgetActions.LineDraft(it.envelope, -it.amount, categoryId = it.category) }
-        return act("Saved.") { saveTransaction(null, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), -total, drafts)) }
+        return act("Saved.") { saveTransaction(id, BudgetActions.TransactionDraft(accountId, date, payee.trim(), note.trim(), -total, drafts, pending = pending)) }
+    }
+
+    // ---- 0.12.3: the program does what the app does ---------------------------------------------------------
+
+    /** A row's transaction, opened in its edit form: a transfer's, a bonus's, or the purchase and deposit form. */
+    fun openTransaction(id: String) {
+        val t = budget?.transactions?.firstOrNull { it.id == id } ?: return
+        dialog = when (t.kind) {
+            TransactionKind.TRANSFER -> Dialog.Transfer(editId = id)
+            TransactionKind.BONUS -> Dialog.Bonus(editId = id)
+            else -> Dialog.AddTransaction(editId = id)
+        }
+    }
+
+    /** Whether [txId] has a receipt (from the phone): the delete then offers to delete it too. */
+    suspend fun hasReceipt(txId: String): Boolean = store()?.dao?.receiptsNow()?.any { it.transactionId == txId } == true
+
+    /** Delete, as the phone's: a soft delete (tombstones, synced like any change); its receipt goes back to waiting, or with [alsoReceipt] goes too. */
+    suspend fun deleteTransaction(id: String, alsoReceipt: Boolean = false): Boolean = act("Deleted.") { deleteTransaction(id, deleteReceipt = alsoReceipt) }
+
+    /** A transfer between two of the user's accounts; into a cash account with [fromEnvelope], an ATM withdrawal. */
+    suspend fun saveTransfer(id: String?, from: String, to: String, amount: Long, date: LocalDate, memo: String, fromEnvelope: String?): Boolean =
+        act("Saved.") { saveTransfer(id, from, to, amount, date, memo, fromEnvelope) }
+
+    suspend fun saveBonus(id: String?, amount: Long, date: LocalDate, receivedAs: String, note: String): Boolean =
+        act("Saved.") { saveBonus(id, amount, date, receivedAs, note) }
+
+    suspend fun setAccountArchived(id: String, archived: Boolean): Boolean =
+        act(if (archived) "Archived." else "Back in the account list.") { setAccountArchived(id, archived) }
+
+    suspend fun deleteAccountCount(id: String): Int = actions?.deleteAccountCount(id) ?: 0
+
+    suspend fun deleteAccount(id: String): Boolean = act("Deleted.") { deleteAccount(id) }
+
+    suspend fun setEnvelopeArchived(id: String, archived: Boolean): Boolean {
+        val ok = act(if (archived) "Archived." else "Back in the budget.") { setEnvelopeArchived(id, archived) }
+        if (ok && archived) drawerEnvelope = null
+        return ok
+    }
+
+    suspend fun coverFromRollover(id: String): Boolean {
+        var amount = 0L
+        val ok = act { amount = coverFromRollover(id) }
+        if (ok) message = "Covered ${money(amount)} from Rollover." to false
+        return ok
+    }
+
+    /** Changes the budget start date, then labels the history before it, as the phone does. No transaction changes. */
+    suspend fun setBudgetStart(d: LocalDate): Boolean {
+        val st = store() ?: return false
+        return act("The budget starts ${d}.") {
+            st.setBudgetStart(d)
+            runCatching { net.darkrelay.deaddropfinance.domain.Sorting(st, this).labelHistory() }
+        }
     }
 
     /** Fill targets: each envelope in fill order gets what its mode wants (the phone's Assign Add), while money lasts. */
@@ -235,7 +313,11 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     suspend fun saveEnvelope(id: String?, draft: BudgetActions.EnvelopeDraft): Boolean = act("Saved.") { saveEnvelope(id, draft, today()) }
 
     suspend fun saveAccount(id: String?, name: String, type: AccountType, start: Long, startDate: LocalDate, trackOnly: Boolean, held: Long, showInActivity: Boolean): Boolean =
-        act("Saved.") { saveAccount(id, name, type, start, startDate, trackOnly, held, showInActivity) }
+        act("Saved.") {
+            saveAccount(id, name, type, start, startDate, trackOnly, held, showInActivity)
+            // 0.12.3: a budget made on this computer gets its start date with its first account, as the phone's setup gives it one
+            store()?.ensureBudgetStart(today(), setupDone = false)
+        }
 
     /** Reads a bank's CSV export and plans its import into [accountId]; opens the confirmation. */
     suspend fun planImport(accountId: String, fileName: String, text: String): Boolean {
@@ -257,7 +339,12 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
 
     suspend fun importCsv(d: Dialog.ImportCsv): Boolean {
         var result: BudgetActions.ImportResult? = null
-        val ok = act { result = importCsv(d.accountId, d.plan) }
+        val ok = act {
+            val r = importCsv(d.accountId, d.plan)
+            result = r
+            // 0.12.3: what runs on new transactions after an import, as on the phone (parked buys, history labels, bill payments, receipts)
+            store()?.let { st -> net.darkrelay.deaddropfinance.domain.Arrivals(st, this, { today() }).landed(r.newIds, autoApprove = false) }
+        }
         result?.let { r -> message = "Imported ${r.imported} transaction${if (r.imported == 1) "" else "s"} into To sort; ${r.skipped} already here, ${r.bad} unreadable." to false }
         return ok
     }
@@ -360,8 +447,18 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         } catch (e: net.darkrelay.deaddropfinance.serversync.ServerClient.RpcError) {
             message = (e.message ?: "The server refused.") to true
             false
+        } catch (e: java.io.FileNotFoundException) {
+            // 0.12.3: what failed, never the file's name or path
+            message = "That file couldn't be opened: it may have been moved, or this computer isn't allowed to read it. Your budget wasn't changed." to true
+            false
+        } catch (e: java.nio.file.AccessDeniedException) {
+            message = "This computer isn't allowed to read that file. Your budget wasn't changed." to true
+            false
+        } catch (e: java.io.IOException) {
+            message = "The backup file is cut short or damaged. Your budget wasn't changed." to true
+            false
         } catch (e: Exception) {
-            message = "${file.name} can't be read. Your budget wasn't changed." to true
+            message = "The restore stopped on an unexpected problem (${e::class.simpleName}). Your budget wasn't changed." to true
             false
         }
     }

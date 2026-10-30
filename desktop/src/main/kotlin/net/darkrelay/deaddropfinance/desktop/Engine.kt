@@ -49,6 +49,8 @@ class Engine private constructor(val opened: DesktopDatabase.Opened) {
                 try {
                     opened.store.ensureSystemEnvelopes()
                     opened.store.ensureCategories()
+                    // 0.12.3: a budget with accounts and no start date gets today's, as the phone gives one when it starts
+                    opened.store.ensureBudgetStart(java.time.LocalDate.now(), setupDone = false)
                     // amounts show in the budget's currency (0.12.0)
                     opened.store.applyCurrency()
                 } catch (e: Exception) {

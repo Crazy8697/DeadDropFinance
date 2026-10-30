@@ -135,6 +135,32 @@ try {
     $p = Probe "this build $Version"
     if ($Live -and ($p["status"] -ne "current" -or $p["newest"] -ne $Version)) { Fail "$Version is offered again, or isn't the newest" }
 
+    # ---- 3b (0.12.3): one instance per user, with the throwaway APPDATA's own lock; no window opens in this mode ----
+    $exe = Join-Path $dir "DeadDropFinance.exe"
+    $fa = Join-Path $tmp "instance-a.txt"; $fb = Join-Path $tmp "instance-b.txt"; $fc = Join-Path $tmp "instance-c.txt"
+    $env:APPDATA = $appData
+    try {
+        $a = Start-Process -FilePath $exe -ArgumentList @("--instance-check", "`"$fa`"") -PassThru
+        $until = (Get-Date).AddSeconds(30)
+        while (-not ((Test-Path $fa) -and ((Get-Content $fa) -contains "first")) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 200 }
+        if (-not ((Test-Path $fa) -and ((Get-Content $fa) -contains "first"))) { Fail "the first launch didn't take the one-instance lock" }
+        $b = Start-Process -FilePath $exe -ArgumentList @("--instance-check", "`"$fb`"") -PassThru
+        if (-not $b.WaitForExit(30000)) { $b.Kill(); Fail "the second launch didn't exit" }
+        if ((Get-Content $fb) -notcontains "second") { Fail "the second launch didn't hand over: $((Get-Content $fb) -join ' ')" }
+        $until = (Get-Date).AddSeconds(15)
+        while (-not ((Get-Content $fa) -contains "focused") -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 200 }
+        if ((Get-Content $fa) -notcontains "focused") { Fail "the first instance wasn't asked to come to the front" }
+        # the first one is gone (here: killed, as a crash): the next launch opens, no lock left behind
+        if (-not $a.HasExited) { Stop-Process -Id $a.Id -Force }
+        $c = Start-Process -FilePath $exe -ArgumentList @("--instance-check", "`"$fc`"") -PassThru
+        $until = (Get-Date).AddSeconds(30)
+        while (-not ((Test-Path $fc) -and ((Get-Content $fc) -contains "first")) -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 200 }
+        if (-not ((Test-Path $fc) -and ((Get-Content $fc) -contains "first"))) { Fail "after the first instance was killed, the next launch didn't open" }
+        Stop-Process -Id $c.Id -Force -ErrorAction SilentlyContinue
+        $c.WaitForExit(10000) | Out-Null
+    } finally { $env:APPDATA = $oldAppData }
+    Ok "one instance: a second launch asked the open one to come to the front and exited; after the first was killed, the next launch opened (no lock left)"
+
     # ---- 4 ----
     Install @("/VERYSILENT")
     $n = @(Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" | Where-Object { $_.PSChildName -like "*6C662EDE*" }).Count

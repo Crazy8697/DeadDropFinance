@@ -179,6 +179,24 @@ class StoreTest {
         assertEquals(0, again.imported)
     }
 
+    @Test fun editingAnAtmWithdrawalKeepsItsEnvelope() = runBlocking<Unit> {
+        // 1.7.3: an edit used to drop the ATM move, because the edit form sends no envelope
+        val acct = a.saveAccount(null, "Test Bank", AccountType.BANK, 100_00, d)
+        val cashAcct = a.saveAccount(null, "Wallet", AccountType.CASH, 0, d)
+        val env = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, target = 80_00))
+        val transfer = a.saveTransfer(null, acct, cashAcct, 40_00, d, "", fromEnvelopeId = env)
+        a.saveTransfer(transfer, acct, cashAcct, 25_00, d, "edited", fromEnvelopeId = null)
+        val live = store.dao.movesLinkedTo(transfer).filter { !it.deleted }
+        assertEquals(1, live.size)
+        assertEquals(MoveKind.ATM, live.single().kind)
+        assertEquals(env, live.single().fromEnvelopeId)
+        assertEquals(25_00, live.single().amount)
+        // into a bank account it's a plain transfer again, with no ATM move
+        val other = a.saveAccount(null, "Other Bank", AccountType.BANK, 0, d)
+        a.saveTransfer(transfer, acct, other, 25_00, d, "", fromEnvelopeId = null)
+        assertTrue(store.dao.movesLinkedTo(transfer).all { it.deleted })
+    }
+
     @Test fun deviceIdIsStableAndRandom() = runBlocking<Unit> {
         val id = store.deviceId()
         assertEquals(id, store.deviceId())

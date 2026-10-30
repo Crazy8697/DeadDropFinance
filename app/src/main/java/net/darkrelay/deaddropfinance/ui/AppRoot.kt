@@ -177,10 +177,14 @@ interface Platform {
     val recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? get() = null
     /** Writes the backup to [uri], under the recovery key (1.6.0). Runs off the main thread. */
     suspend fun writeBackup(uri: android.net.Uri): net.darkrelay.deaddropfinance.backup.Backups.Summary
-    /** A picked backup's first bytes (BackupCrypto.HEAD_BYTES): what it opens with, and which recovery key (1.7.0). */
-    suspend fun backupHead(uri: android.net.Uri): ByteArray? = null
-    /** Restores from [uri] with [secret]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread. */
-    suspend fun restoreBackup(uri: android.net.Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.Backups.Summary
+    /**
+     * 1.7.3: the picked backup, read once right after it's picked into a copy in the app's own storage (RestoreFlow.copyPicked);
+     * every later step uses the copy. Throws BackupException saying what failed.
+     */
+    suspend fun copyPickedBackup(uri: android.net.Uri): java.io.File =
+        throw net.darkrelay.deaddropfinance.backup.BackupException(net.darkrelay.deaddropfinance.backup.RestoreFlow.UNREADABLE)
+    /** Restores from the copy [file] with [opener]: everything is replaced, or (BackupException) nothing changes. Runs off the main thread, no screen work. */
+    suspend fun restoreBackup(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret): net.darkrelay.deaddropfinance.backup.Backups.Summary
     /** Server login (1.4.0): this phone's budget, backed up to Downloads under its recovery key before the server's replaces it; returns where. */
     suspend fun backupBeforeServer(key: ByteArray): String
     /** Copies the recovery key for the user (marked sensitive). */
@@ -254,7 +258,8 @@ fun AppRoot(
     var parkWait by remember { mutableIntStateOf(1) }
     var backupState by remember { mutableStateOf(BackupState()) }
     var importSetup by remember { mutableStateOf(SetupImportState()) }
-    var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    /** 1.7.3: the picked backup's copy in the app's own storage (never the picker's address again). */
+    var restoreFile by remember { mutableStateOf<java.io.File?>(null) }
     /** 1.7.0: the recovery key saved on this phone that the picked backup opens with, if any. */
     var restoreKey by remember { mutableStateOf<ByteArray?>(null) }
     /** 1.7.2: the key or password typed for a restore that waits on the confirm screen (restore while logged in). */
@@ -346,36 +351,38 @@ fun AppRoot(
      * the server's master copy and the other devices take it at their next sync (ServerSync.restoreAsMaster); a refusal
      * before the restore, like a server that can't back up its own budget first, changes nothing anywhere.
      */
-    suspend fun runRestore(uri: android.net.Uri, typed: String) {
+    suspend fun runRestore(file: java.io.File, typed: String) {
         backupState = backupState.copy(working = "Restoring...", message = null, error = null)
         val server = sync?.takeIf { it.connected }
-        backupState = try {
+        val secret = try {
             val saved = restoreKey
-            val secret = if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
-                else if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
-                else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
-            var summary: net.darkrelay.deaddropfinance.backup.Backups.Summary? = null
-            if (server != null) server.restoreAsMaster { summary = platform.restoreBackup(uri, secret); reloadSettings() }
-            else { summary = platform.restoreBackup(uri, secret); reloadSettings() }
-            val s = summary!!
-            restoreUri = null
-            restoreKey = null
-            backupState.copy(
-                working = null, restoreName = null, restoreSavedKey = false, confirmServerReplace = false,
-                message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos." +
-                    if (server != null) " The server's budget is now this backup, and your other devices take it at their next sync." else "",
-            )
-        } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
-            backupState.copy(working = null, error = e.message)
+            if (saved != null) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(saved)
+            else if (backupState.restoreWithKey) net.darkrelay.deaddropfinance.backup.BackupSecret.Key(net.darkrelay.deaddropfinance.backup.RecoveryKey.parse(typed))
+            else net.darkrelay.deaddropfinance.backup.BackupSecret.OldPassword(typed.toCharArray())
         } catch (e: IllegalArgumentException) {
-            backupState.copy(working = null, error = e.message)
-        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerException) {
-            // refused before the restore: nothing changed. After it: the message says the restored budget is here and the server will be tried again
-            backupState.copy(working = null, error = e.message)
-        } catch (e: net.darkrelay.deaddropfinance.serversync.ServerClient.RpcError) {
-            backupState.copy(working = null, error = e.message)
-        } catch (e: Exception) {
-            backupState.copy(working = null, error = "That file couldn't be read. Nothing was changed.")
+            backupState = backupState.copy(working = null, error = e.message)
+            return
+        }
+        // 1.7.3: the restore runs with no screen work in it (logged in it runs on a background thread); the settings it
+        // brought back are applied here afterwards, on the main thread
+        val flow = net.darkrelay.deaddropfinance.backup.RestoreFlow({ f, s -> platform.restoreBackup(f, s) }, server?.let { s -> { local -> s.restoreAsMaster(local) } })
+        backupState = when (val r = flow.run(file, secret)) {
+            is net.darkrelay.deaddropfinance.backup.RestoreFlow.Result.Done -> {
+                reloadSettings()
+                file.delete()
+                restoreFile = null
+                restoreKey = null
+                val s = r.summary
+                backupState.copy(
+                    working = null, restoreName = null, restoreSavedKey = false, confirmServerReplace = false,
+                    message = "Restored: ${s.accounts} accounts, ${s.transactions} transactions, ${s.receipts} receipts, ${s.photos} photos." +
+                        if (r.toServer) " The server's budget is now this backup, and your other devices take it at their next sync." else "",
+                )
+            }
+            is net.darkrelay.deaddropfinance.backup.RestoreFlow.Result.Failed -> {
+                if (r.changedHere) reloadSettings()
+                backupState.copy(working = null, error = r.message)
+            }
         }
     }
     /** The settings a setup file changes, applied where each one lives. */
@@ -663,7 +670,7 @@ fun AppRoot(
                 onReceipts = { go(Nav.Receipts) },
                 onParked = { go(Nav.ParkedBuys) },
                 onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
-                onBackup = { backupState = BackupState(lastBackup = lastBackupText()); restoreUri = null; go(Nav.Backup) },
+                onBackup = { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) },
                 backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",
                 parkWait = parkWait,
                 onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
@@ -956,35 +963,44 @@ fun AppRoot(
                 onPickRestore = {
                     platform.pickBackupFile { uri ->
                         if (uri != null) scope.launch {
-                            val head = platform.backupHead(uri) ?: ByteArray(0)
+                            // 1.7.3: read once, now, into the app's own storage; every later step uses this copy
+                            restoreFile?.delete(); restoreFile = null
+                            val copy = try {
+                                platform.copyPickedBackup(uri)
+                            } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {
+                                backupState = backupState.copy(restoreName = null, message = null, error = e.message)
+                                return@launch
+                            }
+                            val head = withContext(kotlinx.coroutines.Dispatchers.IO) { net.darkrelay.deaddropfinance.backup.RestoreFlow.head(copy) }
                             val kind = net.darkrelay.deaddropfinance.backup.BackupCrypto.kindOf(head)
                             // 1.7.0: the keys saved here first (the account's, then older ones); typed only if none opens it
                             restoreKey = keys?.savedKeyFor(net.darkrelay.deaddropfinance.backup.BackupCrypto.keyIdOf(head))
                             if (kind == null) {
-                                backupState = backupState.copy(error = "That isn't a Dead Drop Finance backup file, or it was made by a newer version. Nothing was changed.")
+                                copy.delete()
+                                backupState = backupState.copy(restoreName = null, message = null, error = net.darkrelay.deaddropfinance.backup.RestoreFlow.NOT_A_BACKUP)
                                 return@launch
                             }
-                            restoreUri = uri
+                            restoreFile = copy
                             backupState = backupState.copy(restoreName = platform.displayName(uri), message = null, error = null,
                                 restoreWithKey = kind == net.darkrelay.deaddropfinance.backup.BackupSecret.Key::class.java, restoreSavedKey = restoreKey != null)
                         }
                     }
                 },
                 onRestore = { typed ->
-                    val uri = restoreUri
-                    if (uri != null && sync?.connected == true) {
+                    val f = restoreFile
+                    if (f != null && sync?.connected == true) {
                         // 1.7.2: logged in, a restore replaces the server's budget too: say so first, and wait for the answer
                         restoreTyped = typed
                         backupState = backupState.copy(confirmServerReplace = true, message = null, error = null)
-                    } else if (uri != null) scope.launch { runRestore(uri, typed) }
+                    } else if (f != null) scope.launch { runRestore(f, typed) }
                 },
                 onCancelServerReplace = { backupState = backupState.copy(confirmServerReplace = false, error = null) },
                 onConfirmServerReplace = {
-                    val uri = restoreUri
-                    if (uri != null) scope.launch { runRestore(uri, restoreTyped) }
+                    val f = restoreFile
+                    if (f != null) scope.launch { runRestore(f, restoreTyped) }
                 },
                 onTakeOver = { sync?.let { s -> scope.launch { s.takeOver() } } },
-                onCancelRestore = { restoreUri = null; restoreKey = null; backupState = backupState.copy(restoreName = null, restoreSavedKey = false, error = null) },
+                onCancelRestore = { restoreFile?.delete(); restoreFile = null; restoreKey = null; backupState = backupState.copy(restoreName = null, restoreSavedKey = false, error = null) },
             )
             Nav.SetupImport -> {
                 val importer = remember(store) { net.darkrelay.deaddropfinance.domain.SetupImporter(store, actions) }

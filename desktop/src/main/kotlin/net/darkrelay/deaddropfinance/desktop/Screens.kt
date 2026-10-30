@@ -73,6 +73,7 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
             StatCard("Spent this month", money(spent), "$purchases transaction${if (purchases == 1) "" else "s"}", Modifier.weight(1f), tag = "card.spent")
         }
         RowHead("Envelopes") {
+            Btn("Bonus income", { model.dialog = Dialog.Bonus() }, ghost = true, small = true, tag = "bonus")
             Btn("Fill targets", { shell.run { model.fillTargets() } }, ghost = true, small = true, tag = "fillTargets")
             Btn("New envelope", { model.dialog = Dialog.EnvelopeForm() }, ghost = true, small = true, tag = "newEnvelope")
         }
@@ -82,6 +83,23 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
         ) {
             if (rows.isEmpty()) EmptyRow("No envelopes yet. New envelope gives your money a job.")
             rows.forEach { e -> EnvelopeRow(model, b, e) }
+        }
+        // 0.12.3: archived envelopes, each with Unarchive, as the phone's list
+        val archived = b.envelopes.filter { it.archived }.sortedBy { it.name.lowercase() }
+        if (archived.isNotEmpty()) {
+            Spacer(Modifier.height(18.dp))
+            RowHead("Archived") {}
+            Frame(Modifier.fillMaxWidth()) {
+                Column {
+                    archived.forEach { e ->
+                        Row(Modifier.fillMaxWidth().bottomLine().padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            T(e.name, 13.5.sp, C.Dim, modifier = Modifier.weight(1f).testTag("archived.${e.name}"))
+                            T(money(b.envelopeBalance(e.id)), 13.sp, C.Dim2, modifier = Modifier.padding(end = 12.dp))
+                            Btn("Unarchive", { shell.run { model.setEnvelopeArchived(e.id, false) } }, ghost = true, small = true, tag = "unarchive.${e.name}")
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -183,25 +201,28 @@ fun TableScope.EmptyRow(text: String) {
 // ---- Activity -------------------------------------------------------------------------------------------------------
 
 /** One row of Activity: the phone's three lines (name; what it is; account and chips), the date beside them. */
-class ActRow(val id: String, val date: LocalDate, val createdAt: Long, val name: String, val line2: String, val line3: String, val amount: Long?, val move: Boolean = false, val cyanAmount: Boolean = false)
+class ActRow(val id: String, val date: LocalDate, val createdAt: Long, val name: String, val line2: String, val line3: String, val amount: Long?, val move: Boolean = false, val cyanAmount: Boolean = false,
+             /** 0.12.3: a transaction's row, which opens it to edit (moves and the starting balance don't). */
+             val tx: Boolean = false)
 
 private val monthAbbr = java.time.format.DateTimeFormatter.ofPattern("MMM", java.util.Locale.US)
 
 @Composable
-fun ActivityRows(rows: List<ActRow>, empty: String, modifier: Modifier = Modifier) {
+fun ActivityRows(rows: List<ActRow>, empty: String, modifier: Modifier = Modifier, onOpen: ((ActRow) -> Unit)? = null) {
     Frame(modifier.fillMaxWidth()) {
         Column {
             if (rows.isEmpty()) Box(Modifier.padding(14.dp)) { T(empty, 13.sp, C.Dim) }
-            rows.forEach { r -> ActivityRowView(r) }
+            rows.forEach { r -> ActivityRowView(r, onOpen?.takeIf { r.tx }?.let { f -> { f(r) } }) }
         }
     }
 }
 
 @Composable
-private fun ActivityRowView(r: ActRow) {
+private fun ActivityRowView(r: ActRow, onClick: (() -> Unit)? = null) {
     val src = remember { MutableInteractionSource() }
     Row(
         Modifier.fillMaxWidth().background(if (hovered(src)) C.Hover else Color.Transparent).bottomLine().hoverable(src)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 14.dp, vertical = 10.dp).testTag("act.${r.name}"),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -268,6 +289,7 @@ fun txRow(t: TransactionEntity, b: Budget, forAccount: String? = null): ActRow {
         sub, line3,
         if (incoming) t.amount else if (t.kind == TransactionKind.TRANSFER) -t.amount else t.amount,
         cyanAmount = t.amount > 0 && t.kind != TransactionKind.TRANSFER,
+        tx = true,
     )
 }
 
@@ -310,13 +332,14 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
                 val f = shell.pickCsv() ?: return@Btn
                 shell.run { model.planImport(id, f.name, f.readText()) }
             }, ghost = true, small = true, enabled = !all, tag = "importCsv")
+            Btn("Transfer", { model.dialog = Dialog.Transfer(fromId = selected?.id) }, ghost = true, small = true, enabled = b.accounts.count { !it.archived } >= 2, tag = "transfer")
             Btn("Add", { model.dialog = Dialog.AddTransaction(selected?.id) }, small = true, enabled = !all, tag = "add")
         }
         val m = model.month
         if (selected == null) {
             val rows = (b.transactions.filter { m.contains(it.date) }.map { txRow(it, b) } + moveRows(b, m))
                 .sortedWith(compareByDescending<ActRow> { it.date }.thenByDescending { it.createdAt })
-            ActivityRows(rows, "Nothing in this budget month yet.")
+            ActivityRows(rows, "Nothing in this budget month yet.", onOpen = { model.openTransaction(it.id) })
             T("The All tab is view only. Add and Import CSV live on an account tab.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 10.dp).testTag("viewOnly"))
         } else {
             val txs = b.transactions.filter { (it.accountId == selected.id || it.transferAccountId == selected.id) && m.contains(it.date) }
@@ -324,7 +347,7 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
             val rows = txs.map { txRow(it, b, selected.id) } +
                 if (m.contains(selected.startDate)) listOf(ActRow("start", selected.startDate, 0, "Starting balance", "Balance as of ${selected.startDate}", selected.name, selected.startingBalance)) else emptyList()
             T("Current balance ${money(b.accountBalance(selected.id))}", 12.5.sp, C.Dim, modifier = Modifier.padding(bottom = 10.dp).testTag("tabBalance"))
-            ActivityRows(rows, "Nothing on this account in this budget month.")
+            ActivityRows(rows, "Nothing on this account in this budget month.", onOpen = { model.openTransaction(it.id) })
         }
     }
 }
@@ -513,7 +536,10 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
             }
             Panel("Budget", "The phone app's budget settings, for this computer's budget.", Modifier.weight(1f)) {
                 val start = model.budget?.budgetStart
-                Kv("Budget start date", start?.format(startFormat) ?: "Not set", tag = "budgetStart")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { Kv("Budget start date", start?.format(startFormat) ?: "Not set", tag = "budgetStart") }
+                    Btn("Change...", { model.dialog = Dialog.BudgetStart }, ghost = true, small = true, enabled = model.budget != null, tag = "budgetStart.change")
+                }
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     T("Currency", 13.sp, C.Dim, modifier = Modifier.weight(1f))
                     T(currencyLabel(model.currency), 13.sp, weight = FontWeight.Bold, modifier = Modifier.padding(end = 10.dp).testTag("currency"))

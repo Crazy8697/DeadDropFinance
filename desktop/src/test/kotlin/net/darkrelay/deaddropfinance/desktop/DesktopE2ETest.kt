@@ -162,6 +162,26 @@ class DesktopE2ETest {
             dSync.syncNow()
             p.sync.syncNow()
             assertTrue(payees(p.model).contains("E2E Desk Pay"), "the desktop's edit reached the phone: desk ${dSync.status.value}")
+            // 0.12.3: the program edits that transaction (its edit form's save) and the phone gets the edit, same row
+            val pay = d.budget!!.transactions.single { it.payee == "E2E Desk Pay" }.id
+            assertTrue(d.addTransaction(checking, java.time.LocalDate.now(), "E2E Desk Pay Edited", 30_00, READY_TO_ASSIGN, "", id = pay), d.message?.first)
+            dSync.syncNow()
+            p.sync.syncNow()
+            val onPhone = assertNotNull(p.store.dao.transaction(pay), "the same transaction on the phone")
+            assertEquals("E2E Desk Pay Edited", onPhone.payee)
+            assertEquals(30_00, onPhone.amount)
+            assertFalse(onPhone.deleted)
+            // ...then deletes one (its Delete, confirmed): a soft delete the phone gets too
+            assertTrue(d.addTransaction(checking, java.time.LocalDate.now(), "E2E Desk Gone", 4_00, READY_TO_ASSIGN, ""), d.message?.first)
+            dSync.syncNow()
+            p.sync.syncNow()
+            val gone = d.budget!!.transactions.single { it.payee == "E2E Desk Gone" }.id
+            assertFalse(assertNotNull(p.store.dao.transaction(gone)).deleted)
+            assertTrue(d.deleteTransaction(gone), d.message?.first)
+            dSync.syncNow()
+            p.sync.syncNow()
+            assertTrue(assertNotNull(p.store.dao.transaction(gone)).deleted, "the program's delete reached the phone")
+            assertTrue(p.store.dao.linesOf(gone).all { it.deleted })
             desk.hidden()
             until("desktop let go") { runBlocking { p.sync.foreground(); p.sync.status.value.readOnlyBy == null } }
             p.model.actions!!.saveAccount(null, "E2E Phone Savings", AccountType.BANK, 80_00, java.time.LocalDate.now())

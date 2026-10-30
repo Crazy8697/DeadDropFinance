@@ -443,14 +443,14 @@ class MainActivity : ComponentActivity() {
             return app.backupBeforeServer(store, key)
         }
 
-        override suspend fun backupHead(uri: Uri) = withContext(Dispatchers.IO) {
-            runCatching { contentResolver.openInputStream(uri)?.use { it.readNBytes(net.darkrelay.deaddropfinance.backup.BackupCrypto.HEAD_BYTES) } }.getOrNull()
+        override suspend fun copyPickedBackup(uri: Uri) = withContext(Dispatchers.IO) {
+            // 1.7.3: read once, right after picking, into the app's own storage (no other app can read it); later steps use the copy
+            net.darkrelay.deaddropfinance.backup.RestoreFlow.copyPicked({ contentResolver.openInputStream(uri) }, java.io.File(filesDir, "restore/picked.ddfbak"))
         }
 
-        override suspend fun restoreBackup(uri: Uri, opener: net.darkrelay.deaddropfinance.backup.BackupSecret) = withContext(Dispatchers.IO) {
+        override suspend fun restoreBackup(file: java.io.File, opener: net.darkrelay.deaddropfinance.backup.BackupSecret) = withContext(Dispatchers.IO) {
             val store = (opened as DatabaseOpener.Opened.Ok).store
-            val input = contentResolver.openInputStream(uri) ?: throw net.darkrelay.deaddropfinance.backup.BackupException("That file couldn't be opened.")
-            input.use { app.backups(store).restore(it, opener) }
+            file.inputStream().use { app.backups(store).restore(it, opener) }
         }
 
         override fun copySecret(text: String) {

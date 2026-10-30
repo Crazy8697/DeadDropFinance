@@ -47,7 +47,7 @@ import net.darkrelay.deaddropfinance.domain.Money
 // ---- the envelope drawer ------------------------------------------------------------------------------------------
 
 @Composable
-fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String) {
+fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell) {
     val e = b.envelopes.firstOrNull { it.id == id } ?: run { model.drawerEnvelope = null; return }
     val avail = b.envelopeBalance(e.id)
     val target = model.targetOf(e)
@@ -71,21 +71,25 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String) {
             RowHead("Activity")
             val txs = b.transactions.associateBy { it.id }
             val accounts = b.accounts.associateBy { it.id }
-            val rows = b.envelopeActivity(e.id).map { a ->
+            val activity = b.envelopeActivity(e.id)
+            val rows = activity.map { a ->
                 val t = a.transactionId?.let { txs[it] }
                 if (t != null) {
                     val l3 = listOfNotNull(accounts[t.accountId]?.name, t.memo.takeIf { it.isNotBlank() }, "before budget start".takeIf { a.beforeBudgetStart }).joinToString(" · ")
-                    ActRow(a.id, a.date, a.createdAt, a.label, e.name, l3, a.amount, cyanAmount = a.amount > 0)
+                    ActRow(a.id, a.date, a.createdAt, a.label, e.name, l3, a.amount, cyanAmount = a.amount > 0, tx = true)
                 } else {
                     ActRow(a.id, a.date, a.createdAt, a.label, e.name, "Envelope to envelope", a.amount, move = true)
                 }
             }
-            ActivityRows(rows, "Nothing in or out yet.")
+            // a row is a line of the transaction: open the transaction itself
+            ActivityRows(rows, "Nothing in or out yet.", onOpen = { r -> activity.firstOrNull { it.id == r.id }?.transactionId?.let(model::openTransaction) })
         }
         Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Add activity", { model.dialog = Dialog.AddTransaction(envelopeId = e.id) }, tag = "drawer.add")
             Btn("Move money", { model.dialog = Dialog.MoveMoney(fromId = e.id) }, ghost = true, tag = "drawer.move")
+            b.canCoverFromRollover(e)?.let { amt -> Btn("Cover ${money(amt)} from Rollover", { shell.run { model.coverFromRollover(e.id) } }, ghost = true, tag = "drawer.cover") }
             Spacer(Modifier.weight(1f))
+            if (e.mode != EnvelopeMode.ROLLOVER) Btn(if (e.archived) "Unarchive" else "Archive", { shell.run { model.setEnvelopeArchived(e.id, !e.archived) } }, ghost = true, tag = "drawer.archive")
             Btn("Edit", { model.dialog = Dialog.EnvelopeForm(e.id) }, ghost = true, enabled = !e.isSystem, tag = "drawer.edit")
         }
     }
@@ -100,6 +104,9 @@ fun Modifier.leftLine(color: androidx.compose.ui.graphics.Color) =
 fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
     when (d) {
         is Dialog.AddTransaction -> AddTransactionDialog(model, shell, b, d)
+        is Dialog.Transfer -> TransferDialog(model, shell, b, d)
+        is Dialog.Bonus -> BonusDialog(model, shell, b, d)
+        is Dialog.BudgetStart -> BudgetStartDialog(model, shell, b)
         is Dialog.MoveMoney -> MoveMoneyDialog(model, shell, b, d)
         is Dialog.EnvelopeForm -> EnvelopeDialog(model, shell, b, d)
         is Dialog.AccountForm -> AccountDialog(model, shell, b, d)
@@ -134,7 +141,7 @@ fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @C
 }
 
 @Composable
-private fun Two(content: @Composable (Modifier) -> Unit) {
+internal fun Two(content: @Composable (Modifier) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(13.dp)) { content(Modifier.weight(1f)) }
 }
 
@@ -157,31 +164,49 @@ private class LineState(category: String? = null, envelope: String? = null, amou
  */
 @Composable
 private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.AddTransaction) {
-    val accounts = b.accounts.filter { !it.archived }
-    var date by remember { mutableStateOf(model.today().toString()) }
-    var amount by remember { mutableStateOf("") }
-    var payee by remember { mutableStateOf("") }
-    var account by remember { mutableStateOf(d.accountId ?: accounts.firstOrNull()?.id ?: "") }
-    val envelopes = b.fillOrder.filter { !it.isSystem }
+    // 0.12.3: opened from a row, the same form edits that transaction (and offers Delete), filled in from it and its lines
+    val existing = d.editId?.let { id -> b.transactions.firstOrNull { it.id == id } }
+    val existingLines = existing?.let { t -> b.lines.filter { it.transactionId == t.id }.sortedBy { it.sortOrder } }.orEmpty()
+    val accounts = b.accounts.filter { !it.archived || it.id == existing?.accountId }
+    var date by remember { mutableStateOf((existing?.date ?: model.today()).toString()) }
+    var amount by remember { mutableStateOf(existing?.amount?.let { Money.plain(kotlin.math.abs(it)) } ?: "") }
+    var payee by remember { mutableStateOf(existing?.payee ?: "") }
+    var account by remember { mutableStateOf(existing?.accountId ?: d.accountId ?: accounts.firstOrNull()?.id ?: "") }
+    val envelopes = b.fillOrder.filter { !it.isSystem || it.id == existingLines.singleOrNull()?.envelopeId }
     val envelopeIds = envelopes.map { it.id }.toSet()
-    var envelope by remember { mutableStateOf(d.envelopeId ?: envelopes.firstOrNull()?.id ?: READY_TO_ASSIGN) }
-    var category by remember { mutableStateOf<String?>(null) }
-    var note by remember { mutableStateOf("") }
-    var payday by remember { mutableStateOf(d.payday) }
+    fun placeOf(l: net.darkrelay.deaddropfinance.data.TransactionLineEntity?): String? = when (l?.bucket) {
+        null -> null
+        net.darkrelay.deaddropfinance.data.LineBucket.READY_TO_ASSIGN -> READY_TO_ASSIGN
+        net.darkrelay.deaddropfinance.data.LineBucket.ENVELOPE -> l.envelopeId
+        else -> TO_SORT
+    }
+    var envelope by remember { mutableStateOf(placeOf(existingLines.singleOrNull()) ?: d.envelopeId ?: envelopes.firstOrNull()?.id ?: READY_TO_ASSIGN) }
+    var category by remember { mutableStateOf(existingLines.singleOrNull()?.categoryId) }
+    var note by remember { mutableStateOf(existing?.memo ?: "") }
+    var payday by remember { mutableStateOf(existing?.isPayday ?: d.payday) }
     var fill by remember { mutableStateOf(d.fill) }
-    var split by remember { mutableStateOf(d.split) }
+    var pending by remember { mutableStateOf(existing?.pending ?: false) }
+    // money in (the phone's Income): to Ready to assign, To sort or straight into an envelope; otherwise spending
+    var moneyIn by remember { mutableStateOf(existing?.let { it.amount > 0 } ?: (envelope == READY_TO_ASSIGN || envelope == TO_SORT)) }
+    var split by remember { mutableStateOf(d.split || existingLines.size > 1) }
     // a split of money in (0.9.0): lines go to envelopes, Ready to assign or To sort, with no category
-    var incomeSplit by remember { mutableStateOf(false) }
-    val lines = remember { mutableStateListOf(LineState(), LineState()) }
+    var incomeSplit by remember { mutableStateOf(existingLines.size > 1 && (existing?.amount ?: 0) > 0) }
+    val lines = remember {
+        if (existingLines.size > 1) mutableStateListOf(*existingLines.map { l ->
+            LineState(l.categoryId, placeOf(l), Money.plain(kotlin.math.abs(l.amount)))
+        }.toTypedArray()) else mutableStateListOf(LineState(), LineState())
+    }
+    var deleting by remember { mutableStateOf(false) }
     val categories = b.categories.sortedBy { it.sortOrder }.map { it.id to it.name }
     fun claim(c: String?): String? = c?.let { b.envelopeForCategory(it) }?.takeIf { it in envelopeIds }
-    val spending = envelope != READY_TO_ASSIGN && envelope != TO_SORT
+    val spending = !moneyIn && envelope != READY_TO_ASSIGN
     // Payday: only money in to Ready to assign; Fill envelopes: only once Payday is ticked
     val paydayAllowed = !split && envelope == READY_TO_ASSIGN
     val paydayOn = payday && paydayAllowed
     val fillOn = fill && paydayOn
     val close = { model.dialog = null }
-    Modal("Add transaction", if (split) 640.dp else 470.dp, close, "dialog.add", footer = {
+    Modal(if (existing == null) "Add transaction" else "Edit transaction", if (split) 640.dp else 470.dp, close, "dialog.add", footer = {
+        if (existing != null && !deleting) Btn("Delete", { deleting = true }, ghost = true, tag = "dialog.delete")
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
         Btn("Save", {
             val cents = parseAmount(amount)
@@ -193,9 +218,12 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 split -> {
                     val parsed = lines.map { l -> AppModel.SplitLine(l.category.takeIf { !incomeSplit }, l.envelope, parseAmount(l.amount) ?: -1) }
                     if (parsed.any { it.amount <= 0 }) model.message = "Give every line an amount above zero." to true
-                    else shell.run { if (model.addSplit(account, day, payee, note, cents, parsed, income = incomeSplit)) model.dialog = null }
+                    else shell.run { if (model.addSplit(account, day, payee, note, cents, parsed, income = incomeSplit, id = existing?.id, pending = pending)) model.dialog = null }
                 }
-                else -> shell.run { if (model.addTransaction(account, day, payee, cents, envelope, note, category.takeIf { spending }, paydayOn, fillOn)) model.dialog = null }
+                else -> shell.run {
+                    if (model.addTransaction(account, day, payee, cents, envelope, note, category.takeIf { spending }, paydayOn, fillOn,
+                            id = existing?.id, pending = pending, moneyIn = moneyIn)) model.dialog = null
+                }
             }
         }, tag = "dialog.save")
     }) {
@@ -206,7 +234,11 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 Select("Account", accounts.map { it.id to it.name }, account, { account = it }, m, tag = "f.account")
                 Select(
                     "Envelope", envelopes.map { it.id to it.name } + listOf(READY_TO_ASSIGN to "Ready to assign", TO_SORT to "Not sorted yet (To sort)"),
-                    envelope, { envelope = it }, m, tag = "f.envelope",
+                    envelope, { e ->
+                        envelope = e
+                        // Ready to assign is only money in; To sort is money in when it's picked for a new one, as before
+                        if (e == READY_TO_ASSIGN || (e == TO_SORT && existing == null)) moneyIn = true
+                    }, m, tag = "f.envelope",
                 )
             }
             if (spending) {
@@ -263,13 +295,19 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 }, ghost = true, small = true, tag = "split.stop")
             }
         }
+        if (!split) {
+            CheckRow("Money in", "Income or a refund: to Ready to assign, To sort, or straight into the envelope. Off: spending from it.", moneyIn,
+                envelope != READY_TO_ASSIGN, "f.moneyIn") { moneyIn = it }
+        }
+        CheckRow("Pending", "Not cleared by the bank yet.", pending, true, "f.pending") { pending = it }
         CheckRow("Payday", "The new budget month starts on this date, and leftovers sweep into Rollover. Only for money in to Ready to assign.", paydayOn, paydayAllowed, "f.payday") {
             payday = it
             if (!it) fill = false
         }
         CheckRow("Fill envelopes", "Fills your envelopes from this payday, in fill order.", fillOn, paydayOn, "f.fill", Modifier.padding(start = 26.dp)) { fill = it }
         Field("Note", note, { note = it }, placeholder = "Optional", tag = "f.note")
-        T("Spending comes out of the envelope and needs a category. Ready to assign is money in. To sort is money in, left to sort later.", 11.5.sp, C.Dim2)
+        T("Spending comes out of the envelope and needs a category. Ready to assign is money in. To sort is left to sort later.", 11.5.sp, C.Dim2)
+        if (deleting && existing != null) DeleteTransactionRow(model, shell, existing.id, onDone = close, onKeep = { deleting = false })
     }
 }
 
@@ -317,7 +355,9 @@ private fun EnvelopeDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.E
                 val draft = when (mode) {
                     EnvelopeMode.FILL_TO_TARGET -> BudgetActions.EnvelopeDraft(name, mode, target = cents, everyday = everyday)
                     EnvelopeMode.GOAL -> BudgetActions.EnvelopeDraft(name, mode, goalAmount = cents, goalDate = e?.goalDate, everyday = everyday)
-                    else -> BudgetActions.EnvelopeDraft(name, mode, perPayday = cents, debtOwed = e?.debtOwed, everyday = everyday)
+                    // 0.12.3: a Debt envelope keeps what this dialog doesn't show (its required payment and due date)
+                    else -> BudgetActions.EnvelopeDraft(name, mode, perPayday = cents, debtOwed = e?.debtOwed,
+                        requiredPayment = e?.requiredPayment, dueDate = e?.dueDate, everyday = everyday)
                 }
                 shell.run { if (model.saveEnvelope(e?.id, draft)) model.dialog = null }
             }
@@ -348,8 +388,15 @@ private fun AccountDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Ac
     var trackOnly by remember { mutableStateOf(a?.trackOnly ?: false) }
     var held by remember { mutableStateOf(a?.heldAmount?.takeIf { it > 0 }?.let { Money.plain(it) } ?: "") }
     var show by remember { mutableStateOf(a?.showInActivity ?: true) }
+    var confirm by remember { mutableStateOf<String?>(null) }
     val close = { model.dialog = null }
+    if (a != null && confirm == "archive") return ArchiveAccountConfirm(model, shell, b, a.id, onDone = close, onCancel = { confirm = null })
+    if (a != null && confirm == "delete") return DeleteAccountConfirm(model, shell, b, a.id, onDone = close, onCancel = { confirm = null })
     Modal(if (a == null) "New account" else "Edit account", 470.dp, close, "dialog.account", footer = {
+        if (a != null) {
+            Btn("Delete account", { confirm = "delete" }, ghost = true, tag = "account.delete")
+            Btn(if (a.archived) "Unarchive" else "Archive", { confirm = "archive" }, ghost = true, tag = "account.archive")
+        }
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
         Btn("Save", {
             val neg = start.trim().startsWith("-")

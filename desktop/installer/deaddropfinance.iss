@@ -95,8 +95,9 @@ Name: "{autodesktop}\{#ProductName}"; Filename: "{app}\{#ExeName}"; WorkingDir: 
 [Run]
 ; offered on the last page; postinstall entries run as the original (unelevated) user
 Filename: "{app}\{#ExeName}"; Description: "Launch Dead Drop Finance"; Flags: postinstall nowait skipifsilent
-; an update from inside the program (/RELAUNCH=1): start it again when done, unelevated
-Filename: "{app}\{#ExeName}"; Check: ShouldRelaunch; Flags: nowait runasoriginaluser
+; an update from inside the program (/RELAUNCH=1): start it again when done, unelevated; --after-update (0.12.3) makes it
+; wait for the old copy's one-instance lock instead of handing over to it
+Filename: "{app}\{#ExeName}"; Parameters: "--after-update"; Check: ShouldRelaunch; Flags: nowait runasoriginaluser
 
 [Code]
 function ShouldRelaunch(): Boolean;

@@ -93,7 +93,7 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                             }
                         }
                     }
-                    model.drawerEnvelope?.let { id -> model.budget?.let { b -> EnvelopeDrawer(model, b, id) } }
+                    model.drawerEnvelope?.let { id -> model.budget?.let { b -> EnvelopeDrawer(model, b, id, shell) } }
                 }
             }
         }

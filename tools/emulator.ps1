@@ -5,6 +5,11 @@
 #   .\tools\emulator.ps1 -Start                       boot the emulator headless (no window) and its own adb server
 #   .\tools\emulator.ps1 -Gradle "<gradle args>"      run gradlew with the locked-down settings (connected tests)
 #   .\tools\emulator.ps1 -Adb "<adb args>"            run adb against the emulator only
+#   .\tools\emulator.ps1 -Instrument <TestClass> [-Arg key=value,...]
+#                                                     1.7.3: one on-device test (app/src/androidTest), run through this
+#                                                     script's own adb server with am instrument, never Gradle's: the
+#                                                     debug app and its test APK are built, installed, the app's data
+#                                                     cleared and the test's own Downloads files removed first
 #   .\tools\emulator.ps1 -Stop                        shut the emulator and its adb server down
 # The lockdown, for this script and everything it starts:
 #   - ADB_MDNS=0 and ADB_MDNS_AUTO_CONNECT=0: the adb server neither looks for nor joins wireless-debugging devices
@@ -15,7 +20,7 @@
 #     from here, a Gradle run refuses to start while another adb server already listens on 5037 (it could be one a phone
 #     uses), and afterwards the one the run started is checked (the emulator alone) and stopped
 # app/build.gradle.kts refuses connected tests unless these settings are in force, so a run outside this script fails.
-param([switch]$Start, [switch]$Stop, [string]$Gradle, [string]$Adb)
+param([switch]$Start, [switch]$Stop, [string]$Gradle, [string]$Adb, [string]$Instrument, [string[]]$Arg = @())
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path $PSScriptRoot -Parent
@@ -99,6 +104,33 @@ if ($Gradle) {
     try { & (Join-Path $Root "gradlew.bat") @($Gradle -split ' ') 2>&1 | ForEach-Object { Write-Host "$_" }; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $prev }
     if (Test-DefaultAdb) { Close-DefaultAdb }
     if ($code -ne 0) { throw "gradle $Gradle failed ($code)" }
+}
+
+if ($Instrument) {
+    Assert-OnlyEmulator
+    $pkg = "net.darkrelay.deaddropfinance.debug"
+    # building needs no device, so no adb server is started by it
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try { & (Join-Path $Root "gradlew.bat") --console=plain -q ":app:assembleDebug" ":app:assembleDebugAndroidTest" 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match "^e:|FAILED" } | ForEach-Object { Write-Host $_ }; $code = $LASTEXITCODE } finally { $ErrorActionPreference = $prev }
+    if ($code -ne 0) { throw "building the test APKs failed ($code)" }
+    $apk = Join-Path $Root "app\build\outputs\apk\debug\app-debug.apk"
+    $testApk = Join-Path $Root "app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk"
+    foreach ($a in @($apk, $testApk)) {
+        $r = Invoke-Adb @("-s", $Serial, "install", "-r", "-t", $a)
+        if ($r.Code -ne 0) { throw "installing $(Split-Path $a -Leaf) failed: $($r.Out -join ' ')" }
+    }
+    Invoke-Adb @("-s", $Serial, "shell", "pm", "clear", $pkg) | Out-Null
+    # only the files the on-device tests save there themselves
+    Invoke-Adb @("-s", $Serial, "shell", "rm", "-f", "/sdcard/Download/before-join.ddfbak", "/sdcard/Download/after-join.ddfbak") | Out-Null
+    $am = @("-s", $Serial, "shell", "am", "instrument", "-w", "-e", "class", "net.darkrelay.deaddropfinance.$Instrument")
+    foreach ($kv in ($Arg | ForEach-Object { $_ -split "," } | Where-Object { $_ })) { $k, $v = $kv -split "=", 2; $am += @("-e", $k, $v) }
+    $am += "$pkg.test/androidx.test.runner.AndroidJUnitRunner"
+    $r = Invoke-Adb $am
+    $r.Out | Where-Object { $_ -and $_ -notmatch "^INSTRUMENTATION_STATUS" } | Select-Object -Last 40 | ForEach-Object { Write-Host $_ }
+    # a skipped test (an assumption not met, like a missing argument) reports OK too: status code -4 means it never ran
+    if (($r.Out -join "`n") -match "INSTRUMENTATION_STATUS_CODE: -4") { throw "$Instrument was skipped (an argument missing?), so it didn't run" }
+    if (-not (($r.Out -join "`n") -match "OK \(\d+ test")) { throw "$Instrument did not pass" }
+    Write-Host "$Instrument passed on $Serial"
 }
 
 if ($Stop) {

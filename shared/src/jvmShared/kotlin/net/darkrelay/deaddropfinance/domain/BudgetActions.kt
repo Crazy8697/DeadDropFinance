@@ -398,12 +398,15 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             val tx = (old ?: TransactionEntity(accountId = fromAccountId, kind = TransactionKind.TRANSFER, date = date, amount = amount, createdAt = now, updatedAt = now))
                 .copy(accountId = fromAccountId, transferAccountId = toAccountId, kind = TransactionKind.TRANSFER, date = date, amount = amount, memo = memo.trim(), updatedAt = now)
             put(old, tx)
-            dao.movesLinkedTo(tx.id).forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
+            val linked = dao.movesLinkedTo(tx.id)
+            // 1.7.3: an edit that names no envelope keeps the ATM withdrawal's own (the edit screens don't show its picker)
+            val envelope = fromEnvelopeId ?: if (old != null) linked.firstOrNull { it.kind == MoveKind.ATM && !it.deleted }?.fromEnvelopeId else null
+            linked.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             val toAccount = dao.account(toAccountId)
-            if (fromEnvelopeId != null && toAccount?.type == AccountType.CASH) {
+            if (envelope != null && toAccount?.type == AccountType.CASH) {
                 val cash = dao.envelopesNow().firstOrNull { it.mode == EnvelopeMode.CASH }
                     ?: put(null, EnvelopeEntity(name = "Cash", mode = EnvelopeMode.CASH, sortOrder = (dao.envelopesNow().maxOfOrNull { it.sortOrder } ?: 0) + 1, createdAt = now, updatedAt = now))
-                put(null, MoveEntity(fromEnvelopeId = fromEnvelopeId, toEnvelopeId = cash.id, amount = amount, date = date, kind = MoveKind.ATM, linkedTransactionId = tx.id, createdAt = now, updatedAt = now))
+                put(null, MoveEntity(fromEnvelopeId = envelope, toEnvelopeId = cash.id, amount = amount, date = date, kind = MoveKind.ATM, linkedTransactionId = tx.id, createdAt = now, updatedAt = now))
             }
             tx.id
         }

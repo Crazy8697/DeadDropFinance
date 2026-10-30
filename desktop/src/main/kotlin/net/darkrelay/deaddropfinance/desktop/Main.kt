@@ -34,6 +34,10 @@ private const val STARTUP_CHECK_DELAY_MS = 4000L
  *   DeadDropFinance.exe --update-probe <file>   no window: run the update check once, write its result to <file>
  *   DeadDropFinance.exe --smoke-test <file>     tests: open the window off screen without taking focus, write what
  *                                               it shows to <file>, and exit
+ *   DeadDropFinance.exe --after-update          Setup's relaunch after an update: wait for the old copy to finish exiting
+ *   DeadDropFinance.exe --instance-check <file> tests, no window: take the one-instance lock (write "first", then
+ *                                               "focused" when a second launch asks) or ask the holder (write "second")
+ * One instance per Windows user (0.12.3, SingleInstance): a second launch brings the open window to the front and exits.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)      // CompletableDeferred.getCompleted, after isCompleted
 fun main(args: Array<String>) {
@@ -44,6 +48,19 @@ fun main(args: Array<String>) {
     }
     val smoke = args.indexOf("--smoke-test").takeIf { it >= 0 }?.let { args.getOrNull(it + 1) }
     val settings = Settings(Settings.defaultDir())
+    val instance = SingleInstance(settings.dir)
+    val check = args.indexOf("--instance-check").takeIf { it >= 0 }?.let { args.getOrNull(it + 1) }
+    if (check != null) {
+        if (instance.claim() == SingleInstance.Claim.SECOND) { File(check).writeText("second\n"); exitProcess(0) }
+        File(check).writeText("first\n")
+        val asked = java.util.concurrent.CountDownLatch(1)
+        instance.watch { asked.countDown() }
+        val got = asked.await(60, java.util.concurrent.TimeUnit.SECONDS)
+        File(check).appendText(if (got) "focused\n" else "timeout\n")
+        exitProcess(0)
+    }
+    // the smoke test (tests, off screen) never takes the lock; everything else is one instance per user
+    if (smoke == null && instance.claim(afterUpdate = "--after-update" in args) == SingleInstance.Claim.SECOND) exitProcess(0)
     val updates = UpdateModel()
     // the budget (the phone app's engine on the program's own encrypted file) opens in the background
     val engine = CompletableDeferred<Engine>()
@@ -89,6 +106,7 @@ fun main(args: Array<String>) {
             // let go of the edit lock and send what's waiting (a few seconds at most), then close the budget
             model.server?.let { s -> runBlocking { s.closing() } }
             if (engine.isCompleted) engine.getCompleted().close()
+            instance.release()
             exitApplication()
         }
 
@@ -102,6 +120,19 @@ fun main(args: Array<String>) {
         ) {
             // Windows' own title bar, dark like the program (0.9.0)
             LaunchedEffect(Unit) { TitleBar.dark(window) }
+            // a second launch (0.12.3): this window comes back from the taskbar and to the front
+            if (smoke == null) LaunchedEffect(Unit) {
+                instance.watch {
+                    java.awt.EventQueue.invokeLater {
+                        windowState.isMinimized = false
+                        window.toFront()
+                        // Windows lets a window to the front only in some cases; a moment on top does it, then back to normal
+                        window.isAlwaysOnTop = true
+                        window.isAlwaysOnTop = false
+                        window.requestFocus()
+                    }
+                }
+            }
             // the edit lock follows the window (0.10.0): held while it's open and not minimized
             val server = model.server
             LaunchedEffect(server, windowState.isMinimized) {
