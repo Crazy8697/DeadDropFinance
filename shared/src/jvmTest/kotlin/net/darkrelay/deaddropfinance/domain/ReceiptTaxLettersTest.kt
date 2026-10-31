@@ -160,7 +160,8 @@ class ReceiptTaxLettersTest {
         assertFalse(ReceiptTax.work(listOf(ins[0].copy(taxed = true), ins[1]), p.taxLines, p.tax).resolved)
     }
 
-    @Test fun aReceiptWithNoLettersKeepsShelfPricesAndSaysNothingIsAsked() {
+    /** 1.9.4 (the owner's answer): tax above zero and no letters asks which items are taxed; zero tax asks nothing. */
+    @Test fun aReceiptWithTaxButNoLettersAsksWhichItemsAreTaxed() {
         val p = parse(
             """
             SAMPLE MART
@@ -172,10 +173,14 @@ class ReceiptTaxLettersTest {
             """,
         )
         val w = ReceiptTax.work(p.items.map { ReceiptTax.In(it.taxLetter, it.amount) }, p.taxLines, p.tax)
-        assertTrue(w.resolved)
+        assertFalse(w.resolved)
+        assertEquals(setOf(""), w.needsChoice)
         assertFalse(w.hasLetters)
-        assertEquals(listOf(10_00L), w.withTax)
-        assertEquals(60L, w.unassigned)
+        assertEquals(listOf(10_00L), w.withTax, "shelf prices until it's answered")
+        val answered = ReceiptTax.work(p.items.map { ReceiptTax.In(it.taxLetter, it.amount, taxed = true) }, p.taxLines, p.tax)
+        assertTrue(answered.resolved && answered.perItem)
+        assertEquals(listOf(10_60L), answered.withTax)
+        assertTrue(ReceiptTax.work(p.items.map { ReceiptTax.In(it.taxLetter, it.amount) }, p.taxLines, 0).resolved, "no tax: nothing asked")
     }
 
     @Test fun theSharesAlwaysAddUpToTheTaxToTheCent() {

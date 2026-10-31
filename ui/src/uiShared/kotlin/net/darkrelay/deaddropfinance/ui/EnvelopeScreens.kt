@@ -49,11 +49,16 @@ import net.darkrelay.deaddropfinance.domain.Payday
 
 /** The envelope list in fill order. Drag the handle to change the order (it's the payday fill order). */
 @Composable
-fun EnvelopesScreen(budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onMove: () -> Unit, onReorder: (List<String>) -> Unit, today: LocalDate = LocalDate.now()) {
+fun EnvelopesScreen(
+    budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onMove: () -> Unit, onReorder: (List<String>) -> Unit, today: LocalDate = LocalDate.now(),
+    /** 1.9.4: Scan receipt, beside Move money and Add (null hides it). */
+    onScan: (() -> Unit)? = null,
+) {
     val list = budget.fillOrder
     val archived = budget.envelopes.filter { it.archived }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Envelopes", onBack = null) {
+            if (onScan != null) TextButton(onClick = onScan, modifier = Modifier.testTag("envelopes.scan")) { Text("Scan receipt") }
             TextButton(onClick = onMove) { Text("Move money") }
             TextButton(onClick = onAdd) { Text("Add") }
         }

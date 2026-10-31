@@ -26,6 +26,8 @@ class Receipts(
     data class DraftItem(val text: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long, val id: String? = null,
         /** 1.9.3: the item's tax letter, and its price with tax (null when no tax was worked out for it). */
         val taxLetter: String = "", val priceWithTax: Long? = null,
+        /** 1.9.4: the envelope picked for this item on the form (null: none). */
+        val envelopeId: String? = null,
     )
 
     data class Draft(
@@ -45,7 +47,9 @@ class Receipts(
         if (d.total != null && d.total < 0 || d.tax != null && d.tax < 0) throw BudgetRuleException("Amounts here can't be negative.")
         if (d.items.any { it.text.isBlank() }) throw BudgetRuleException("Every item needs a description, or remove it.")
         if (d.items.any { it.quantityMilli <= 0 }) throw BudgetRuleException("A quantity has to be more than zero.")
-        return store.write {
+        val before = dao.itemsOf(id).associate { it.id to it.envelopeId }
+        val wasAttached = dao.receipt(id)?.transactionId
+        val saved = store.write {
             val old = dao.receipt(id)
             val base = old ?: ReceiptEntity(id = id, transactionId = transactionId, createdAt = now, updatedAt = now)
             put(
@@ -61,7 +65,7 @@ class Receipts(
                 val o = di.id?.let { existing[it] }
                 val n = (o ?: ReceiptItemEntity(receiptId = id, amount = di.amount, createdAt = now, updatedAt = now)).copy(
                     line = i, text = di.text.trim(), name = ReceiptParser.cleanName(di.text), quantityMilli = di.quantityMilli,
-                    unitPrice = di.unitPrice, amount = di.amount, taxLetter = di.taxLetter, priceWithTax = di.priceWithTax, updatedAt = now,
+                    unitPrice = di.unitPrice, amount = di.amount, taxLetter = di.taxLetter, priceWithTax = di.priceWithTax, envelopeId = di.envelopeId, updatedAt = now,
                 )
                 put(o, n)
                 kept += n.id
@@ -69,6 +73,32 @@ class Receipts(
             existing.values.filter { it.id !in kept }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
             id
         }
+        // on its charge already (saved for a transaction, or edited after it matched): the items' envelopes split it,
+        // when they're new or changed
+        val now = dao.receipt(saved)
+        val after = dao.itemsOf(saved).associate { it.id to it.envelopeId }
+        if (now?.transactionId != null && (wasAttached == null || before != after)) runCatching { applyEnvelopes(saved) }
+        return saved
+    }
+
+    /**
+     * 1.9.4: a receipt with an envelope on its items, on its charge: the charge is split across those envelopes by what
+     * each item really cost (its price with tax), through the same split as Split by items. Items with no envelope go
+     * where the transaction already was (its one envelope), or stay in To sort. Nothing happens when no item has one.
+     */
+    suspend fun applyEnvelopes(receiptId: String) {
+        val r = dao.receipt(receiptId) ?: return
+        if (r.kind != ReceiptKind.PURCHASE) return
+        val txId = r.transactionId ?: return
+        val tx = dao.transaction(txId) ?: return
+        if (tx.kind != TransactionKind.NORMAL || tx.amount >= 0) return
+        val items = dao.itemsOf(receiptId)
+        if (items.none { it.envelopeId != null }) return
+        val had = dao.linesOf(txId)
+        val own = had.filter { it.bucket == net.darkrelay.deaddropfinance.data.LineBucket.ENVELOPE && it.envelopeId != null }.map { it.envelopeId }.distinct().singleOrNull()
+        val cats = had.filter { it.categoryId != null && it.envelopeId != null }.associate { it.envelopeId to it.categoryId }
+        val lines = ItemSplit.linesByPaid(tx.amount, items, items.associate { it.id to (it.envelopeId ?: own) }).map { l -> l.copy(categoryId = cats[l.envelopeId]) }
+        actions.setLines(txId, lines, SortedBy.HAND, requireCategory = false)
     }
 
     suspend fun receiptOf(txId: String): ReceiptEntity? = dao.receiptsNow().firstOrNull { it.transactionId == txId }
@@ -80,7 +110,7 @@ class Receipts(
         if (t.kind != TransactionKind.NORMAL) throw BudgetRuleException("A transfer can't have a receipt.")
         if (dao.receiptsNow().any { it.transactionId == txId && it.id != receiptId }) throw BudgetRuleException("That transaction already has a receipt.")
         put(r, r.copy(transactionId = txId, updatedAt = now))
-    }
+    }.also { runCatching { applyEnvelopes(receiptId) } }
 
     /** Takes a receipt off its transaction: it goes back to the unmatched list. */
     suspend fun detach(receiptId: String) = store.write {

@@ -150,6 +150,9 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         assertTrue(shows("12.49"), dump())
         assertTrue(shows("SAMPLE BREAD"), dump())
         assertFalse(shows("Store (check this)"), "read clearly: ${dump()}")
+        // 0.15.3: tax and no tax letters: which items are taxed is asked before it saves
+        assertTrue(shows("Which items are taxed?"), dump())
+        click("tax.all.taxed")
         clickText("Save receipt", exact = true)
         compose.waitUntil(10_000) { receipts().size == 1 }
         val r = receipts().single()

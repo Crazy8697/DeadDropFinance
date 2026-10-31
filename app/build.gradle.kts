@@ -123,6 +123,9 @@ android {
         unitTests.isIncludeAndroidResources = true
     }
 
+    // 1.9.4: the on-device tests read a real receipt photo from the shared test fixtures (never in the app itself)
+    sourceSets.getByName("androidTest").assets.srcDir("../shared/src/jvmTest/resources/receipts")
+
     signingConfigs {
         if (signingProblem == null) {
             create("release") {

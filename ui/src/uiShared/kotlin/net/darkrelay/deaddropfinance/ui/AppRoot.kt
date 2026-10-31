@@ -546,7 +546,7 @@ fun AppRoot(
             scanning = true; error = null
             try {
                 scanPages += platform.scanReceipt(uri, id, scanPages.size)
-                scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList()))
+                scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList())).also { it.guessEnvelopes(receiptItems, b.envelopes) }
                 if (stack.last() !is Nav.ReceiptEdit) { stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true)) }
             } catch (e: Exception) {
                 error = if (words.camera) "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
@@ -572,7 +572,7 @@ fun AppRoot(
         scanning = true
         try {
             for (u in s.uris) scanPages += platform.scanReceipt(u, id, scanPages.size)
-            scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList()))
+            scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList())).also { it.guessEnvelopes(receiptItems, b.envelopes) }
             stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true))
         } catch (e: Exception) {
             error = "The shared file couldn't be read as a receipt."
@@ -641,6 +641,8 @@ fun AppRoot(
             Nav.Envelopes -> EnvelopesScreen(
                 b, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.EnvelopeEdit(null)) }, onMove = { go(Nav.MoveMoney(null)) },
                 onReorder = { ids -> run(scope) { actions.reorderEnvelopes(ids) } },
+                // 1.9.4: Scan receipt beside Move money and Add; no envelope is preselected (each item picks its own)
+                onScan = { startScan(null) },
             )
             Nav.Activity -> {
                 val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
@@ -863,6 +865,7 @@ fun AppRoot(
                 }
                 if (form == null) Gone(::back) else ReceiptEditScreen(
                     form, pages, top.isNew, scanning, error,
+                    envelopes = b.fillOrder.filter { !it.isSystem },
                     onBack = { if (top.isNew) dropScan(); back() },
                     onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
                     onSave = {

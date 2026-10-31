@@ -205,6 +205,30 @@ class ReportsOnDeviceTest {
             settle(); save(scenario, "phone-receipt-tax-letters")
             scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(asking, emptyList(), true, false, null, {}, {}, {}, {}) } }
             settle(); save(scenario, "phone-receipt-tax-ask")
+            // 1.9.4: a real Food Lion receipt, read from its photo by the phone's own scan (cleaned up, then read) and
+            // shown as the form shows it, each item with its envelope; Scan receipt on Activity and on the envelopes
+            val ctx = InstrumentationRegistry.getInstrumentation().context
+            val target = InstrumentationRegistry.getInstrumentation().targetContext
+            val photo = File(target.cacheDir, "food-lion-receipt.webp").apply { ctx.assets.open("food-lion/food-lion-receipt.webp").use { i -> outputStream().use { i.copyTo(it) } } }
+            val images = net.darkrelay.deaddropfinance.data.ReceiptImages(File(target.cacheDir, "fl-receipts"), { ByteArray(32) { it.toByte() } })
+            val pages = net.darkrelay.deaddropfinance.scan.ReceiptScanner(target, images) { net.darkrelay.deaddropfinance.scan.TesseractReader(target) }
+                .scan(android.net.Uri.fromFile(photo), "food-lion", 0)
+            photo.delete(); File(target.cacheDir, "fl-receipts").deleteRecursively()
+            val parsed = net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(pages)
+            assertTrue("every item line of the real receipt: ${parsed.items.size}", parsed.items.size == 21)
+            val realForm = net.darkrelay.deaddropfinance.ui.ReceiptForm.from(parsed).also { it.guessEnvelopes(emptyList(), budget.envelopes) }
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(realForm, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = budget.fillOrder) } }
+            settle(); save(scenario, "phone-food-lion-receipt")
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(matched.also { it.guessEnvelopes(emptyList(), budget.envelopes) }, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = budget.fillOrder) } }
+            settle(); save(scenario, "phone-receipt-envelope-dropdowns")
+            scenario.onActivity {
+                screen = {
+                    net.darkrelay.deaddropfinance.ui.ActivityScreen(budget, {}, {}, { _, _, _ -> }, {}, sorting = net.darkrelay.deaddropfinance.ui.SortingUi(onScan = {}))
+                }
+            }
+            settle(); save(scenario, "phone-activity-scan-receipt")
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.EnvelopesScreen(budget, {}, {}, {}, {}, today = today, onScan = {}) } }
+            settle(); save(scenario, "phone-envelopes-scan-receipt")
         }
     }
 }

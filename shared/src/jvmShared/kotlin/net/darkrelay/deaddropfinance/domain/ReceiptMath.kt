@@ -141,6 +141,19 @@ object ItemSplit {
         return w.keys.mapIndexed { i, e -> Share(e, w[e]!!, taxParts[i], totalParts[i]) }
     }
 
+    /**
+     * 1.9.4, when a receipt with an envelope on its items meets its charge: the whole charge shared by what each item
+     * really cost (its price with tax), so tax and any tip follow the items. [pick] may leave an item with no envelope
+     * (null): that part stays in To sort.
+     */
+    fun linesByPaid(txAmount: Long, items: List<ReceiptItemEntity>, pick: Map<String, String?>): List<LineDraft> {
+        val w = LinkedHashMap<String?, Long>()
+        for (i in items.sortedBy { it.line }) w[pick[i.id]] = (w[pick[i.id]] ?: 0L) + i.paid
+        if (w.isEmpty() || w.values.sum() <= 0) throw BudgetRuleException("This receipt has no items to split.")
+        val weights = w.values.map { it.coerceAtLeast(0) }
+        return w.keys.zip(Rules.allocate(txAmount, weights)).filter { it.second != 0L }.map { (e, a) -> LineDraft(e, a) }
+    }
+
     /** The transaction's new lines: the whole charge shared by the item sums, so tax and any tip follow the items. */
     fun lines(txAmount: Long, items: List<ReceiptItemEntity>, pick: Map<String, String?>): List<LineDraft> {
         val w = weights(items, pick)

@@ -27,6 +27,8 @@ object ReceiptTax {
         val unassigned: Long,
         /** True when the items carry any letters at all. */
         val hasLetters: Boolean,
+        /** True when each item's price with tax was worked out (letters, or the user's marks on a receipt without them). */
+        val perItem: Boolean = hasLetters,
     ) {
         val resolved get() = needsChoice.isEmpty()
     }
@@ -35,19 +37,43 @@ object ReceiptTax {
      * [tax] is the receipt's tax in total (what the form says); [lines] are the tax lines read at the bottom.
      * A letter's tax comes from the line that names it. A line that names no letter goes to the one letter left, or to
      * the one set of leftover letters whose items at that line's rate come to its amount; anything else is a question.
+     * 1.9.4: a line that prints its taxable amount goes first to the one set of letters whose items add up to it ("0.00
+     * Tx 1 63.56 0.00": the letters whose items come to 63.56 are untaxed). A receipt with tax but no letters asks which
+     * items are taxed (the question's letter is "", every item's).
      */
     fun work(items: List<In>, lines: List<ReceiptParser.TaxLine>, tax: Long?): Result {
         val totalTax = tax ?: lines.sumOf { it.amount }
         val letters = items.map { it.letter }.filter { it.isNotEmpty() }.toSet()
         val shelf = items.map { it.amount }
-        if (totalTax <= 0 || letters.isEmpty()) return Result(shelf, emptySet(), 0, totalTax.coerceAtLeast(0), letters.isNotEmpty())
+        if (totalTax <= 0) return Result(shelf, emptySet(), 0, 0, letters.isNotEmpty())
+        if (letters.isEmpty()) {
+            // tax, and nothing says which items carry it: ask (all items or some, by price)
+            if (items.isEmpty()) return Result(shelf, emptySet(), 0, totalTax, false)
+            if (items.any { it.taxed == null }) return Result(shelf, setOf(""), 0, totalTax, false)
+            val chosen = items.indices.filter { items[it].taxed == true }
+            return build(items, emptyMap(), chosen, totalTax, emptySet()).copy(hasLetters = false, perItem = true)
+        }
 
         // 1. a letter's tax is the line that names it
         val given = linkedMapOf<String, Long>()
         for (l in lines) if (l.letter != null && l.letter in letters) given.merge(l.letter, l.amount, Long::plus)
+        val sums = letters.associateWith { l -> items.filter { it.letter == l }.sumOf { it.amount } }
+        // 1b. a line with its taxable amount: the one set of letters left whose items add up to it
+        for (l in lines) {
+            val t = l.taxable ?: continue
+            if (l.letter != null && l.letter in letters) continue
+            val left = (letters - given.keys).toList()
+            if (left.isEmpty() || left.size > 8) continue
+            // to the cent, or within half a percent when one digit was misread ("63.51" for 63.56): the one closest set
+            val fits = (1 until (1 shl left.size)).map { mask -> left.filterIndexed { i, _ -> mask and (1 shl i) != 0 } }
+                .map { set -> set to abs(set.sumOf { sums.getValue(it) } - t) }.filter { it.second <= maxOf(1L, t / 200) }
+            val best = fits.minOfOrNull { it.second } ?: continue
+            val set = fits.filter { it.second == best }.singleOrNull()?.first ?: continue
+            val shares = largestRemainder(l.amount, set.map { sums.getValue(it).coerceAtLeast(0) })
+            set.forEachIndexed { k, x -> given[x] = shares[k] }
+        }
         var pool = totalTax - given.values.sum()
         val rest = letters - given.keys
-        val sums = letters.associateWith { l -> items.filter { it.letter == l }.sumOf { it.amount } }
 
         // 2. what's left goes to the one letter left, or to the one set of letters it adds up for at the line's rate
         var question = emptySet<String>()

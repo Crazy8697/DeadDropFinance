@@ -82,6 +82,8 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
             Btn("Fill order", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Envelopes) }, ghost = true, small = true, tag = "fillOrder")
             Btn("Fill targets", { shell.run { model.fillTargets() } }, ghost = true, small = true, tag = "fillTargets")
             Btn("New envelope", { model.dialog = Dialog.EnvelopeForm() }, ghost = true, small = true, tag = "newEnvelope")
+            // 1.9.4 (0.15.3): Scan receipt, the app's scan; no envelope is preselected (each item picks its own)
+            Btn("Scan receipt", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }, ghost = true, small = true, tag = "scanReceipt")
         }
         val rows = model.envelopesInTable(b)
         Table(
@@ -345,6 +347,8 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
             Btn("Export CSV", { model.exportCsv(shell) }, ghost = true, small = true, tag = "exportCsv")
             // 0.13.0: the phone's Activity, with To sort, approving, recently sorted and what sorting learned
             Btn("To sort (${b.toSort.size})", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Activity) }, ghost = true, small = true, tag = "toSort")
+            // 0.15.3: Scan receipt, the app's scan
+            Btn("Scan receipt", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }, ghost = true, small = true, tag = "scanReceipt")
             Btn("Transfer", { model.dialog = Dialog.Transfer(fromId = selected?.id) }, ghost = true, small = true, enabled = b.accounts.count { !it.archived } >= 2, tag = "transfer")
             Btn("Add", { model.dialog = Dialog.AddTransaction(selected?.id) }, small = true, enabled = !all, tag = "add")
         }

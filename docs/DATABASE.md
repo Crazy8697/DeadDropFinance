@@ -74,6 +74,9 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   `DesktopMigrationTest` opens a 0.15.1 (schema 13) budget in the program with every receipt kept. The program runs the
   same SQL (`SchemaChanges.V13_V14`). Sync and restore write columns by name, so a device on 1.9.2 or 0.15.1 ignores the
   two and never clears them (`TaxLetterSyncTest`). Older receipts keep no price with tax: their shelf price is what they paid.
+- The receipt reader overhaul and envelope per item (1.9.4, program 0.15.3) needed no schema change: an item's envelope
+  is the existing `envelope_id` on `receipt_item` (already synced and in backups), and the last pick for an item name
+  is read from those rows. A receipt item's section is used only while the form is open and isn't stored.
 - Add activity on envelopes (1.3.0) needed no schema change: it saves an ordinary transaction.
 - Payday by hand only (1.3.1) needed no schema change and no migration: paydays already run, their moves and the change
   log stay as they are; new deposits from a CSV or a notification simply no longer mark payday.

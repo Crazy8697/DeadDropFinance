@@ -124,7 +124,8 @@ class ReceiptTaxFormTest {
         assertEquals(listOf(10_43L, 4_17L), f.draft(1).items.map { it.priceWithTax })
     }
 
-    @Test fun aReceiptWithoutLettersIsAsItWas() {
+    /** 1.9.4 (the owner's answer): tax above zero but no letters asks which items are taxed, every item a box. */
+    @Test fun aReceiptWithTaxButNoLettersAsks() {
         val f = form(
             """
             SAMPLE MART
@@ -136,9 +137,13 @@ class ReceiptTaxFormTest {
             """,
         )
         show(f)
-        assertEquals(0, compose.onAllNodesWithText("Which items are taxed?").fetchSemanticsNodes().size)
-        compose.onNodeWithText("Items \$10.00 + tax \$0.60 = \$10.60, the total.").performScrollTo().assertExists()
-        assertNull(f.draft(1).items.single().priceWithTax)
+        compose.onNodeWithText("Which items are taxed?").performScrollTo().assertExists()
+        compose.onNodeWithTag("receipt.save").performScrollTo().assertIsNotEnabled()
         assertFalse(f.taxWork().hasLetters)
+        compose.onNodeWithTag("tax.all.taxed").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("receipt.save").performScrollTo().assertIsEnabled()
+        assertEquals(10_60L, f.draft(1).items.single().priceWithTax)
+        compose.onNodeWithText("Items with tax \$10.60 = the total.").performScrollTo().assertExists()
     }
 }

@@ -46,6 +46,7 @@ import net.darkrelay.deaddropfinance.domain.Money
 import net.darkrelay.deaddropfinance.domain.ReceiptMatch
 import net.darkrelay.deaddropfinance.domain.ReceiptParser
 import net.darkrelay.deaddropfinance.domain.ReceiptTax
+import net.darkrelay.deaddropfinance.domain.ItemEnvelopes
 import net.darkrelay.deaddropfinance.domain.Receipts
 
 // ---- the form ------------------------------------------------------------------------------------------------------
@@ -55,6 +56,8 @@ data class ItemRow(
     val text: String, val qty: String, val amount: String, val unitPrice: Long? = null, val id: String? = null,
     /** 1.9.3: the item's tax letter, and the user's answer (taxed or not) when the letters couldn't be matched. */
     val letter: String = "", val taxed: Boolean? = null,
+    /** 1.9.4: the envelope this item goes to (null: none chosen), and the receipt section it was under. */
+    val envelopeId: String? = null, val section: String = "",
 )
 
 /** The receipt form while the user checks what was read. */
@@ -78,6 +81,16 @@ class ReceiptForm(
     fun taxWork(): ReceiptTax.Result =
         ReceiptTax.work(live.map { ReceiptTax.In(it.letter.trim().uppercase(), Money.parse(it.amount) ?: 0, it.taxed) }, taxLines, amt(tax))
 
+    /**
+     * 1.9.4: an envelope for each item that has none yet: the one last picked for the same item name, else the groceries
+     * envelope for an item under a food section, else none. The user can change any of them before saving.
+     */
+    fun guessEnvelopes(past: List<ReceiptItemEntity>, envelopes: List<net.darkrelay.deaddropfinance.data.EnvelopeEntity>) {
+        items.forEachIndexed { i, r ->
+            if (r.envelopeId == null) ItemEnvelopes.guess(r.text, r.section, past, envelopes)?.let { items[i] = r.copy(envelopeId = it) }
+        }
+    }
+
     fun draft(pages: Int): Receipts.Draft {
         val work = taxWork()
         return Receipts.Draft(
@@ -87,7 +100,8 @@ class ReceiptForm(
                 val a = Money.parse(r.amount) ?: 0
                 Receipts.DraftItem(
                     r.text, q, r.unitPrice?.takeIf { up -> up * q / 1000 == kotlin.math.abs(a) } ?: if (a > 0 && q > 0) a * 1000 / q else null, a, r.id,
-                    taxLetter = r.letter.trim().uppercase(), priceWithTax = if (work.hasLetters) work.withTax[k] else null,
+                    taxLetter = r.letter.trim().uppercase(), priceWithTax = if (work.perItem) work.withTax[k] else null,
+                    envelopeId = r.envelopeId,
                 )
             },
             kind, low, rawText, pages,
@@ -97,14 +111,14 @@ class ReceiptForm(
     companion object {
         fun from(p: ReceiptParser.Parsed) = ReceiptForm(
             p.store, p.date?.toString() ?: "", p.total?.let { Money.plain(it) } ?: "", p.tax?.let { Money.plain(it) } ?: "",
-            p.items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, letter = it.taxLetter) }, p.lowConfidence, p.kind, p.text,
+            p.items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, letter = it.taxLetter, section = it.section) }, p.lowConfidence, p.kind, p.text,
             p.taxLines,
         )
 
         fun from(r: ReceiptEntity, items: List<ReceiptItemEntity>) = ReceiptForm(
             r.store, r.date?.toString() ?: "", r.total?.let { Money.plain(it) } ?: "", r.tax?.let { Money.plain(it) } ?: "",
             // a saved receipt: its tax lines read again from its text, and what was taxed from the prices it kept
-            items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, it.id, it.taxLetter, if (it.taxLetter.isNotEmpty() && it.priceWithTax != null) it.priceWithTax!! > it.amount else null) },
+            items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, it.id, it.taxLetter, it.priceWithTax?.let { w -> w > it.amount }, it.envelopeId) },
             emptySet(), r.kind, r.rawText,
             if (r.rawText.isBlank()) emptyList() else ReceiptParser.parseLines(r.rawText.lines().map { ReceiptParser.Line(it) }).taxLines,
         )
@@ -181,7 +195,10 @@ fun ScanScreen(forPayee: String?, working: Boolean, error: String?, onBack: () -
 fun ReceiptEditScreen(
     form: ReceiptForm, pages: List<ImageBitmap?>, isNew: Boolean, working: Boolean, error: String?,
     onBack: () -> Unit, onAddCamera: () -> Unit, onAddFile: () -> Unit, onSave: () -> Unit,
+    /** 1.9.4: the envelopes an item can go to (its own dropdown); none hides the dropdowns. */
+    envelopes: List<net.darkrelay.deaddropfinance.data.EnvelopeEntity> = emptyList(),
 ) {
+    val envelopeOptions: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "No envelope") + envelopes.map { it.id to it.name }
     fun label(name: String, field: String) = if (field in form.low) "$name (check this)" else name
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle(if (isNew) "Check the receipt" else "Edit receipt", onBack)
@@ -214,19 +231,25 @@ fun ReceiptEditScreen(
                 Box(Modifier.weight(1.6f)) { AmountField("Price", r.amount, { form.items[i] = r.copy(amount = it) }) }
                 TextButton(onClick = { form.items.removeAt(i) }) { Text("Remove") }
             }
-            // 1.9.3: the item's tax letter, its own field
-            Box(Modifier.width(130.dp).testTag("item.letter.$i")) {
-                TextFieldRow("Tax letter", r.letter, { form.items[i] = r.copy(letter = it.filter { c -> c.isLetter() || c == '*' }.uppercase().take(2), taxed = null) })
+            // 1.9.3: the item's tax letter, its own field; 1.9.4: beside it, the item's envelope
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(130.dp).testTag("item.letter.$i")) {
+                    TextFieldRow("Tax letter", r.letter, { form.items[i] = r.copy(letter = it.filter { c -> c.isLetter() || c == '*' }.uppercase().take(2), taxed = null) })
+                }
+                if (envelopes.isNotEmpty()) {
+                    HGap(4)
+                    Box(Modifier.weight(1f).testTag("item.envelope.$i")) { Picker("Envelope", envelopeOptions, r.envelopeId, { form.items[i] = r.copy(envelopeId = it) }) }
+                }
             }
         }
         TextButton(onClick = { form.items.add(ItemRow("", "1", "")) }) { Text("Add an item") }
         // 1.9.3: the tax letters. Matched to the tax lines, each item shows its price with tax; when they can't be, ask.
         val work = form.taxWork()
         val live = form.items.filter { it.text.isNotBlank() || it.amount.isNotBlank() }
-        if (work.hasLetters && work.resolved) {
+        if (work.perItem && work.resolved) {
             live.forEachIndexed { k, r ->
-                if (r.letter.isNotBlank() && work.withTax[k] != (Money.parse(r.amount) ?: 0)) {
-                    Text("${r.text}: ${Money.format(Money.parse(r.amount) ?: 0)} + tax ${r.letter} = ${Money.format(work.withTax[k])}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                if (work.withTax[k] != (Money.parse(r.amount) ?: 0)) {
+                    Text("${r.text}: ${Money.format(Money.parse(r.amount) ?: 0)} + tax${if (r.letter.isNotBlank()) " ${r.letter}" else ""} = ${Money.format(work.withTax[k])}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -235,7 +258,7 @@ fun ReceiptEditScreen(
         val sum = form.items.sumOf { Money.parse(it.amount) ?: 0 }
         val tax = Money.parse(form.tax)?.let { kotlin.math.abs(it) } ?: 0
         val total = Money.parse(form.total)?.let { kotlin.math.abs(it) }
-        if (form.items.isNotEmpty() && total != null && work.hasLetters && work.resolved) {
+        if (form.items.isNotEmpty() && total != null && work.perItem && work.resolved) {
             val withTax = work.withTax.sum()
             val left = work.unassigned
             val diff = total - (kotlin.math.abs(withTax) + left)
@@ -268,22 +291,23 @@ private fun TaxQuestion(form: ReceiptForm, work: ReceiptTax.Result) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("tax.ask")) {
         Text("Which items are taxed?", style = MaterialTheme.typography.titleSmall, color = DdfColors.Warning)
         Text(
-            "The receipt's tax (${form.tax.ifBlank { "none read" }}) couldn't be matched to the letters ${work.needsChoice.sorted().joinToString(", ")}. " +
+            if (work.needsChoice == setOf("")) "The receipt shows tax (${form.tax}) but no tax letters on its items. Mark the taxed items; the tax is shared between them by price."
+            else "The receipt's tax (${form.tax.ifBlank { "none read" }}) couldn't be matched to the letters ${work.needsChoice.sorted().joinToString(", ")}. " +
                 "Say which are taxed; the tax is shared between them by price.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
         for (l in work.needsChoice.sorted()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Letter $l", Modifier.weight(1f))
-                TextButton(onClick = { setLetter(form, l, true) }, modifier = Modifier.testTag("tax.$l.taxed")) { Text("Taxed") }
-                TextButton(onClick = { setLetter(form, l, false) }, modifier = Modifier.testTag("tax.$l.untaxed")) { Text("Not taxed") }
+                Text(if (l.isEmpty()) "All items" else "Letter $l", Modifier.weight(1f))
+                TextButton(onClick = { setLetter(form, l, true) }, modifier = Modifier.testTag("tax.${l.ifEmpty { "all" }}.taxed")) { Text("Taxed") }
+                TextButton(onClick = { setLetter(form, l, false) }, modifier = Modifier.testTag("tax.${l.ifEmpty { "all" }}.untaxed")) { Text("Not taxed") }
             }
         }
         form.items.forEachIndexed { i, r ->
             if (r.letter.trim().uppercase() in work.needsChoice) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(r.taxed == true, { form.items[i] = r.copy(taxed = it) }, modifier = Modifier.testTag("tax.item.$i"))
-                    Text("${r.text} (${r.letter}) ${r.amount}" + if (r.taxed == null) "  (not answered)" else "")
+                    Text("${r.text}${if (r.letter.isNotBlank()) " (${r.letter})" else ""} ${r.amount}" + if (r.taxed == null) "  (not answered)" else "")
                 }
             }
         }

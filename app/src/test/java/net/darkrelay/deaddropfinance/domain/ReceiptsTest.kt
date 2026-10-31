@@ -103,6 +103,43 @@ class ReceiptsTest {
         assertEquals(5_00L, store.dao.itemsOf(old).single().paid)
     }
 
+    /** 1.9.4: a receipt saved before its charge keeps its items' envelopes; when it matches, they split the charge by price with tax. */
+    @Test fun itemEnvelopesSplitTheChargeWhenTheReceiptMatches() = world {
+        val id = receipt(
+            "Sample Market", 21_40, d, tax = 40,
+            items = listOf(
+                DraftItem("SAMPLE BREAD", amount = 5_00, priceWithTax = 5_00, envelopeId = food),
+                DraftItem("SAMPLE SOAP", amount = 6_00, taxLetter = "B", priceWithTax = 6_40, envelopeId = home),
+                DraftItem("SAMPLE APPLES", amount = 10_00, priceWithTax = 10_00),
+            ),
+        )
+        assertEquals(listOf(food, home, null), store.dao.itemsOf(id).map { it.envelopeId })
+        val t = bank("SAMPLE MARKET #12", -21_40, d.plusDays(1))
+        assertTrue(r.match(id) is ReceiptMatch.Decision.One)
+        val ls = lines(t)
+        assertEquals(mapOf(food to -5_00L, home to -6_40L, null to -10_00L), ls.associate { it.envelopeId to it.amount })
+        // the item with no envelope stays where the charge was on its own: To sort
+        assertEquals(LineBucket.UNSORTED, ls.single { it.envelopeId == null }.bucket)
+    }
+
+    @Test fun onAChargeAlreadySortedTheItemsWithNoEnvelopeStayInItsEnvelope() = world {
+        val t = bank("SAMPLE SHOP", -11_00, d)
+        a.setLines(t, listOf(LineDraft(food, -11_00)), SortedBy.HAND, requireCategory = false)
+        r.save(
+            net.darkrelay.deaddropfinance.data.newId(),
+            Draft("Sample Shop", d, 11_00, 0, listOf(DraftItem("SAMPLE SNACK", amount = 4_00, priceWithTax = 4_00), DraftItem("SAMPLE SPONGE", amount = 7_00, priceWithTax = 7_00, envelopeId = home))),
+            transactionId = t,
+        )
+        assertEquals(mapOf(food to -4_00L, home to -7_00L), lines(t).associate { it.envelopeId to it.amount })
+    }
+
+    @Test fun aReceiptWithNoItemEnvelopesLeavesTheChargeAlone() = world {
+        val t = bank("SAMPLE KIOSK", -3_00, d)
+        val id = receipt("Sample Kiosk", 3_00, d, items = listOf(DraftItem("SAMPLE WATER", amount = 3_00)))
+        r.attach(id, t)
+        assertEquals(listOf(LineBucket.UNSORTED to -3_00L), lines(t).map { it.bucket to it.amount })
+    }
+
     // ---- matching ------------------------------------------------------------------------------------------------
 
     @Test fun anExactMatchIsAttachedByItself() = world {

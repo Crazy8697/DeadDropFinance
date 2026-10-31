@@ -106,7 +106,12 @@ fun ActivityScreen(
 ) {
     val selected = tabs.accounts.firstOrNull { it.id == tabs.selected }
     Column(Modifier.fillMaxWidth()) {
-        Box(Modifier.padding(horizontal = 16.dp)) { ScreenTitle("Activity", onBack = null) }
+        Box(Modifier.padding(horizontal = 16.dp)) {
+            ScreenTitle("Activity", onBack = null) {
+                // 1.9.4: Scan receipt, the same scan as Receipts'
+                sorting.onScan?.let { TextButton(onClick = it, modifier = Modifier.testTag("activity.scan")) { Text("Scan receipt") } }
+            }
+        }
         ActivityTabRow(tabs, budget.toSort.size)
         val today = java.time.LocalDate.now()
         val months = budget.months(today)

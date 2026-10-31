@@ -39,12 +39,13 @@ class ReceiptParserTest {
         assertEquals(7_83L, r.subtotal)
         assertEquals(32L, r.tax)
         assertEquals(ReceiptKind.PURCHASE, r.kind)
-        assertEquals(listOf("BANANAS", "SAMPLE BREAD", "SAMPLE SODA", "COUPON SAMPLE SODA"), r.items.map { it.text })
-        assertEquals(listOf(86L, 3_49L, 3_98L, -50L), r.items.map { it.amount })
+        // 1.9.4: a coupon is never an item: it comes off the item above it, which carries what was paid
+        assertEquals(listOf("BANANAS", "SAMPLE BREAD", "SAMPLE SODA"), r.items.map { it.text })
+        assertEquals(listOf(86L, 3_49L, 3_48L), r.items.map { it.amount })
         assertEquals(1250L, r.items[0].quantityMilli)
         assertEquals(69L, r.items[0].unitPrice)
         assertEquals(2000L, r.items[2].quantityMilli)
-        assertEquals(1_99L, r.items[2].unitPrice)
+        assertEquals(1_74L, r.items[2].unitPrice)
         assertEquals("sample bread", r.items[1].name)
         assertTrue("it all adds up: nothing to check", r.lowConfidence.isEmpty())
     }
