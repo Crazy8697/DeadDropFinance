@@ -117,7 +117,6 @@ A rule needs one of `envelope`, `splits`, `category` or `transfer`. A new rule i
 | `lockAfterMinutes` | 0, 1, 5, 15 or 30. |
 | `hideScreen` | Hide screen. |
 | `checkForUpdatesAtStartup` | Check for updates at startup. |
-| `parkingLotWait` | `"1 day"`, `"2 days"` or `"1 week"`. |
 
 ## Example
 
@@ -163,8 +162,7 @@ Every name and amount here is invented.
     "appLock": true,
     "lockAfterMinutes": 5,
     "hideScreen": false,
-    "checkForUpdatesAtStartup": true,
-    "parkingLotWait": "2 days"
+    "checkForUpdatesAtStartup": true
   }
 }
 ```

@@ -47,6 +47,9 @@ class Shell(
     val canInstall: Boolean = false,
     val installedVersion: String = BuildInfo.VERSION,
     val checkAtStartup: Boolean = true,
+    /** Hide screen (0.14.0): the window is kept out of screen captures. */
+    val hideScreen: Boolean = false,
+    val onHideScreen: (Boolean) -> Unit = {},
     val dataFolder: String = "%APPDATA%\\DeadDropFinance",
     val onInstall: () -> Unit = {},
     val onOpenPage: (String) -> Unit = {},
@@ -103,17 +106,17 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                         val unavailable = model.unavailable
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when {
+                                // 0.13.0: one of the phone app's screens, opened from a program screen (0.14.0: Settings too)
+                                model.phoneNav != null && model.budget != null && unavailable == null -> PhoneScreens(model, shell, model.phoneNav!!, onExit = { model.phoneNav = null })
                                 model.screen == Screen.SETTINGS -> SettingsScreen(model, shell)
                                 model.screen == Screen.SYNC -> SyncScreen(model, model.server)
                                 model.screen == Screen.REPORTS -> ReportsScreen()
                                 unavailable != null -> UnavailableScreen(unavailable)
                                 model.budget == null -> Box(Modifier.fillMaxSize().padding(18.dp)) { T("Opening your budget...", color = C.Dim) }
-                                // 0.13.0: the phone app's screens
-                                model.phoneNav != null -> PhoneScreens(model, shell, model.phoneNav!!, onExit = { model.phoneNav = null })
-                                model.screen == Screen.HOME -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Home)
-                                model.screen == Screen.BILLS -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Bills)
-                                model.screen == Screen.CATEGORIES -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Categories)
-                                model.screen == Screen.MORE -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.More)
+                                // 0.14.0: Receipts, the phone's screens as a sidebar item; Bills and Categories in the program's layout
+                                model.screen == Screen.RECEIPTS -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Receipts, sidebar = true)
+                                model.screen == Screen.BILLS -> ProgramBillsScreen(model)
+                                model.screen == Screen.CATEGORIES -> ProgramCategoriesScreen(model)
                                 model.screen == Screen.BUDGET -> BudgetScreen(model, shell)
                                 model.screen == Screen.ACTIVITY -> ActivityScreen(model, shell)
                                 model.screen == Screen.ACCOUNTS -> AccountsScreen(model, shell)
@@ -214,8 +217,8 @@ private fun UpdateStrip(shell: Shell) {
 // ---- sidebar and top bar ----------------------------------------------------------------------------------------
 
 private val navIcons = mapOf(
-    Screen.BUDGET to "▮", Screen.ACTIVITY to "⋮", Screen.ACCOUNTS to "▣", Screen.HOME to "⌂", Screen.BILLS to "▦",
-    Screen.CATEGORIES to "◔", Screen.REPORTS to "▲", Screen.MORE to "…", Screen.SYNC to "⇄", Screen.SETTINGS to "⚙",
+    Screen.BUDGET to "▮", Screen.ACTIVITY to "⋮", Screen.ACCOUNTS to "▣", Screen.RECEIPTS to "▤", Screen.BILLS to "▦",
+    Screen.CATEGORIES to "◔", Screen.REPORTS to "▲", Screen.SYNC to "⇄", Screen.SETTINGS to "⚙",
 )
 
 @Composable
@@ -261,7 +264,7 @@ private fun NavButton(s: Screen, on: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun TopBar(model: AppModel) {
-    val budgety = model.screen in setOf(Screen.BUDGET, Screen.ACTIVITY, Screen.ACCOUNTS, Screen.REPORTS)
+    val budgety = model.screen in setOf(Screen.BUDGET, Screen.ACTIVITY, Screen.ACCOUNTS, Screen.BILLS, Screen.CATEGORIES, Screen.REPORTS)
     Row(
         Modifier.fillMaxWidth().height(52.dp).background(C.Panel).bottomLine().padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),

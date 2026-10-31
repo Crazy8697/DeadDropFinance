@@ -34,6 +34,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import java.time.LocalDate
+import net.darkrelay.deaddropfinance.data.MoveEntity
 import net.darkrelay.deaddropfinance.data.CategoryEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
@@ -128,6 +129,8 @@ fun EnvelopeDetailScreen(
     onTransaction: (String) -> Unit,
     /** Add activity (1.3.0): the Add transaction screen with this envelope chosen. */
     onAddActivity: () -> Unit = {},
+    /** A move made by hand opens to edit (1.8.1). */
+    onMoveRow: (String) -> Unit = {},
 ) {
     val bal = budget.envelopeBalance(envelope.id)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -186,7 +189,7 @@ fun EnvelopeDetailScreen(
         if (rows.isEmpty()) EmptyState("No transactions in this envelope yet.")
         rows.take(shown).forEach { r ->
             val sub = r.date.toString() + if (r.beforeBudgetStart) ", before budget start" else ""
-            ListRow(onClick = r.transactionId?.let { id -> { onTransaction(id) } }) {
+            ListRow(onClick = r.transactionId?.let { id -> { onTransaction(id) } } ?: r.moveId?.let { id -> { onMoveRow(id) } }) {
                 Row { Column(Modifier.weight(1f)) { Text(r.label); Text(sub, color = DdfColors.Muted) }; MoneyText(r.amount) }
             }
         }
@@ -321,25 +324,40 @@ fun MoveMoneyScreen(
     budget: Budget, intoId: String?, error: String?, onBack: () -> Unit,
     /** Over-assigned: start as a move from the fullest envelope back into Ready to Assign, for what's over. */
     backToReady: Boolean = false,
+    /** Edit a move (1.8.1): the move, its Save with the date, and Delete after the same question as a transaction's. */
+    editing: MoveEntity? = null,
+    onSaveEdit: (String?, String?, Long, LocalDate?) -> Unit = { _, _, _, _ -> },
+    onDelete: () -> Unit = {},
     onMove: (String?, String?, Long) -> Unit,
 ) {
+    // the move's own envelopes stay choosable even when archived
+    val shown = budget.fillOrder + budget.envelopes.filter { e -> editing != null && (e.id == editing.fromEnvelopeId || e.id == editing.toEnvelopeId) && budget.fillOrder.none { it.id == e.id } }
     val options: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "Ready to assign (${Money.format(budget.readyToAssign)})") +
-        budget.fillOrder.map { it.id to "${it.name} (${Money.format(budget.envelopeBalance(it.id))})" }
+        shown.map { it.id to "${it.name} (${Money.format(budget.envelopeBalance(it.id))})" }
     val fullest = budget.fillOrder.maxByOrNull { budget.envelopeBalance(it.id) }?.id
-    var from by remember { mutableStateOf(if (backToReady) fullest else null) }
-    var to by remember { mutableStateOf<String?>(if (backToReady) null else intoId ?: budget.fillOrder.firstOrNull()?.id) }
-    var amount by remember { mutableStateOf(if (backToReady && budget.readyToAssign < 0) Money.plain(-budget.readyToAssign) else "") }
+    var from by remember { mutableStateOf(if (editing != null) editing.fromEnvelopeId else if (backToReady) fullest else null) }
+    var to by remember { mutableStateOf<String?>(if (editing != null) editing.toEnvelopeId else if (backToReady) null else intoId ?: budget.fillOrder.firstOrNull()?.id) }
+    var amount by remember { mutableStateOf(if (editing != null) Money.plain(editing.amount) else if (backToReady && budget.readyToAssign < 0) Money.plain(-budget.readyToAssign) else "") }
+    var date by remember { mutableStateOf(editing?.date?.toString() ?: "") }
+    var confirmDelete by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ScreenTitle("Move money", onBack)
-        if (backToReady && budget.readyToAssign < 0) {
+        ScreenTitle(if (editing != null) "Edit move" else "Move money", onBack)
+        if (editing == null && backToReady && budget.readyToAssign < 0) {
             Text("Ready to assign is ${Money.format(budget.readyToAssign)}: more is in envelopes than you have. Move that much back.", color = DdfColors.Warning)
         }
+        if (editing != null) DateField("Date", date, { date = it })
         Picker("From", options, from, { from = it })
         Picker("To", options, to, { to = it })
         AmountField("Amount", amount, { amount = it })
         ErrorLine(error)
         Gap()
-        Button(onClick = { onMove(from, to, Money.parse(amount) ?: 0) }, modifier = Modifier.fillMaxWidth()) { Text("Move") }
+        if (editing == null) Button(onClick = { onMove(from, to, Money.parse(amount) ?: 0) }, modifier = Modifier.fillMaxWidth()) { Text("Move") }
+        else {
+            Button(onClick = { onSaveEdit(from, to, Money.parse(amount) ?: 0, parseDateOrNull(date)) }, modifier = Modifier.fillMaxWidth()) { Text("Save") }
+            Gap()
+            if (!confirmDelete) OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete") }
+            else Row { Text("Delete this move?", Modifier.weight(1f)); TextButton(onClick = onDelete) { Text("Delete") }; TextButton(onClick = { confirmDelete = false }) { Text("Keep") } }
+        }
     }
 }
 

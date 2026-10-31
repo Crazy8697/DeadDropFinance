@@ -6,13 +6,13 @@ import net.darkrelay.deaddropfinance.data.BudgetStore
 /**
  * What goes with a transaction that's deleted, whichever way: by the user, with its account, or because the bank
  * stopped listing it (a pending row that vanished, a disconnect that removes its rows). Nothing may be left counting
- * it: not a payday's sweep and fill, not a bill payment, not a parked buy's match.
+ * it: not a payday's sweep and fill, not a bill payment.
  */
 object TransactionCleanup {
 
     /**
      * Tombstones the transaction and its lines, the moves made for it (payday sweep and fill, ATM), and the bill
-     * payments it made; frees its wash partner and puts a parked buy matched to it back to waiting for its charge.
+     * payments it made; and frees its wash partner.
      * Receipts and item returns are the caller's (deleting a transaction by hand can delete its receipt too).
      */
     suspend fun tombstone(w: BudgetStore.Writer, dao: BudgetDao, id: String) = with(w) {
@@ -24,7 +24,6 @@ object TransactionCleanup {
             dao.transactionsNow().filter { it.washGroupId == g && it.id != id }.forEach { put(it, it.copy(washGroupId = null, updatedAt = now)) }
         }
         dao.billPaymentsNow().filter { it.transactionId == id }.forEach { put(it, it.copy(deleted = true, updatedAt = now)) }
-        dao.parkedBuysNow().filter { it.transactionId == id }.forEach { put(it, it.copy(transactionId = null, updatedAt = now)) }
     }
 
     /** A transaction gone without the user deciding: its receipt waits for a charge again, and what it returned can be returned again. */

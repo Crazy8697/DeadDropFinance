@@ -8,7 +8,7 @@ The desktop program ships the components below: the runtime classpath of the des
 license gate, which refuses to package a component missing from this file), the Java runtime bundled with it, and the
 native code inside Skiko. Each Java library's license was read from its POM. The installed program carries this file,
 desktop/NOTICE, LICENSE and the license texts under licenses\ in its folder. The license texts are in licenses/ (shared
-with the phone app: Apache-2.0.txt, libpng-2.0.txt, SQLite-Public-Domain.txt, MPL-2.0.txt, ISC-libsodium.txt) and desktop/licenses/ (the desktop-only ones).
+with the phone app: Apache-2.0.txt, libpng-2.0.txt, SQLite-Public-Domain.txt, MPL-2.0.txt, ISC-libsodium.txt, BSD-2-Clause-Leptonica.txt, IJG-libjpeg.txt) and desktop/licenses/ (the desktop-only ones).
 
 ## The Java runtime (OpenJDK 21, Microsoft Build of OpenJDK)
 
@@ -257,6 +257,68 @@ Upstream: https://github.com/jspecify/jspecify
 | Component | Version | License (from its POM) |
 |---|---|---|
 | `org.jspecify:jspecify` | 1.0.0 | Apache License, Version 2.0 |
+## Tesseract OCR, Leptonica and the English model, through Tess4J and Lept4J (receipt text recognition, from 0.14.0)
+
+License: Apache-2.0 (Tess4J, Lept4J, Tesseract OCR, the English model; licenses/Apache-2.0.txt), with Leptonica and the
+image libraries built into it under their own licenses below
+Upstream: https://github.com/nguyenq/tess4j, https://github.com/nguyenq/lept4j, https://github.com/tesseract-ocr/tesseract,
+https://github.com/DanBloomberg/leptonica, https://github.com/tesseract-ocr/tessdata_fast
+
+Tess4J and Lept4J are JNA wrappers (their POMs and LICENSE files: Apache License 2.0). Tess4J 5.20.0's jar carries
+libtesseract553.dll, Tesseract OCR 5.5.3 for 64-bit Windows (its version resource: "Copyright (C) 2026 Google, Inc.
+Licensed under the Apache License, Version 2.0"; Tesseract's LICENSE at tag 5.5.3 is the Apache License 2.0). Lept4J
+1.24.0's jar carries libleptonica1870.dll, Leptonica 1.87.0, for 64-bit and 32-bit Windows (the program loads the
+64-bit one). The program uses only the Tesseract C API (TessAPI1) and the loader that unpacks the two DLLs into the
+temporary folder (LoadLibs, with Apache Commons IO). Tess4J's jar also carries Tesseract's own copies of the English and
+orientation models and its configs, which the program doesn't use; its other dependencies are not shipped. Both DLLs
+link only to Windows and the Visual C++ runtime (which the bundled Java runtime carries); neither links to a network
+library. Tesseract's debug viewer, which can connect to a local socket, runs only when its debug settings are set, and
+the program sets none. The program gives the engine a page's pixels and reads back text; nothing is sent anywhere.
+
+Built into libleptonica1870.dll (read from the DLL's own version strings; each license from the library's own source):
+
+- Leptonica 1.87.0: Copyright (C) 2001-2020 Leptonica. BSD 2-clause style license, licenses/BSD-2-Clause-Leptonica.txt
+  (leptonica-license.txt at tag 1.87.0 is the same text as at 1.85.0).
+- libjpeg 9f (14-Jan-2024): this software is based in part on the work of the Independent JPEG Group.
+  licenses/IJG-libjpeg.txt.
+- libpng 1.6.50: PNG Reference Library License version 2, licenses/libpng-2.0.txt (LICENSE at tag v1.6.50 is the same
+  text as at v1.6.48).
+- zlib 1.3.1: Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler, under the zlib License (desktop/licenses/Zlib.txt).
+- LibTIFF 4.7.1: Copyright (c) 1988-1997 Sam Leffler, Copyright (c) 1991-1997 Silicon Graphics, Inc.
+  desktop/licenses/libtiff.txt.
+- OpenJPEG 2.5.4: BSD 2-clause license, desktop/licenses/BSD-2-Clause-OpenJPEG.txt.
+- libwebp: Copyright (c) 2010, Google Inc. BSD-3-Clause, desktop/licenses/BSD-3-Clause-libwebp.txt.
+
+The English model is the phone app's own file (app/src/main/assets/tessdata/eng.traineddata, from tessdata_fast,
+Apache-2.0; byte for byte the same as tessdata_fast's
+eng.traineddata). It's installed in the program's app\resources folder:
+
+| Bundled file | License |
+|---|---|
+| `tessdata/eng.traineddata` | Apache-2.0 (tessdata_fast) |
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `net.sourceforge.tess4j:tess4j` | 5.20.0 | Apache License 2.0 |
+| `net.sourceforge.lept4j:lept4j` | 1.24.0 | Apache License 2.0 |
+| `commons-io:commons-io` | 2.22.0 | Apache-2.0 |
+
+## Apache PDFBox (PDF receipts, from 0.14.0)
+
+License: Apache-2.0, with the external components listed in its LICENSE (desktop/licenses/Apache-2.0-PDFBox.txt,
+desktop/licenses/Apache-2.0-FontBox.txt)
+Upstream: https://pdfbox.apache.org, https://commons.apache.org/proper/commons-logging/
+
+PDFBox draws a PDF receipt's pages so they're read like a photo. The license texts are each jar's own META-INF/LICENSE;
+their NOTICE files are repeated below and in desktop/NOTICE.
+
+| Component | Version | License (from its POM) |
+|---|---|---|
+| `org.apache.pdfbox:pdfbox` | 3.0.8 | Apache-2.0 |
+| `org.apache.pdfbox:pdfbox-io` | 3.0.8 | Apache-2.0 |
+| `org.apache.pdfbox:fontbox` | 3.0.8 | Apache-2.0 |
+| `commons-logging:commons-logging` | 1.4.0 | Apache-2.0 |
+
 ## Inside Skiko's native library
 
 skiko-windows-x64.dll is Skia, Google's 2D graphics library, built by JetBrains with the libraries below linked in.
@@ -286,6 +348,34 @@ These are repeated in desktop/NOTICE:
 
 Skiko: "This project contains code adapted from The Android Open Source Project licensed under the Apache License,
 Version 2.0" (https://android.googlesource.com/platform/frameworks/base).
+
+Apache PDFBox, PDFBox io, FontBox, Commons IO and Commons Logging (from 0.14.0), from each jar's META-INF/NOTICE:
+
+    Apache PDFBox
+    Copyright 2002-2026 The Apache Software Foundation
+    Based on source code contributed to the original PDFBox project. Copyright (c) 2002-2007, www.pdfbox.org
+    Includes the Adobe Glyph List. Copyright 1997, 1998, 2002, 2007, 2010 Adobe Systems Incorporated.
+    Includes the Zapf Dingbats Glyph List. Copyright 2002, 2010 Adobe Systems Incorporated.
+    Includes the Bidi Mirroring Glyph Property (BidiMirroring-8.0.0.txt). Copyright 1991-2015 Unicode, Inc.
+    Includes parts of TwelveMonkeys ImageIO. Copyright 2008-2016 Harald Kuhr
+    Includes the CMYK ICC-profile (CGATS001Compat-v2-micro.icc), https://github.com/saucecontrol/Compact-ICC-Profiles,
+    released to the public domain under the Creative Commons CC0 license by Clinton Ingram, saucecontrol
+
+    Apache PDFBox io
+    Copyright 2002-2026 The Apache Software Foundation
+
+    Apache FontBox
+    Copyright 2008-2026 The Apache Software Foundation
+    Based on source code contributed to the original FontBox project. Copyright (c) 2006-2007, www.fontbox.org
+    Includes the Script Property (Scripts-10.0.0.txt). Copyright 2017 Unicode, Inc.
+
+    Apache Commons IO
+    Copyright 2002-2026 The Apache Software Foundation
+
+    Apache Commons Logging
+    Copyright 2001-2026 The Apache Software Foundation
+
+    These products include software developed at The Apache Software Foundation (https://www.apache.org/).
 
 ## Build tools (not shipped)
 

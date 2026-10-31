@@ -86,6 +86,8 @@ Source: "..\..\licenses\libpng-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignor
 Source: "..\..\licenses\SQLite-Public-Domain.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\..\licenses\MPL-2.0.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\..\licenses\ISC-libsodium.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "..\..\licenses\BSD-2-Clause-Leptonica.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "..\..\licenses\IJG-libjpeg.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 Source: "..\licenses\*.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [Icons]

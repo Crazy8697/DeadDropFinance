@@ -27,8 +27,8 @@ class LiveUpdateCheckTest {
     }
 
     companion object {
-        const val EXPECTED = "1.8.0"
+        const val EXPECTED = "1.8.1"
         /** The release before it, which an installed copy updates from. */
-        const val PREVIOUS = "1.7.3"
+        const val PREVIOUS = "1.8.0"
     }
 }

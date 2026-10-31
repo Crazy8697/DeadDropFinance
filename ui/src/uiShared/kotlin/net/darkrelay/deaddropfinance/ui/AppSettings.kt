@@ -35,10 +35,12 @@ const val STARTUP_UPDATE_DELAY_MS = 3000L
 data class DeviceWords(val device: String = "phone", val product: String = "app", val appLock: Boolean = true) {
     /** "Tap" on the phone, "Click" with a mouse. */
     val tap: String get() = if (device == "phone") "Tap" else "Click"
-    /** A camera to photograph a receipt, and text recognition to read it: the phone's; the program takes an image file, typed in. */
+    /** A camera to photograph a receipt: the phone's; the program takes an image or PDF file (both read it, 0.14.0). */
     val camera: Boolean get() = device == "phone"
     /** Where logging out of the server is. */
     val serverPlace: String get() = if (device == "phone") "More > Server" else "Sync"
+    /** Where backups are made (0.14.0): the phone's More, the program's Settings. */
+    val backupPlace: String get() = if (device == "phone") "More, Backup and restore" else "Settings, Backup and restore"
 }
 
 val LocalDeviceWords = androidx.compose.runtime.staticCompositionLocalOf { DeviceWords() }
@@ -53,4 +55,9 @@ class ProgramHost(
     val start: Nav,
     val requests: kotlinx.coroutines.flow.Flow<Nav> = kotlinx.coroutines.flow.emptyFlow(),
     val onExit: () -> Unit = {},
+    /** A sidebar item (0.14.0, Receipts): the program's top bar names the screen, so its first screen has no title or Back. */
+    val sidebar: Boolean = false,
 )
+
+/** The first screen of a sidebar item in the program (0.14.0): its title and Back aren't drawn (the top bar has the name). */
+val LocalHostedRoot = androidx.compose.runtime.staticCompositionLocalOf { false }

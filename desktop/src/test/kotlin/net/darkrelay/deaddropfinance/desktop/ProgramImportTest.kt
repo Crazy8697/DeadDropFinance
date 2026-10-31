@@ -34,8 +34,8 @@ class ProgramImportTest : ProgramScreensBase() {
         picked = tmp.newFile("sample-bank.csv").also {
             it.writeText("Date,Description,Amount\n$d1,Sample Bakery,-6.50\n$d1,Sample Bakery,-6.50\n$d2,Sample Garage,-120.00\n")
         }
-        click("nav.MORE")
-        clickText("Import CSV", exact = true)
+        click("nav.SETTINGS")
+        click("settings.importCsv")
         until("It's read once and never stored.")
         clickText("Choose a file", exact = true)
         // the account is chosen already (the only bank account), as on the phone

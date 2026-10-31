@@ -41,6 +41,15 @@ val CREDITS = listOf(
     "Android" to "AndroidX, Jetpack Compose, Room and WorkManager from The Android Open Source Project, Apache License 2.0.",
 )
 
+/** The program's credits (0.14.0): what the program ships in place of the phone's Android libraries and engine. */
+val PROGRAM_CREDITS = listOf(
+    "Encrypted database" to "SQLite JDBC with SQLite3 Multiple Ciphers (Copyright (c) 2019-2026 Ulrich Telle, MIT) and SQLite, in the public domain; Room from The Android Open Source Project, Apache License 2.0.",
+    "Receipt text recognition" to "Tesseract OCR through Tess4J and Lept4J (Apache License 2.0), with Leptonica (Copyright (C) 2001-2020 Leptonica), libpng, zlib, LibTIFF, OpenJPEG, libwebp and libjpeg: this software is based in part on the work of the Independent JPEG Group.",
+    "PDF receipts" to "Apache PDFBox and FontBox, Copyright 2002-2026 The Apache Software Foundation, Apache License 2.0.",
+    "Kotlin" to "The Kotlin standard library, kotlinx.coroutines (Copyright 2016-2025 JetBrains s.r.o and contributors) and kotlinx.serialization (Copyright 2017-2019 JetBrains s.r.o and respective authors and developers), Apache License 2.0.",
+    "Windows" to "Compose Multiplatform and Skiko (JetBrains, Apache License 2.0) with Skia (Google, BSD-3-Clause), on OpenJDK (GPL 2.0 with the Classpath Exception).",
+)
+
 /** About: the icon, name, version, license, credits, Licenses, the documents, darkrelay.net and support. */
 @Composable
 fun AboutScreen(version: String, icon: androidx.compose.ui.graphics.painter.Painter?, onBack: () -> Unit, onOpen: (String) -> Unit, onLicenses: () -> Unit, onDoc: (String) -> Unit) {
@@ -57,7 +66,7 @@ fun AboutScreen(version: String, icon: androidx.compose.ui.graphics.painter.Pain
             OutlinedButton(onClick = { onOpen(DarkRelayLinks.CHEESE) }) { Text("Support DarkRelay: buy some cheese 🧀") }
         }
         SectionTitle("Credits")
-        CREDITS.forEach { (what, who) ->
+        (if (LocalDeviceWords.current.device == "phone") CREDITS else PROGRAM_CREDITS).forEach { (what, who) ->
             Text(what, modifier = Modifier.padding(top = 6.dp))
             Text(who, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }

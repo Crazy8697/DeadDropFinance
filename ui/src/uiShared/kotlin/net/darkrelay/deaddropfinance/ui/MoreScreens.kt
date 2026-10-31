@@ -67,13 +67,9 @@ fun MoreScreen(
     currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT,
     onCurrency: ((String) -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
-    onParked: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
     onSetupImport: (() -> Unit)? = null,
     backupLine: String = "Encrypted, one file",
-    /** The default wait for a new parked buy, in days (Settings). */
-    parkWait: Int = 1,
-    onParkWait: (Int) -> Unit = {},
     /** Settings > Server (1.4.0): null hides the row. */
     onServer: (() -> Unit)? = null,
     serverLine: String = "Not connected",
@@ -90,14 +86,6 @@ fun MoreScreen(
         }
         if (onBackup != null) {
             ListRow(onBackup) { Column { Text("Backup and restore"); Text(backupLine, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
-        }
-        if (onParked != null) {
-            ListRow(onParked) { Column { Text("Parked buys"); Text("Wait before you buy", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
-            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                Text("Parking lot wait")
-                Text("How long a parked buy waits before you decide", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-                WaitChips(parkWait, onParkWait)
-            }
         }
         if (onServer != null) {
             ListRow(onServer) { Column { Text("Server"); Text(serverLine, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }

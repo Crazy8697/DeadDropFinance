@@ -18,8 +18,8 @@ import net.darkrelay.deaddropfinance.domain.CsvImport
 
 /** The sidebar. Home, Bills, Categories and More (0.13.0) are the phone app's own screens (PhoneScreens). */
 enum class Screen(val title: String) {
-    BUDGET("Budget"), ACTIVITY("Activity"), ACCOUNTS("Accounts"), HOME("Home"), BILLS("Bills"), CATEGORIES("Categories"),
-    REPORTS("Reports"), MORE("More"), SYNC("Sync"), SETTINGS("Settings"),
+    BUDGET("Budget"), ACTIVITY("Activity"), ACCOUNTS("Accounts"), RECEIPTS("Receipts"), BILLS("Bills"), CATEGORIES("Categories"),
+    REPORTS("Reports"), SYNC("Sync"), SETTINGS("Settings"),
 }
 
 /** An open dialog: Add transaction, Move money, an envelope or account form, or a CSV import's confirmation. */
@@ -34,7 +34,10 @@ sealed class Dialog {
     data class Bonus(val editId: String? = null) : Dialog()
     /** Budget start date (0.12.3): change it, after a plain warning. */
     object BudgetStart : Dialog()
-    data class MoveMoney(val fromId: String? = null, val toId: String? = null) : Dialog()
+    /** Bills (0.14.0): the next payday, set by hand or back to the prediction. */
+    object NextPayday : Dialog()
+    /** [editId] (0.14.0): a move made by hand, opened from its row to edit (and delete). */
+    data class MoveMoney(val fromId: String? = null, val toId: String? = null, val editId: String? = null) : Dialog()
     data class EnvelopeForm(val envelopeId: String? = null) : Dialog()
     data class AccountForm(val accountId: String? = null) : Dialog()
     data class ImportCsv(val accountId: String, val fileName: String, val plan: CsvImport.Plan) : Dialog()
@@ -81,6 +84,9 @@ const val TO_SORT = "__tosort__"
  * shared engine. Every write goes through [BudgetActions] (the phone's own rules); a refused one comes back as a
  * plain message in [message]. Writes run on the caller's thread: the window calls them off the UI thread.
  */
+/** Where a restore stages a backup's receipt photos, in the data folder, before swapping them in (0.14.0). */
+const val RESTORE_STAGING = "receipts-restore"
+
 class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDate::now) {
 
     var budget by mutableStateOf<Budget?>(null)
@@ -100,7 +106,7 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     var currency by mutableStateOf(net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT)
         private set
 
-    private fun store(): net.darkrelay.deaddropfinance.data.BudgetStore? = (engine?.opened as? DesktopDatabase.Opened.Ok)?.store
+    internal fun store(): net.darkrelay.deaddropfinance.data.BudgetStore? = (engine?.opened as? DesktopDatabase.Opened.Ok)?.store
 
     /** Settings > Currency: display only, no amount changes; synced to the account's other devices as the budget start is. */
     suspend fun setCurrency(code: String): Boolean {
@@ -139,6 +145,8 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     var phoneNav by mutableStateOf<net.darkrelay.deaddropfinance.ui.Nav?>(null)
     /** Rises when the phone's screens must start over (after Purge data, which then opens the setup wizard). */
     var phoneGeneration by mutableStateOf(0)
+    /** Rises when the payday plan (Bills, Budget's forecast) must be worked out again: the payday was changed. */
+    var planTick by mutableStateOf(0)
 
     fun openPhone(n: net.darkrelay.deaddropfinance.ui.Nav) {
         dialog = null
@@ -261,6 +269,19 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     // ---- 0.12.3: the program does what the app does ---------------------------------------------------------
 
     /** A row's transaction, opened in its edit form: a transfer's, a bonus's, or the purchase and deposit form. */
+    /** An Activity or envelope row: a move made by hand opens Edit move (0.14.0), a transaction its own dialog. */
+    fun openRow(r: ActRow) { if (r.moveId != null) dialog = Dialog.MoveMoney(editId = r.moveId) else if (r.tx) openTransaction(r.id) }
+
+    /** Edit a move (0.14.0), the shared rule the phone uses: [from] and [to] are envelope ids or [READY_TO_ASSIGN]. */
+    suspend fun editMove(id: String, from: String, to: String, amount: Long, date: LocalDate): Boolean {
+        if (amount <= 0) { message = "Enter an amount above zero." to true; return false }
+        if (from == to) { message = "Pick two different places." to true; return false }
+        return act("Saved.") { editMove(id, from.takeIf { it != READY_TO_ASSIGN }, to.takeIf { it != READY_TO_ASSIGN }, amount, date) }
+    }
+
+    /** Delete a move made by hand (0.14.0): a soft delete, synced, as a transaction's. */
+    suspend fun deleteMove(id: String): Boolean = act("Deleted.") { deleteMove(id) }
+
     fun openTransaction(id: String) {
         val t = budget?.transactions?.firstOrNull { it.id == id } ?: return
         dialog = when (t.kind) {
@@ -358,7 +379,7 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         val ok = act {
             val r = importCsv(d.accountId, d.plan)
             result = r
-            // 0.12.3: what runs on new transactions after an import, as on the phone (parked buys, history labels, bill payments, receipts)
+            // 0.12.3: what runs on new transactions after an import, as on the phone (history labels, bill payments, receipts)
             store()?.let { st -> net.darkrelay.deaddropfinance.domain.Arrivals(st, this, { today() }).landed(r.newIds, autoApprove = false) }
         }
         result?.let { r -> message = "Imported ${r.imported} transaction${if (r.imported == 1) "" else "s"} into To sort; ${r.skipped} already here, ${r.bad} unreadable." to false }
@@ -371,8 +392,14 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
 
     private fun backups(): net.darkrelay.deaddropfinance.backup.DesktopBackups? {
         val ok = engine?.opened as? DesktopDatabase.Opened.Ok ?: return null
-        return net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "desktop-${BuildInfo.VERSION}")
+        return net.darkrelay.deaddropfinance.backup.DesktopBackups(ok.store.db, ok.file, "desktop-${BuildInfo.VERSION}",
+            photos = receiptImages, stagingDir = java.io.File(ok.file.absoluteFile.parentFile, RESTORE_STAGING))
     }
+
+    /** The receipt photos (0.14.0), encrypted in the data folder: backups carry them, as the phone's do. */
+    var receiptImages: net.darkrelay.deaddropfinance.data.ReceiptImages? = null
+
+    private fun photosLine(n: Int) = if (n == 0) "" else ", $n receipt photo${if (n == 1) "" else "s"}"
 
     /** This computer's recovery keys (0.11.0), DPAPI-protected in the data folder. */
     var recoveryKeys: net.darkrelay.deaddropfinance.backup.RecoveryKeys? = null
@@ -397,7 +424,7 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
         return try {
             val s = tmp.outputStream().use { bk.write(it, key) }
             java.nio.file.Files.move(tmp.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            message = "Backed up to ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." to false
+            message = "Backed up to ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}${photosLine(s.photos)}." to false
             true
         } catch (e: Exception) {
             tmp.delete()
@@ -451,7 +478,7 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
             }
             if (srv != null) srv.sync.restoreAsMaster(local) else local()
             val s = summary!!
-            message = "Restored from ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}." +
+            message = "Restored from ${file.name}: ${s.accounts} account${if (s.accounts == 1) "" else "s"}, ${s.envelopes} envelopes, ${s.transactions} transaction${if (s.transactions == 1) "" else "s"}${photosLine(s.photos)}." +
                 (if (srv != null) " The server's budget is now this backup, and your other devices take it at their next sync." else "") to false
             true
         } catch (e: net.darkrelay.deaddropfinance.backup.BackupException) {

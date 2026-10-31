@@ -21,6 +21,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,13 +49,13 @@ import net.darkrelay.deaddropfinance.data.TransactionKind
 import net.darkrelay.deaddropfinance.domain.Budget
 
 @Composable
-private fun Body(content: @Composable () -> Unit) {
+internal fun Body(content: @Composable () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) { content() }
 }
 
 /** Cards in a row that share the width evenly (the mockup's auto-fit grid). */
 @Composable
-private fun CardRow(content: @Composable RowScope.() -> Unit) {
+internal fun CardRow(content: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().padding(bottom = 18.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), content = content)
 }
 
@@ -72,7 +75,10 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
             StatCard("Assigned this month", money(b.assignedIn(m)), "$funded envelope${if (funded == 1) "" else "s"} funded", Modifier.weight(1f), tag = "card.assigned")
             StatCard("Spent this month", money(spent), "$purchases transaction${if (purchases == 1) "" else "s"}", Modifier.weight(1f), tag = "card.spent")
         }
+        // 0.14.0: what the phone's Home showed that nothing else does: over-assigned, the forecast, Pay these now
+        BudgetPlanParts(model, shell, b)
         RowHead("Envelopes") {
+            Btn("Safe to Spend envelopes", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.SafeToSpend) }, ghost = true, small = true, tag = "safeToSpend")
             Btn("Bonus income", { model.dialog = Dialog.Bonus() }, ghost = true, small = true, tag = "bonus")
             // 0.13.0: the phone's envelope list, where dragging the handle sets the fill order
             Btn("Fill order", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Envelopes) }, ghost = true, small = true, tag = "fillOrder")
@@ -204,8 +210,10 @@ fun TableScope.EmptyRow(text: String) {
 
 /** One row of Activity: the phone's three lines (name; what it is; account and chips), the date beside them. */
 class ActRow(val id: String, val date: LocalDate, val createdAt: Long, val name: String, val line2: String, val line3: String, val amount: Long?, val move: Boolean = false, val cyanAmount: Boolean = false,
-             /** 0.12.3: a transaction's row, which opens it to edit (moves and the starting balance don't). */
-             val tx: Boolean = false)
+             /** 0.12.3: a transaction's row, which opens it to edit (the starting balance doesn't). */
+             val tx: Boolean = false,
+             /** 0.14.0: a move made by hand, which opens to edit (a payday's or an ATM's moves don't). */
+             val moveId: String? = null)
 
 private val monthAbbr = java.time.format.DateTimeFormatter.ofPattern("MMM", java.util.Locale.US)
 
@@ -214,7 +222,7 @@ fun ActivityRows(rows: List<ActRow>, empty: String, modifier: Modifier = Modifie
     Frame(modifier.fillMaxWidth()) {
         Column {
             if (rows.isEmpty()) Box(Modifier.padding(14.dp)) { T(empty, 13.sp, C.Dim) }
-            rows.forEach { r -> ActivityRowView(r, onOpen?.takeIf { r.tx }?.let { f -> { f(r) } }) }
+            rows.forEach { r -> ActivityRowView(r, onOpen?.takeIf { r.tx || r.moveId != null }?.let { f -> { f(r) } }) }
         }
     }
 }
@@ -311,7 +319,8 @@ fun moveRows(b: Budget, month: Budget.Month): List<ActRow> {
             net.darkrelay.deaddropfinance.data.MoveKind.ATM -> "Cash from an ATM"
             else -> "Moved from ${place(m.fromEnvelopeId)}"
         }
-        ActRow(m.id, m.date, m.createdAt, label, place(m.toEnvelopeId), "Envelope to envelope", m.amount, move = true, cyanAmount = false)
+        ActRow(m.id, m.date, m.createdAt, label, place(m.toEnvelopeId), "Envelope to envelope", m.amount, move = true, cyanAmount = false,
+            moveId = m.id.takeIf { net.darkrelay.deaddropfinance.domain.MoveRules.editable(m) })
     }
 }
 
@@ -351,7 +360,7 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
         if (selected == null) {
             val rows = (b.transactions.filter { m.contains(it.date) }.map { txRow(it, b) } + moveRows(b, m))
                 .sortedWith(compareByDescending<ActRow> { it.date }.thenByDescending { it.createdAt })
-            ActivityRows(rows, "Nothing in this budget month yet.", onOpen = { model.openTransaction(it.id) })
+            ActivityRows(rows, "Nothing in this budget month yet.", onOpen = { model.openRow(it) })
             T("The All tab is view only. Add and Import CSV live on an account tab.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 10.dp).testTag("viewOnly"))
         } else {
             val txs = b.transactions.filter { (it.accountId == selected.id || it.transferAccountId == selected.id) && m.contains(it.date) }
@@ -359,7 +368,7 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
             val rows = txs.map { txRow(it, b, selected.id) } +
                 if (m.contains(selected.startDate)) listOf(ActRow("start", selected.startDate, 0, "Starting balance", "Balance as of ${selected.startDate}", selected.name, selected.startingBalance)) else emptyList()
             T("Current balance ${money(b.accountBalance(selected.id))}", 12.5.sp, C.Dim, modifier = Modifier.padding(bottom = 10.dp).testTag("tabBalance"))
-            ActivityRows(rows, "Nothing on this account in this budget month.", onOpen = { model.openTransaction(it.id) })
+            ActivityRows(rows, "Nothing on this account in this budget month.", onOpen = { model.openRow(it) })
         }
     }
 }
@@ -497,7 +506,6 @@ fun SyncScreen(model: AppModel, server: ServerModel?) {
                     s.message?.let { T(it, 12.sp, C.Bad, modifier = Modifier.padding(top = 6.dp)) }
                 }
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (server != null && server.connected) Btn("Sync now", { server.syncNow() }, small = true, tag = "sync.now")
                     Btn("Server settings", { model.go(Screen.SETTINGS) }, ghost = true, small = true, tag = "sync.settings")
                 }
             }
@@ -519,7 +527,7 @@ internal fun Panel(title: String, hint: String?, modifier: Modifier = Modifier, 
 }
 
 @Composable
-private fun ToggleRow(title: String, sub: String, on: Boolean, tag: String, onChange: (Boolean) -> Unit) {
+internal fun ToggleRow(title: String, sub: String, on: Boolean, tag: String, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             T(title, 13.5.sp)
@@ -562,6 +570,14 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
             }
         }
         Spacer(Modifier.height(16.dp))
+        // 0.14.0: what the phone keeps in More, in the program's Settings
+        PhoneSettingsSections(model, shell)
+        Spacer(Modifier.height(16.dp))
+        // the phone's Privacy setting (0.14.0); app lock is the phone's own
+        Panel("Privacy", null, Modifier.fillMaxWidth()) {
+            ToggleRow("Hide screen", "Blocks screenshots, screen recording and screen sharing of this window: they show it black.", shell.hideScreen, "setting.hideScreen", shell.onHideScreen)
+        }
+        Spacer(Modifier.height(16.dp))
         Panel("Backup and restore", "One encrypted file with this computer's budget, opened with its recovery key. The same format as the phone's backups.", Modifier.fillMaxWidth()) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Btn("Back up...", { model.startBackup() }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.backup")
@@ -571,6 +587,17 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
         Spacer(Modifier.height(16.dp))
         ServerPanel(model, model.server, shell)
         Spacer(Modifier.height(16.dp))
+        // the phone's Setup, Purge data and Erase everything (0.14.0), each after its own confirm screen
+        Panel("Setup and data", null, Modifier.fillMaxWidth().testTag("settings.data")) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("Run setup again", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.SetupWizard) }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.setup")
+                Btn("Purge data...", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Purge) }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.purge")
+                Btn("Erase everything...", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Erase) }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.erase")
+            }
+            T("Setup runs the setup wizard again; nothing you have is changed. Purge data deletes all your data and settings. Erase everything deletes all your data from this computer and starts over.",
+                11.5.sp, C.Dim2, modifier = Modifier.padding(top = 8.dp))
+        }
+        Spacer(Modifier.height(16.dp))
         Panel("About", null, Modifier.fillMaxWidth()) {
             Kv("Version", BuildInfo.VERSION, tag = "aboutVersion")
             Kv("Data folder", shell.dataFolder)
@@ -579,6 +606,8 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
                 Btn("Check for updates", shell.onCheckNow, ghost = true, small = true, tag = "about.check")
                 Btn("Open data folder", { shell.onOpenDataFolder?.invoke() }, ghost = true, small = true, enabled = shell.onOpenDataFolder != null)
                 Btn("Licenses", { shell.onLicenses?.invoke() }, ghost = true, small = true, enabled = shell.onLicenses != null)
+                // the phone's About: credits, licenses, the privacy policy and the end user agreement
+                Btn("About Dead Drop Finance", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.About) }, ghost = true, small = true, enabled = model.budget != null, tag = "settings.about")
             }
         }
     }
@@ -587,3 +616,42 @@ fun SettingsScreen(model: AppModel, shell: Shell) {
 /** "EUR (Euro)": the code and its English name. */
 fun currencyLabel(code: String): String =
     net.darkrelay.deaddropfinance.domain.Currencies.all().firstOrNull { it.code == code }?.let { "${it.code} (${it.name})" } ?: code
+
+/**
+ * The phone's More settings in the program's Settings (0.14.0): Rules and Approve rule matches automatically, the bill
+ * reminders and autopay warnings (Windows notifications), and the full Import CSV and Import setup. The same settings the phone's screens keep
+ * (ProgramAppSettings); Rules and Import setup open the phone's screens.
+ */
+@Composable
+private fun PhoneSettingsSections(model: AppModel, shell: Shell) {
+    val ps = shell.settings?.let { ProgramAppSettings(it) } ?: return
+    var autoApprove by remember { mutableStateOf(ps.autoApprove) }
+    var bills by remember { mutableStateOf(ps.alertBills) }
+    var autopay by remember { mutableStateOf(ps.alertAutopay) }
+    val open = model.budget != null
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Panel("Rules", "Suggest envelopes for new transactions, by payee.", Modifier.weight(1f).testTag("settings.rulesPanel")) {
+            Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("Rules...", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Rules) }, ghost = true, small = true, enabled = open, tag = "settings.rules")
+            }
+            ToggleRow(
+                "Approve rule matches automatically",
+                "Off: rule matches wait in To sort for one click. On: they're sorted as they arrive and listed under Recently sorted. Rules set to Always ask still wait.",
+                autoApprove, "setting.autoApprove",
+            ) { autoApprove = it; ps.autoApprove = it }
+        }
+        // the phone's full CSV import (column mapping, preview, duplicates) and Import setup; the account tabs keep the quick import
+        Panel("Import", "Bring transactions or a whole setup in from a file.", Modifier.weight(1f).testTag("settings.importPanel")) {
+            Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Btn("Import CSV...", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Import) }, ghost = true, small = true, enabled = open, tag = "settings.importCsv")
+                Btn("Import setup...", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.SetupImport) }, ghost = true, small = true, enabled = open, tag = "settings.importSetup")
+            }
+            T("Import CSV: a bank or payment app export, with its columns mapped, a preview and duplicates found. Import setup: envelopes, bills, rules and settings from a JSON file.", 11.5.sp, C.Dim2)
+        }
+        Panel("Alerts", "Windows notifications, silent.", Modifier.weight(1f).testTag("settings.alertsPanel")) {
+            if (!shell.notices.allowed()) T("Notifications are off for this program in Windows' settings.", 12.sp, C.Warn, modifier = Modifier.padding(bottom = 6.dp))
+            ToggleRow("Bill reminders", "For the bills (and debt payments) you turn a reminder on for. Each bill's reminder is off until you do.", bills, "setting.alertBills") { bills = it; ps.alertBills = it }
+            ToggleRow("Autopay warnings", "When an autopay is due before payday and its envelope is short.", autopay, "setting.alertAutopay") { autopay = it; ps.alertAutopay = it }
+        }
+    }
+}

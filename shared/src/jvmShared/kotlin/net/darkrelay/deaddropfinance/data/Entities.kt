@@ -353,9 +353,9 @@ data class SubscriptionEntity(
 enum class ParkedStatus { WAITING, BOUGHT, DROPPED }
 
 /**
- * A purchase parked to think over (FEATURES.md, Parked buys). It waits until [readyAt] (epoch millis), then the app
- * says whether Rollover covers it. Once bought, [envelopeId] is where its money comes from, and its real charge is
- * sorted there when it comes in ([transactionId]).
+ * Parked buys' rows. The feature was removed in 1.8.1 (program 0.14.0): this entity is kept only so the database
+ * schema doesn't change and no migration runs. Nothing makes, shows or changes these rows any more; rows made before
+ * stay as they are, and travel unchanged with the rest of the budget in sync and backups (Purge and Erase clear them).
  */
 @Entity(tableName = "parked_buy")
 data class ParkedBuyEntity(

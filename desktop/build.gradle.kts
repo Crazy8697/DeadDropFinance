@@ -50,6 +50,13 @@ val importDoc = tasks.register<Sync>("importDoc") {
     into(layout.buildDirectory.dir("generated/import-doc/docs"))
 }
 
+// The phone's English text recognition model (app/src/main/assets/tessdata), the same file, in the installed program's
+// resources folder (0.14.0): receipt text recognition reads it from there. Nothing is downloaded at run time.
+val ocrModel = tasks.register<Sync>("ocrModel") {
+    from(rootProject.file("app/src/main/assets/tessdata")) { include("eng.traineddata"); into("common/tessdata") }
+    into(layout.buildDirectory.dir("generated/app-resources"))
+}
+
 // The shared module's in-memory Dead Drop server (its unit tests' FakeServer), copied unchanged into the desktop tests
 // only, so the program's sync is tested against the same server rules with no network.
 val fakeServerSrc = tasks.register<Sync>("fakeServerSrc") {
@@ -74,6 +81,14 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.19.1")
     // the Add a phone QR code (0.10.0): ZXing's core library, which makes the code's modules; the program draws them
     implementation("com.google.zxing:core:3.5.3")
+    // Receipt text recognition (0.14.0): Tesseract OCR 5.5.3 and Leptonica 1.87.0 built for 64-bit Windows, in Tess4J's
+    // and Lept4J's jars (JNA wrappers; LoadLibs unpacks the two DLLs with commons-io). Their other dependencies (PDF
+    // tools, image plugins, JBoss VFS) aren't used and don't ship. The model is the phone's (ocrModel).
+    implementation("net.sourceforge.tess4j:tess4j:5.20.0") { isTransitive = false }
+    implementation("net.sourceforge.lept4j:lept4j:1.24.0") { isTransitive = false }
+    implementation("commons-io:commons-io:2.22.0")
+    // PDF receipts (0.14.0): Apache PDFBox draws a PDF's pages, as Android's PdfRenderer does on the phone
+    implementation("org.apache.pdfbox:pdfbox:3.0.8")
     testImplementation(kotlin("test"))
     testImplementation(compose.desktop.uiTestJUnit4)
     testImplementation("junit:junit:4.13.2")
@@ -83,6 +98,9 @@ dependencies {
 
 tasks.test {
     useJUnit()
+    dependsOn(ocrModel)
+    // the receipt reader finds the model where the installed program has it (compose.application.resources.dir)
+    systemProperty("ddf.ocrResources", ocrModel.get().destinationDir.resolve("common").path)
     // screenshots of every screen into a folder, only when asked for: -Pddf.screens=<folder>
     systemProperty("ddf.screens", providers.gradleProperty("ddf.screens").getOrElse(""))
     systemProperty("ddf.screensRound", providers.gradleProperty("ddf.screensRound").getOrElse(""))
@@ -101,6 +119,8 @@ compose.desktop {
             licenseFile.set(rootProject.file("LICENSE"))
             // java.sql: the JDBC driver behind the encrypted budget (0.7.0)
             modules("java.desktop", "java.sql", "jdk.unsupported")
+            // the receipt text model (0.14.0), in the installed program's app resources folder
+            appResourcesRootDir.set(layout.buildDirectory.dir("generated/app-resources"))
             windows {
                 iconFile.set(project.file("icons/deaddropfinance.ico"))
                 // the launcher never opens a console window
@@ -117,6 +137,8 @@ val licenseGate = tasks.register("licenseGate") {
     description = "Every shipped desktop component is covered in desktop/THIRD-PARTY-NOTICES.md."
     val notices = project.file("THIRD-PARTY-NOTICES.md")
     val root = configurations.named("runtimeClasspath").flatMap { it.incoming.resolutionResult.rootComponent }
+    val ocrDir = ocrModel.get().destinationDir.resolve("common")
+    dependsOn(ocrModel)
     inputs.file(notices)
     doLast {
         val covered = Regex("`([A-Za-z0-9_.\\-]+:[A-Za-z0-9_.\\-]+)`").findAll(notices.readText())
@@ -129,12 +151,17 @@ val licenseGate = tasks.register("licenseGate") {
             c.dependencies.filterIsInstance<ResolvedDependencyResult>().forEach { walk(it.selected) }
         }
         walk(root.get())
+        // the files the program carries outside its jars (app resources: the text recognition model) are named too
+        val bundled = ocrDir.walkTopDown().filter { it.isFile }.map { it.relativeTo(ocrDir).invariantSeparatorsPath }.toSet()
+        val missingFiles = bundled.filter { "`$it`" !in notices.readText() }
+        if (missingFiles.isNotEmpty()) throw GradleException("License check: these bundled files are not in desktop/THIRD-PARTY-NOTICES.md: " +
+            missingFiles.joinToString() + ". Add each one with its license and upstream URL.")
         val missing = shipped - covered
         if (missing.isNotEmpty()) {
             throw GradleException("License check: these shipped components are not in desktop/THIRD-PARTY-NOTICES.md: " +
                 missing.joinToString() + ". Add each one with its version, license and upstream URL.")
         }
-        logger.lifecycle("License check: all ${shipped.size} shipped desktop components are covered in desktop/THIRD-PARTY-NOTICES.md")
+        logger.lifecycle("License check: all ${shipped.size} shipped desktop components and ${bundled.size} bundled files are covered in desktop/THIRD-PARTY-NOTICES.md")
     }
 }
 
@@ -156,3 +183,4 @@ tasks.register("shippedComponents") {
 }
 
 tasks.matching { it.name == "createDistributable" }.configureEach { dependsOn(licenseGate) }
+tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn(ocrModel) }

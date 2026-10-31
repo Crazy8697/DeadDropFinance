@@ -21,6 +21,22 @@ the original Zentus driver's BSD-style license: Copyright (c) 2006, David Crawsh
 (Copyright (c) 2019-2026 Ulrich Telle, MIT) and SQLite (public domain), and JSON in Java (org.json, public domain).
 It includes JNA (Java Native Access), used under the Apache License, Version 2.0, for Windows DPAPI.
 
+It reads receipts with Tesseract OCR (Apache-2.0) and Leptonica (with libjpeg, libpng, zlib, LibTIFF, OpenJPEG and
+libwebp), through Tess4J and Lept4J (Apache-2.0); this software is based in part on the work of the Independent JPEG
+Group. It draws PDF receipts with Apache PDFBox, which carries these notices:
+
+   Apache PDFBox. Copyright 2002-2026 The Apache Software Foundation. Based on source code contributed to the original
+   PDFBox project, Copyright (c) 2002-2007, www.pdfbox.org. Includes the Adobe Glyph List (Copyright 1997, 1998, 2002,
+   2007, 2010 Adobe Systems Incorporated), the Zapf Dingbats Glyph List (Copyright 2002, 2010 Adobe Systems
+   Incorporated), the Bidi Mirroring Glyph Property (Copyright 1991-2015 Unicode, Inc.), parts of TwelveMonkeys ImageIO
+   (Copyright 2008-2016 Harald Kuhr) and the CMYK ICC-profile CGATS001Compat-v2-micro.icc (CC0, Clinton Ingram).
+   Apache PDFBox io. Copyright 2002-2026 The Apache Software Foundation.
+   Apache FontBox. Copyright 2008-2026 The Apache Software Foundation. Based on source code contributed to the original
+   FontBox project, Copyright (c) 2006-2007, www.fontbox.org. Includes the Script Property (Copyright 2017 Unicode, Inc.).
+   Apache Commons IO. Copyright 2002-2026 The Apache Software Foundation.
+   Apache Commons Logging. Copyright 2001-2026 The Apache Software Foundation.
+   These products include software developed at The Apache Software Foundation (https://www.apache.org/).
+
 It includes the kotlinx.coroutines and kotlinx.serialization libraries, which carry these notices under section 4(d)
 of the Apache License, Version 2.0:
 

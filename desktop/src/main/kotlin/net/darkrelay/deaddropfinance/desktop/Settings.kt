@@ -35,6 +35,9 @@ class Settings(val dir: File) {
     /** A set of short keys (no commas), as one comma-separated value. */
     fun keys(key: String) = setting(key, emptySet<String>(), { v -> v.split(',').map { it.trim() }.filter { it.isNotEmpty() }.toSet() }, { it.joinToString(",") })
 
+    /** Hide screen (0.14.0): the window is kept out of screen captures. Off by default, as on the phone; Purge resets it. */
+    var hideScreen: Boolean by flag(KEY_HIDE_SCREEN, false)
+
     /** The version Skip this version was used on (0.13.0). */
     var skippedVersion: String by text(KEY_SKIPPED, "")
 
@@ -75,6 +78,7 @@ class Settings(val dir: File) {
     companion object {
         const val KEY_CHECK_UPDATES = "checkUpdatesAtStartup"
         const val KEY_SKIPPED = "skippedVersion"
+        const val KEY_HIDE_SCREEN = "ui.hideScreen"
 
         /** %APPDATA%\DeadDropFinance (the user's roaming profile), or ~/.deaddropfinance off Windows. */
         fun defaultDir(): File {

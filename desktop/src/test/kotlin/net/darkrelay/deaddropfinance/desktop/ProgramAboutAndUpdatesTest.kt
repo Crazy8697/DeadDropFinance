@@ -18,10 +18,13 @@ class ProgramAboutTest : ProgramScreensBase() {
 
     @Test fun aboutHasTheSiteAndSupportLinksAndThePrivacyPolicy() {
         show()
-        click("nav.MORE")
+        click("nav.SETTINGS")
         assertTrue(!shows("Show amounts on the lock screen"), "the phone's lock screen setting isn't shown")
-        clickText("credits, licenses")
+        click("settings.about")
         until("darkrelay.net")
+        // the program's own credits (0.14.0): its engines, not the phone's Android libraries
+        assertTrue(shows("Tesseract OCR through Tess4J") && shows("Apache PDFBox"), dump())
+        assertTrue(!shows("Tesseract4Android") && !shows("SQLCipher for Android"), dump())
         clickText("darkrelay.net", exact = true)
         assertTrue(opened.any { it.contains("darkrelay.net") }, opened.toString())
         clickText("Support DarkRelay")

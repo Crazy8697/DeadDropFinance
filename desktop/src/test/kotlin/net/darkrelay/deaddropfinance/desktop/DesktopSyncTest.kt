@@ -262,6 +262,32 @@ class DesktopSyncTest {
         assertEquals(ops, fake.ops.size, "no call to the server")
     }
 
+    /**
+     * 0.14.0: one sync indicator per screen, the program's: the header's pill and its Sync now, never the phone screens'
+     * own status line, and in Settings the Server section's Status line without a second Sync now.
+     */
+    @Test fun everyScreenShowsOneSyncIndicatorTheHeaders() {
+        val (_, d) = loggedIn()
+        until("synced") { d.server.status.state == SyncStatus.State.SYNCED }
+        compose.setContent { DesktopApp(d.model, Shell(run = { block -> runBlocking { block() } }, settings = Settings(tmp.newFolder("ui-settings")))) }
+        compose.waitForIdle()
+        fun count(t: String) = compose.onAllNodes(androidx.compose.ui.test.hasText(t), useUnmergedTree = true).fetchSemanticsNodes().size
+        fun tagged(t: String) = compose.onAllNodes(androidx.compose.ui.test.hasTestTag(t), useUnmergedTree = true).fetchSemanticsNodes().size
+        val screens = Screen.entries.map { s -> s.name to { d.model.phoneNav = null; d.model.go(s) } } +
+            listOf(net.darkrelay.deaddropfinance.ui.Nav.Home, net.darkrelay.deaddropfinance.ui.Nav.Envelopes, net.darkrelay.deaddropfinance.ui.Nav.Rules).map { n -> n.toString() to { d.model.openPhone(n) } }
+        for ((name, open) in screens) {
+            open()
+            compose.waitForIdle()
+            assertEquals(1, tagged("syncPill"), "$name: the header's pill")
+            assertEquals(1, count("Sync now"), "$name: one Sync now, the header's")
+        }
+        d.model.phoneNav = null
+        d.model.go(Screen.SETTINGS)
+        compose.waitForIdle()
+        assertEquals(1, tagged("server.status"), "the Server section keeps its Status line")
+        assertEquals(0, tagged("server.syncNow"))
+    }
+
     @Test fun theConfirmScreenWarnsAndCancelChangesNothing() {
         val (_, d) = loggedIn()
         until("synced") { d.server.status.state == SyncStatus.State.SYNCED }

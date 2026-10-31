@@ -215,7 +215,6 @@ private fun Connected(model: AppModel, server: ServerModel, shell: Shell) {
         last = true, tag = "server.status")
     s.message?.let { T(it, 12.sp, if (s.state == SyncStatus.State.ERROR) C.Bad else C.Dim, modifier = Modifier.padding(top = 6.dp)) }
     Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Btn("Sync now", { server.syncNow() }, ghost = true, small = true, tag = "server.syncNow")
         Btn("Add a phone", { model.dialog = Dialog.AddPhone }, small = true, tag = "server.addPhone")
         Btn("Change password", { model.dialog = Dialog.ChangePassword }, ghost = true, small = true, tag = "server.changePassword")
         Btn("Log out", { model.dialog = Dialog.Logout }, ghost = true, small = true, tag = "server.logout")

@@ -8,7 +8,7 @@ telemetry.
 ## Status
 
 Version 1.0.0 is the first full release. It does the whole job: accounts, envelopes, paydays, bills, transactions,
-receipt scanning, parked buys, backup and restore, and an in-app update.
+receipt scanning, backup and restore, and an in-app update.
 
 Bank transactions come in as CSV files you download from your bank and import. You can also enter things by hand
 or scan receipts. There is no bank connection (bank sync was removed in 1.3.0).

@@ -37,7 +37,9 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   removed in 1.5.0: `notif_app` stays (the schema doesn't change) but is emptied on the first start and never used.
 - Version 8 (0.11.0): adds the `parked_buy` table (parked buys: name, price, wait, when it's ready, bought,
   dropped, the envelope it's bought from and its matched charge; change-logged like the budget tables). No existing
-  table changes. `MigrationTest` checks 7 to 8 and 1 to the latest.
+  table changes. `MigrationTest` checks 7 to 8 and 1 to the latest. Parked buys were removed in 1.8.1 (program
+  0.14.0): `parked_buy` stays (the schema doesn't change and no migration runs), nothing makes, shows or changes its
+  rows, and rows made before stay as they are, travelling unchanged in sync and backups (Purge and Erase clear them).
 - Version 9 (1.1.0): categories. A new `category` table (name, the envelope that claims it, order; change-logged like
   the budget tables), a nullable `category_id` on `txn_line` (a purchase's category, per line) and on `rule`, and
   `is_unplanned` on `envelope` (default 0; marks the built-in Unplanned envelope, which may be one the user already

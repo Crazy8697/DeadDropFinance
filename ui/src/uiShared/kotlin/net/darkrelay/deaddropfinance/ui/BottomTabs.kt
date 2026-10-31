@@ -50,7 +50,7 @@ object TabIcons {
         line { moveTo(15.5f, 3.5f); lineTo(15.5f, 7.5f) }
     }
 
-    // Home's cards use three more, from the same mockup: a chevron, the To sort inbox, the parked buys hourglass
+    // Home's cards use two more, from the same mockup: a chevron and the To sort inbox
 
     val Chevron = icon("chevron") { line { moveTo(9f, 6f); lineTo(15f, 12f); lineTo(9f, 18f) } }
 
@@ -64,13 +64,6 @@ object TabIcons {
         line { moveTo(13.5f, 4f); lineTo(20f, 4f); lineTo(20f, 10.5f); lineTo(13.5f, 10.5f); close() }
         line { moveTo(4f, 13.5f); lineTo(10.5f, 13.5f); lineTo(10.5f, 20f); lineTo(4f, 20f); close() }
         line { moveTo(13.5f, 13.5f); lineTo(20f, 13.5f); lineTo(20f, 20f); lineTo(13.5f, 20f); close() }
-    }
-
-    val Hourglass = icon("hourglass") {
-        line { moveTo(7f, 3f); lineTo(17f, 3f) }
-        line { moveTo(7f, 21f); lineTo(17f, 21f) }
-        line { moveTo(8f, 3f); curveTo(8f, 9f, 16f, 9f, 16f, 12f); curveTo(16f, 15f, 8f, 15f, 8f, 21f) }
-        line { moveTo(16f, 3f); curveTo(16f, 9f, 8f, 9f, 8f, 12f); curveTo(8f, 15f, 16f, 15f, 16f, 21f) }
     }
 
     val More = icon("more") {

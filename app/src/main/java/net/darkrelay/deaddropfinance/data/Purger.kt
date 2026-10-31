@@ -7,7 +7,7 @@ import java.io.File
 
 /**
  * Purge data (FEATURES.md): back to a fresh install's state. Every budget row goes (accounts, transactions, envelopes,
- * bills, paydays, rules, subscriptions, receipts, parked buys, the change log), receipt photos go, and every setting
+ * bills, paydays, rules, subscriptions, receipts, the change log; every other table too), receipt photos go, and every setting
  * goes back to its default. Unlike Erase everything, the database stays open and its key stays.
  */
 class Purger(

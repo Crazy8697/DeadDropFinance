@@ -90,7 +90,7 @@ class SetupImportTest {
             { "match": "sample corner shop", "splits": [ { "envelope": "Groceries", "share": 3 }, { "envelope": "Fuel", "share": 1 } ], "alwaysAsk": true }
           ],
           "subscriptions": [ { "name": "Sample Stream", "payees": [ "sample stream" ], "bill": "Sample Car Cover" } ],
-          "settings": { "autoApprove": true, "alerts": { "spending": false }, "parkingLotWait": "1 week" }
+          "settings": { "autoApprove": true, "alerts": { "spending": false } }
         }
     """.trimIndent()
 
@@ -145,9 +145,8 @@ class SetupImportTest {
         assertEquals("Sample Stream", sub.name)
         assertEquals(SubscriptionStatus.CONFIRMED, sub.status)
         assertEquals(car.id, sub.billId)
-        assertEquals(7, ParkedBuys(store, a, { day }).defaultWait())
         // "alerts": { "spending" } was a spend alert of the notification reader (removed in 1.5.0): read, then ignored
-        assertEquals(listOf("autoApprove", "parkingLotWait"), plan.settings!!.named())
+        assertEquals(listOf("autoApprove"), plan.settings!!.named())
         // transactions untouched
         assertEquals(txBefore, b().transactions.map { it.id to it.amount })
         assertEquals(6, p.addCount)

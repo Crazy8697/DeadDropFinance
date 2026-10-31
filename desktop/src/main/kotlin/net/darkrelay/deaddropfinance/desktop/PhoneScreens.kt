@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -50,7 +51,7 @@ import net.darkrelay.deaddropfinance.ui.budgetFlow
  * phone's. What they need from the device comes from [ProgramPlatform] and [ProgramAppSettings].
  */
 @Composable
-fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit = {}) {
+fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit = {}, sidebar: Boolean = false) {
     val ok = model.engine?.opened as? DesktopDatabase.Opened.Ok ?: return
     val platform = remember(ok) { ProgramPlatform(model, shell, ok.file.parentFile) }
     val settings = remember(ok) { ProgramAppSettings(shell.settings ?: Settings(ok.file.parentFile)) }
@@ -59,12 +60,13 @@ fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit =
     DdfTheme {
         CompositionLocalProvider(LocalDeviceWords provides PROGRAM_WORDS) {
             Box(Modifier.fillMaxSize().background(net.darkrelay.deaddropfinance.ui.DdfColors.Background).testTag("phone.${start.javaClass.simpleName}")) {
-                Box(Modifier.widthIn(max = 760.dp).fillMaxHeight().align(Alignment.TopCenter)) {
+                // 0.14.0: across the window, with the program's margins, not a phone's narrow column
+                Box(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
                     // keyed by where it opens: a new start is a new set of screens
                     androidx.compose.runtime.key(start, model.phoneGeneration) {
                         AppRoot(
                             ok.store, settings, platform, startupUpdateCheck = false, sync = model.server?.sync,
-                            host = ProgramHost(start, onExit = onExit),
+                            host = ProgramHost(start, onExit = onExit, sidebar = sidebar),
                         )
                     }
                 }
@@ -91,6 +93,12 @@ class ProgramAppSettings(private val s: Settings) : AppSettings {
     override var reminded by s.keys("ui.reminded")
 }
 
+/** The program's receipt photos in [dir]\receipts, their key in secrets.bin under [protector] (DPAPI). */
+fun programReceiptImages(dir: File, protector: KeyProtector = Dpapi): ReceiptImages {
+    val secrets = SecretStore(File(dir, "secrets.bin"), ProtectorWrapper(protector))
+    return ReceiptImages(File(dir, "receipts"), { ReceiptImages.keyFrom(secrets) })
+}
+
 /** The receipt photo key, protected for this Windows user (DPAPI), as the budget's own key is. */
 class ProtectorWrapper(private val p: KeyProtector = Dpapi) : KeyWrapper {
     override fun wrap(plain: ByteArray) = p.protect(plain)
@@ -104,8 +112,8 @@ class ProtectorWrapper(private val p: KeyProtector = Dpapi) : KeyWrapper {
  */
 class ProgramPlatform(private val model: AppModel, private val shell: Shell, private val dir: File) : Platform {
 
-    private val secrets by lazy { SecretStore(File(dir, "secrets.bin"), ProtectorWrapper(shell.keyProtector)) }
-    val receiptImages by lazy { ReceiptImages(File(dir, "receipts"), { ReceiptImages.keyFrom(secrets) }) }
+    /** The model's (backups carry them, 0.14.0), or this folder's own under the Shell's key protection (screen tests). */
+    val receiptImages by lazy { model.receiptImages ?: programReceiptImages(dir, shell.keyProtector) }
 
     override fun openUrl(url: String) = shell.onOpenPage(url)
 
@@ -144,12 +152,13 @@ class ProgramPlatform(private val model: AppModel, private val shell: Shell, pri
 
     override val more: MoreState
         get() = MoreState(
-            lockEnabled = false, lockAvailable = false, timeoutMinutes = 5, hideScreen = false,
+            lockEnabled = false, lockAvailable = false, timeoutMinutes = 5, hideScreen = shell.hideScreen,
             checkAtStartup = shell.checkAtStartup, checking = false, updateMessage = null, version = BuildInfo.VERSION,
         )
     override fun setLock(on: Boolean) {}
     override fun setTimeout(minutes: Int) {}
-    override fun setHide(on: Boolean) {}
+    // Hide screen (0.14.0): the program's window, from a setup file or the program's Settings, Privacy
+    override fun setHide(on: Boolean) = shell.onHideScreen(on)
     override fun setCheckAtStartup(on: Boolean) = shell.onCheckAtStartup(on)
 
     override fun notificationsAllowed() = shell.notices.allowed()
@@ -160,14 +169,12 @@ class ProgramPlatform(private val model: AppModel, private val shell: Shell, pri
     override fun pickReceiptFile(done: (File?) -> Unit) = done(shell.pickReceipt())
 
     /**
-     * Keeps the picked image as the receipt's next page, encrypted. The program has no text recognition (the phone's
-     * reader is Android only), so nothing is read from it: the form opens for the store, total and items to be typed.
+     * Reads the picked image or PDF into the receipt's next pages, kept encrypted (0.14.0): Tesseract on this computer,
+     * as the phone reads its photos (ProgramReceiptScanner). If the reader can't run, the pages are kept unread and the
+     * form opens for the store, total and items to be typed.
      */
     override suspend fun scanReceipt(uri: File, receiptId: String, firstPage: Int): List<List<ReceiptParser.Line>> = withContext(Dispatchers.IO) {
-        val bytes = uri.readBytes()
-        javax.imageio.ImageIO.read(bytes.inputStream()) ?: throw java.io.IOException("not an image")
-        receiptImages.write(receiptId, firstPage, bytes)
-        listOf(emptyList())
+        ProgramReceiptScanner(receiptImages) { TessReader(TessReader.tessdata() ?: error("no text recognition model")) }.scan(uri, receiptId, firstPage)
     }
 
     override suspend fun receiptPage(receiptId: String, page: Int): ImageBitmap? = withContext(Dispatchers.IO) {

@@ -423,6 +423,36 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         }
     }
 
+    /**
+     * Edit a move (1.8.1, program 0.14.0): its date, where it came from and went, and its amount, as one change to the
+     * move (synced as an edit, as a transaction's is). Only a move made by hand can be edited ([MoveRules.editable]). As
+     * Move money, it doesn't stop at what the source holds: an envelope moved below zero shows negative, and Ready to
+     * assign below zero shows as over-assigned. An edit out of Ready to Assign is an Assign; back to an envelope, a Move.
+     */
+    suspend fun editMove(id: String, fromEnvelopeId: String?, toEnvelopeId: String?, amount: Long, date: LocalDate) {
+        if (amount <= 0) throw BudgetRuleException("Enter an amount.")
+        if (fromEnvelopeId == toEnvelopeId) throw BudgetRuleException("Choose two different places.")
+        store.write {
+            val old = dao.move(id)?.takeIf { !it.deleted } ?: throw BudgetRuleException("That move is gone.")
+            if (!MoveRules.editable(old)) throw BudgetRuleException(MoveRules.NOT_EDITABLE)
+            val kind = when {
+                old.kind == MoveKind.COVER -> MoveKind.COVER
+                fromEnvelopeId == null -> MoveKind.ASSIGN
+                else -> MoveKind.MOVE
+            }
+            put(old, old.copy(fromEnvelopeId = fromEnvelopeId, toEnvelopeId = toEnvelopeId, amount = amount, date = date, kind = kind, updatedAt = now))
+        }
+    }
+
+    /** Delete a move made by hand, as a transaction is deleted: a soft delete (a tombstone, synced like any change). */
+    suspend fun deleteMove(id: String) {
+        store.write {
+            val old = dao.move(id)?.takeIf { !it.deleted } ?: return@write
+            if (!MoveRules.editable(old)) throw BudgetRuleException(MoveRules.NOT_EDITABLE)
+            put(old, old.copy(deleted = true, updatedAt = now))
+        }
+    }
+
     /** Assign from Ready to Assign, at most what's there. */
     suspend fun assign(envelopeId: String, amount: Long) {
         val rta = snapshot().readyToAssign

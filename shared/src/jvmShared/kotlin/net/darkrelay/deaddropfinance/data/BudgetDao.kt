@@ -81,14 +81,9 @@ interface BudgetDao {
     @Query("SELECT * FROM subscription WHERE id = :id")
     suspend fun subscription(id: String): SubscriptionEntity?
 
-    @Query("SELECT * FROM parked_buy WHERE deleted = 0 ORDER BY parked_at")
-    fun parkedBuys(): Flow<List<ParkedBuyEntity>>
-
+    /** Parked buys' table, unused since 1.8.1 (ParkedBuyEntity): only sync's whole-budget copy reads it. */
     @Query("SELECT * FROM parked_buy WHERE deleted = 0 ORDER BY parked_at")
     suspend fun parkedBuysNow(): List<ParkedBuyEntity>
-
-    @Query("SELECT * FROM parked_buy WHERE id = :id")
-    suspend fun parkedBuy(id: String): ParkedBuyEntity?
 
     /** The bank notification reader's apps (reader removed in 1.5.0): only counted and emptied by the upgrade cleanup. */
     @Query("SELECT COUNT(*) FROM notif_app")

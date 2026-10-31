@@ -447,7 +447,7 @@ class ServerSync(
     }
 
     private fun client(): ServerClient {
-        val secret = vault.load() ?: throw ServerException(ServerException.Kind.REVOKED, "This phone's server key is gone. Log in again.")
+        val secret = vault.load() ?: throw ServerException(ServerException.Kind.REVOKED, "This ${if (kind == "desktop") "computer" else "phone"}'s server key is gone. Log in again.")
         return ServerClient(transportFor(prefs.serverUrl!!), prefs.serverKey!!.unhex(), Box.KeyPair(Box.publicKeyOf(secret), secret), prefs.deviceId, clock)
     }
 

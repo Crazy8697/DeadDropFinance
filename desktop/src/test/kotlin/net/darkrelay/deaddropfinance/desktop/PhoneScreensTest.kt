@@ -12,6 +12,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import kotlin.test.assertNull
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -41,21 +42,33 @@ class PhoneScreensTest {
     private fun shows(t: String) = compose.onAllNodesWithText(t, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     private fun until(t: String) = compose.waitUntil(5_000) { shows(t) }
 
-    @Test fun eachSidebarItemShowsThePhonesScreen() {
+    /** 0.14.0: one sidebar, in this order; Home and More are gone, their parts on Budget, Receipts and Settings. */
+    @Test fun theSidebarHasExactlyTheNineItemsAndEachShowsItsScreen() {
         show()
-        click("nav.HOME")
-        until("Safe to spend")
+        val navs = compose.onAllNodes(androidx.compose.ui.test.SemanticsMatcher("nav item") { n ->
+            n.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.TestTag) { null }?.startsWith("nav.") == true
+        }, useUnmergedTree = true).fetchSemanticsNodes().sortedBy { it.boundsInRoot.top }.map { it.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag] }
+        assertEquals(listOf("BUDGET", "ACTIVITY", "ACCOUNTS", "RECEIPTS", "BILLS", "CATEGORIES", "REPORTS", "SYNC", "SETTINGS").map { "nav.$it" }, navs)
+        tag("nav.HOME").assertDoesNotExist()
+        tag("nav.MORE").assertDoesNotExist()
+        // Receipts opens from the sidebar: the phone's list, its name only in the top bar (no heading or Back of its own)
+        click("nav.RECEIPTS")
+        until("Scan")
+        assertEquals(2, compose.onAllNodes(androidx.compose.ui.test.hasText("Receipts"), useUnmergedTree = true).fetchSemanticsNodes().size, "the sidebar and the top bar")
+        assertTrue(!shows("Back"))
         click("nav.BILLS")
-        until("Bills")
+        tag("card.nextPayday").assertExists()
         click("nav.CATEGORIES")
-        until("Categories")
-        click("nav.MORE")
-        until("Import CSV")
-        // the program's own: no app lock, no phone updates, no phone backup or server rows
+        tag("card.categoryTotal").assertExists()
+        // what More held: in Settings, as their own sections
+        click("nav.SETTINGS")
+        for (t in listOf("settings.rules", "setting.autoApprove", "settings.importCsv", "settings.importSetup", "setting.alertBills", "setting.alertAutopay",
+            "settings.setup", "settings.purge", "settings.erase", "settings.about", "setting.hideScreen")) tag(t).assertExists()
+        // the program's own: no app lock, no phone updates, nothing said twice
         assertTrue(!shows("App lock"))
-        assertTrue(!shows("Check for updates at startup"))
-        assertTrue(!shows("Backup and restore"))
-        assertTrue(shows("from this computer"))
+        assertTrue(!shows("Check for updates at startup") || compose.onAllNodes(androidx.compose.ui.test.hasText("Check for updates at startup"), useUnmergedTree = true).fetchSemanticsNodes().size == 1)
+        assertEquals(1, compose.onAllNodes(androidx.compose.ui.test.hasText("Budget start date"), useUnmergedTree = true).fetchSemanticsNodes().size, "budget start is in Settings once")
+        assertEquals(1, compose.onAllNodes(androidx.compose.ui.test.hasText("Currency"), useUnmergedTree = true).fetchSemanticsNodes().size, "currency is in Settings once")
     }
 
     @Test fun programScreensOpenThePhonesAndBackReturns() {

@@ -42,9 +42,6 @@ import net.darkrelay.deaddropfinance.data.BillEntity
 import net.darkrelay.deaddropfinance.data.BillPaymentEntity
 import net.darkrelay.deaddropfinance.data.BillRecurrence
 import net.darkrelay.deaddropfinance.data.PaymentMethod
-import net.darkrelay.deaddropfinance.data.ParkedBuyEntity
-import net.darkrelay.deaddropfinance.data.ParkedStatus
-import net.darkrelay.deaddropfinance.domain.ParkedBuys
 import net.darkrelay.deaddropfinance.data.SubscriptionEntity
 import net.darkrelay.deaddropfinance.data.SubscriptionStatus
 import net.darkrelay.deaddropfinance.domain.Bills
@@ -138,13 +135,13 @@ class ScreenshotTest {
 
     private companion object { const val TALL = "w400dp-h1500dp-xhdpi" }
 
-    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
-    @Test fun homeUpdateDownloading() = shot("02b-home-update-downloading") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true, percent = 42), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun home() = shot("01-home") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}) }
+    @Test fun homeWithUpdate() = shot("02-home-update-bar") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}) }
+    @Test fun homeUpdateDownloading() = shot("02b-home-update-downloading") { HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true, percent = 42), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}) }
     @Test fun homeUpdateNeedsPermission() = shot("02c-home-update-needs-permission") {
-        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(needsPermission = true, message = "Allow installs, then come back here to continue."), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {})
+        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(needsPermission = true, message = "Allow installs, then come back here to continue."), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {})
     }
-    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeEmpty() = shot("03-home-empty") { HomeScreen(empty, null, {}, {}, {}, {}, {}, {}) }
     @Test fun envelopes() = shot("04-envelopes") { EnvelopesScreen(budget, {}, {}, {}, {}) }
     @Test fun envelopesEmpty() = shot("05-envelopes-empty") { EnvelopesScreen(empty, {}, {}, {}, {}) }
     @Test fun envelopeDetailFill() = shot("06-envelope-detail") { EnvelopeDetailScreen(budget.envelopes[2], budget, today, {}, {}, {}, {}, {}, {}, {}) }
@@ -217,14 +214,14 @@ class ScreenshotTest {
             FinishPage(listOf("App lock is on.", "Import a CSV or add transactions any time.", "3 account(s), 7 envelope(s) including Rollover.", "Rerun setup from More, Setup."))
         }
     }
-    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeFinishSetup() = shot("46-home-finish-setup") { HomeScreen(budget, { FinishSetupCard({}, {}) }, {}, {}, {}, {}, {}, {}) }
 
     // ---- 0.7.2 ---------------------------------------------------------------------------------------------------
     @Test fun bottomTabsNarrow() = shot("50-bottom-tabs-narrow") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Home) {} } }
     @Test @Config(qualifiers = "w600dp-h400dp-xhdpi") fun bottomTabsWide() = shot("51-bottom-tabs-wide") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Activity) {} } }
     @Test @Config(qualifiers = "w320dp-h500dp-xhdpi") fun bottomTabsSmallest() = shot("52-bottom-tabs-320dp") { Column { Box(Modifier.weight(1f)) {}; BottomTabs(Nav.Envelopes) {} } }
     @Test fun homeMobileDataQuestion() = shot("02d-home-mobile-data-question") {
-        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {}, 0, 0, {})
+        HomeScreen(budget, { UpdateBar(release, UpdateInstallState(working = true), {}, {}, {}, {}, {}) }, {}, {}, {}, {}, {}, {})
         MobileDataDialog(41_165_299L, {}, {})
     }
     private val savingsHeld = acct("sav", "Rainy Savings", AccountType.BANK, 300_00).copy(heldAmount = 25_00)
@@ -239,7 +236,7 @@ class ScreenshotTest {
     @Test fun accountsList() = shot("58-accounts-track-only-and-archived") {
         AccountsScreen(Budget(budget2.accounts + acct("old", "Old Savings", AccountType.BANK, 80_00).copy(archived = true), budget.envelopes, budget.transactions, budget.lines, budget.moves), {}, {}, {})
     }
-    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeNoCard() = shot("59-home-after-setup") { HomeScreen(budget2, null, {}, {}, {}, {}, {}, {}) }
 
     // ---- 0.7.3 ---------------------------------------------------------------------------------------------------
     private fun epochOf(d: java.time.LocalDate) = d.atTime(9, 0).toEpochSecond(java.time.ZoneOffset.UTC)
@@ -463,7 +460,7 @@ class ScreenshotTest {
     @Test fun bottomBarWithBills() = shot("96-bottom-bar-bills") { Box(Modifier.fillMaxSize()) { Column(Modifier.align(androidx.compose.ui.Alignment.BottomCenter)) { BottomTabs(Nav.Bills) {} } } }
     @Test @Config(qualifiers = TALL) fun homeWithForecastAndChecklist() = shot("97-home-forecast-checklist") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!)
-        HomeScreen(budget10, null, {}, {}, {}, {}, {}, {}, 0, 0, {}, forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) })
+        HomeScreen(budget10, null, {}, {}, {}, {}, {}, {}, forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) })
     }
     @Test fun homeChecklistCollapsed() = shot("98-checklist-all-paid") {
         val list = Bills.checklist(budget10.bills, budget10.billPayments, budget10.paydayDates.last(), pred10.next!!).map { c -> c.copy(payments = c.payments + pay(c.bill.id, c.remaining, c.due, PaymentMethod.HAND)) }
@@ -497,39 +494,18 @@ class ScreenshotTest {
         RuleEditScreen(RuleEntity(id = "rb", matchText = "sample landlord", splits = "rent:1", billId = "b1", createdAt = 0, updatedAt = 0), null, budget10, emptyList(), null, {}, {}, {})
     }
 
-    // ---- Stage 11: Safe to Spend Home, parked buys -----------------------------------------------------------------
+    // ---- Stage 11: Safe to Spend Home ------------------------------------------------------------------------------
     private val budget11: Budget get() = budget10.let { b -> Budget(b.accounts, b.envelopes, b.transactions, b.lines, b.moves + move(null, "roll", 140_00), b.bills, b.billPayments) }
-    private val nowMs = today.atTime(18, 0).toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-    private fun parkedAt(id: String, name: String, amount: Long, daysAgo: Long, wait: Int, status: ParkedStatus = ParkedStatus.WAITING, env: String? = null): ParkedBuyEntity {
-        val at = nowMs - daysAgo * ParkedBuys.DAY_MS - 3 * 60 * 60 * 1000 + 40 * 60 * 1000
-        return ParkedBuyEntity(id = id, name = name, amount = amount, waitDays = wait, parkedAt = at, readyAt = at + wait * ParkedBuys.DAY_MS, status = status, envelopeId = env, boughtOn = if (env != null) today else null, createdAt = 0, updatedAt = 0)
-    }
-    private val parked11 = listOf(
-        parkedAt("pk1", "Sample Soldering Station", 189_99, 4, 2),
-        parkedAt("pk2", "Sample Drill Bits", 39_99, 3, 1),
-        parkedAt("pk3", "Sample Game", 29_99, 0, 1),
-        parkedAt("pk4", "Sample Desk Lamp", 24_00, 5, 1, ParkedStatus.BOUGHT, "food"),
-        parkedAt("pk5", "Sample Headphones", 59_00, 6, 2, ParkedStatus.DROPPED),
-    )
 
     @Test @Config(qualifiers = TALL) fun homeSafeToSpend() = shot("115-home-safe-to-spend") {
         val list = Bills.checklist(budget11.bills, budget11.billPayments, budget11.paydayDates.last(), pred10.next!!)
         HomeScreen(
-            budget11, null, {}, {}, {}, {}, {}, {}, ParkedBuys.waiting(parked11).size, ParkedBuys.ready(parked11, nowMs).size, {},
+            budget11, null, {}, {}, {}, {}, {}, {},
             forecast = { ForecastCard(forecast10) {} }, checklist = { PaydayChecklistCard(list, { _, _ -> }, {}) },
         )
     }
-    @Test fun homeNoEverydayYet() = shot("116-home-pick-everyday") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}, 0, 0, {}) }
+    @Test fun homeNoEverydayYet() = shot("116-home-pick-everyday") { HomeScreen(budget, null, {}, {}, {}, {}, {}, {}) }
     @Test @Config(qualifiers = TALL) fun safeToSpendPick() = shot("117-safe-to-spend-envelopes") { SafeToSpendScreen(budget11, null, {}) { _, _ -> } }
-    @Test @Config(qualifiers = TALL) fun parkedBuys() = shot("118-parked-buys") {
-        ParkedBuysScreen(parked11, budget11, nowMs, 1, null, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, zone = java.time.ZoneOffset.UTC)
-    }
-    @Test @Config(qualifiers = TALL) fun parkSomething() = shot("119-park-something") {
-        ParkedBuysScreen(parked11.filter { it.id == "pk3" }, budget11, nowMs, 2, null, {}, { _, _, _ -> }, { _, _ -> }, {}, {}, startAdding = true, zone = java.time.ZoneOffset.UTC)
-    }
-    @Test @Config(qualifiers = TALL) fun moreParked() = shot("120-more-parked-buys") {
-        MoreScreen(more, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onParked = {}, parkWait = 2)
-    }
 
     // ---- 0.15.0: the launcher icon from the master (as a round and a squircle launcher mask it, themed in one colour) --------------
     @Test fun launcherIcon() = shot("121-launcher-icon") {
@@ -558,7 +534,7 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun homeOverAssignedAndDebtDue() = shot("122-home-over-assigned-debt-due") {
         val b = budget15
         HomeScreen(
-            b, null, {}, {}, {}, {}, {}, {}, 1, 0, {},
+            b, null, {}, {}, {}, {}, {}, {},
             forecast = { ForecastCard(forecast10) {} }, envelopes = homeEnvelopes(b, today, pred10.next),
         )
     }
@@ -577,7 +553,7 @@ class ScreenshotTest {
                 preview = net.darkrelay.deaddropfinance.domain.SetupImporter.Preview(
                     add = linkedMapOf("Envelopes" to listOf("Fuel", "Sample Loan"), "Bills" to listOf("Sample Car Cover"), "Rules" to listOf("sample payroll", "sample corner shop")),
                     update = linkedMapOf("Envelopes" to listOf("Groceries"), "Bills" to listOf("Sample Power Co")),
-                    settings = listOf("autoApprove", "syncEveryHours", "parkingLotWait"), nextPayday = today.plusDays(14),
+                    settings = listOf("autoApprove", "syncEveryHours"), nextPayday = today.plusDays(14),
                 ),
             ),
             {}, {}, {}, {}, {},
@@ -602,7 +578,7 @@ class ScreenshotTest {
     }
     @Test @Config(qualifiers = TALL) fun moreFull() = shot("130-more-backup-import-purge-about") {
         MoreScreen(
-            more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onParked = {}, onBackup = {},
+            more.copy(version = "0.15.0"), {}, {}, {}, {}, {}, {}, {}, {}, {}, onReceipts = {}, onBackup = {},
             backupLine = "Last backup Mar 14, 9:30 PM, deaddrop-2030-03-14.ddfbak", onSetupImport = {}, onPurge = {}, onAbout = {},
         )
     }

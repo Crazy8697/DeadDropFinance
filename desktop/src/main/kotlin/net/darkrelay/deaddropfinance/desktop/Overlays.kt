@@ -78,11 +78,13 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell
                     val l3 = listOfNotNull(accounts[t.accountId]?.name, t.memo.takeIf { it.isNotBlank() }, "before budget start".takeIf { a.beforeBudgetStart }).joinToString(" · ")
                     ActRow(a.id, a.date, a.createdAt, a.label, e.name, l3, a.amount, cyanAmount = a.amount > 0, tx = true)
                 } else {
-                    ActRow(a.id, a.date, a.createdAt, a.label, e.name, "Envelope to envelope", a.amount, move = true)
+                    ActRow(a.id, a.date, a.createdAt, a.label, e.name, "Envelope to envelope", a.amount, move = true, moveId = a.moveId)
                 }
             }
             // a row is a line of the transaction: open the transaction itself
-            ActivityRows(rows, "Nothing in or out yet.", onOpen = { r -> activity.firstOrNull { it.id == r.id }?.transactionId?.let(model::openTransaction) })
+            ActivityRows(rows, "Nothing in or out yet.", onOpen = { r ->
+                if (r.moveId != null) model.openRow(r) else activity.firstOrNull { it.id == r.id }?.transactionId?.let(model::openTransaction)
+            })
         }
         Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Add activity", { model.dialog = Dialog.AddTransaction(envelopeId = e.id) }, tag = "drawer.add")
@@ -109,6 +111,7 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.Transfer -> TransferDialog(model, shell, b, d)
         is Dialog.Bonus -> BonusDialog(model, shell, b, d)
         is Dialog.BudgetStart -> BudgetStartDialog(model, shell, b)
+        is Dialog.NextPayday -> NextPaydayDialog(model, shell, b)
         is Dialog.MoveMoney -> MoveMoneyDialog(model, shell, b, d)
         is Dialog.EnvelopeForm -> EnvelopeDialog(model, shell, b, d)
         is Dialog.AccountForm -> AccountDialog(model, shell, b, d)
@@ -317,19 +320,38 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
 
 @Composable
 private fun MoveMoneyDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.MoveMoney) {
-    val places = listOf(READY_TO_ASSIGN to "Ready to assign") + b.fillOrder.filter { it.mode != EnvelopeMode.CASH }.map { it.id to it.name }
-    var from by remember { mutableStateOf(d.fromId ?: READY_TO_ASSIGN) }
-    var to by remember { mutableStateOf(d.toId ?: places.firstOrNull { it.first != from }?.first ?: READY_TO_ASSIGN) }
-    var amount by remember { mutableStateOf("") }
+    // 0.14.0: Edit move, for a move made by hand (the shared rule the phone's Edit move uses)
+    val existing = d.editId?.let { id -> b.moves.firstOrNull { it.id == id && net.darkrelay.deaddropfinance.domain.MoveRules.editable(it) } }
+    val own = setOfNotNull(existing?.fromEnvelopeId, existing?.toEnvelopeId)
+    val places = listOf(READY_TO_ASSIGN to "Ready to assign") +
+        (b.fillOrder.filter { it.mode != EnvelopeMode.CASH } + b.envelopes.filter { it.id in own && b.fillOrder.none { f -> f.id == it.id } }).map { it.id to it.name }
+    var from by remember { mutableStateOf(existing?.let { it.fromEnvelopeId ?: READY_TO_ASSIGN } ?: d.fromId ?: READY_TO_ASSIGN) }
+    var to by remember { mutableStateOf(existing?.let { it.toEnvelopeId ?: READY_TO_ASSIGN } ?: d.toId ?: places.firstOrNull { it.first != from }?.first ?: READY_TO_ASSIGN) }
+    var amount by remember { mutableStateOf(existing?.let { Money.plain(it.amount) } ?: "") }
+    var date by remember { mutableStateOf(existing?.date?.toString() ?: "") }
+    var deleting by remember { mutableStateOf(false) }
     val close = { model.dialog = null }
-    Modal("Move money", 420.dp, close, "dialog.move", footer = {
+    Modal(if (existing != null) "Edit move" else "Move money", 420.dp, close, "dialog.move", footer = {
+        if (existing != null && !deleting) Btn("Delete", { deleting = true }, ghost = true, tag = "dialog.delete")
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-        Btn("Move", {
+        Btn(if (existing != null) "Save" else "Move", {
             val cents = parseAmount(amount)
+            val day = if (existing != null) runCatching { LocalDate.parse(date.trim()) }.getOrNull() else null
             if (cents == null || cents <= 0) model.message = "Enter an amount above zero, like 12.34." to true
+            else if (existing != null && day == null) model.message = "The date must look like 2030-01-31." to true
+            else if (existing != null) shell.run { if (model.editMove(existing.id, from, to, cents, day!!)) model.dialog = null }
             else shell.run { if (model.moveMoney(from, to, cents)) model.dialog = null }
         }, tag = "dialog.save")
     }) {
+        if (deleting && existing != null) {
+            // as a transaction's: "Delete this move?" with Delete and Keep
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                T("Delete this move?", 13.5.sp, modifier = Modifier.weight(1f).testTag("delete.ask"))
+                Btn("Delete", { shell.run { if (model.deleteMove(existing.id)) model.dialog = null } }, small = true, tag = "delete.confirm")
+                Btn("Keep", { deleting = false }, ghost = true, small = true, tag = "delete.keep")
+            }
+        }
+        if (existing != null) Field("Date", date, { date = it }, placeholder = "2030-01-31", tag = "f.date")
         Select("From", places, from, { from = it }, tag = "f.from")
         Select("To", places, to, { to = it }, tag = "f.to")
         Field("Amount", amount, { amount = it }, placeholder = Money.plain(0), tag = "f.amount")

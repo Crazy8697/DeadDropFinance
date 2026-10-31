@@ -13,11 +13,6 @@ import java.io.File
 import net.darkrelay.deaddropfinance.data.ReceiptImages
 import net.darkrelay.deaddropfinance.domain.ReceiptParser
 
-/** Text recognition behind one interface, so tests can use the same engine on the desktop. */
-interface TextReader : AutoCloseable {
-    fun read(g: ImageCleanup.Gray): List<ReceiptParser.Line>
-}
-
 /**
  * Tesseract on the phone (Tesseract4Android), English model from the app's assets. Nothing is sent anywhere: the
  * library has no network code and the app asks for no permission for it. The model is copied once to the app's
@@ -85,12 +80,12 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
         try {
             reader().use { r ->
                 // one page at a time: a long PDF never has all its pages in memory at once
+                // the page itself (clean, read, keep) is shared with the program: ReceiptPages
                 val each: (Bitmap) -> Unit = { bmp ->
                     val g = toGray(bmp)
                     bmp.recycle()
-                    val cleaned = ImageCleanup.clean(g).image
-                    out += r.read(ImageCleanup.scaleDown(cleaned, OCR_MAX))
-                    images.write(receiptId, firstPage + out.size - 1, jpeg(ImageCleanup.scaleDown(cleaned, STORE_MAX)))
+                    val page = firstPage + out.size
+                    out += ReceiptPages.read(g, r) { images.write(receiptId, page, jpeg(it)) }
                 }
                 if (context.contentResolver.getType(uri) == "application/pdf") pdfPages(uri, each) else photo(uri)?.let(each)
             }
@@ -121,10 +116,7 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
                 for (n in 0 until minOf(pdf.pageCount, MAX_PDF_PAGES)) {
                     val bmp = pdf.openPage(n).use { page ->
                         // about 200 dpi, white behind the page
-                        val scale = 200f / 72f
-                        var w = (page.width * scale).toInt(); var h = (page.height * scale).toInt()
-                        val long = maxOf(w, h)
-                        if (long > DECODE_MAX) { w = w * DECODE_MAX / long; h = h * DECODE_MAX / long }
+                        val (w, h) = ReceiptPages.pdfPixels(page.width.toFloat(), page.height.toFloat())
                         createBitmap(w, h).also { b ->
                             b.eraseColor(Color.WHITE)
                             page.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
@@ -148,11 +140,9 @@ class ReceiptScanner(private val context: Context, private val images: ReceiptIm
     }
 
     companion object {
-        /** Photos are decoded at most this big (long side), read at OCR_MAX, and stored at STORE_MAX. */
-        const val DECODE_MAX = 3000
-        const val OCR_MAX = 2400
-        const val STORE_MAX = 1600
-        const val JPEG_QUALITY = 70
-        const val MAX_PDF_PAGES = 10
+        /** The sizes and limits are the program's too (ReceiptPages). */
+        const val DECODE_MAX = ReceiptPages.DECODE_MAX
+        const val JPEG_QUALITY = ReceiptPages.JPEG_QUALITY
+        const val MAX_PDF_PAGES = ReceiptPages.MAX_PDF_PAGES
     }
 }

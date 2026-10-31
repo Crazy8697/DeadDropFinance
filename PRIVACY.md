@@ -12,7 +12,7 @@ DarkRelay never receives your budget, your bank data, your bank logins or anythi
 
 ## What the app keeps, on your phone
 
-- Your budget: accounts, transactions, envelopes, bills, rules, subscriptions, parked buys and receipts, in a
+- Your budget: accounts, transactions, envelopes, bills, rules, subscriptions and receipts, in a
   database encrypted with a key that's protected by your phone's secure hardware (the Android Keystore).
 - Receipt photos you take or pick, encrypted in the app's private storage. They never go to the phone's gallery or
   shared storage.

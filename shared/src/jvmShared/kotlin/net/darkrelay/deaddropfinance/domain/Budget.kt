@@ -193,6 +193,8 @@ class Budget(
     data class EnvelopeActivity(
         val id: String, val date: LocalDate, val createdAt: Long, val label: String, val amount: Long,
         val transactionId: String? = null, val beforeBudgetStart: Boolean = false, val counts: Boolean = true,
+        /** A move made by hand (1.8.1), which opens to edit: its id. */
+        val moveId: String? = null,
     )
 
     /** Everything in and out of an envelope, newest first; same date by time, then id. The counted rows sum to its balance. */
@@ -219,7 +221,7 @@ class Budget(
                 into -> "Moved in from ${name(m.fromEnvelopeId)}"
                 else -> "Moved out to ${name(m.toEnvelopeId)}"
             }
-            rows += EnvelopeActivity(m.id, m.date, m.createdAt, label, if (into) m.amount else -m.amount)
+            rows += EnvelopeActivity(m.id, m.date, m.createdAt, label, if (into) m.amount else -m.amount, moveId = m.id.takeIf { MoveRules.editable(m) })
         }
         return rows.sortedWith(compareByDescending<EnvelopeActivity> { it.date }.thenByDescending { it.createdAt }.thenByDescending { it.id })
     }

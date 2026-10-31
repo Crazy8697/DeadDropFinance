@@ -27,8 +27,10 @@ object ProgramReset {
             val f = File(dir, n)
             if (f.exists() && !f.delete()) left += n
         }
-        val receipts = File(dir, "receipts")
-        if (receipts.exists() && !receipts.deleteRecursively()) left += "receipts"
+        for (n in listOf("receipts", RESTORE_STAGING)) {
+            val f = File(dir, n)
+            if (f.exists() && !f.deleteRecursively()) left += n
+        }
         return left
     }
 
@@ -54,8 +56,10 @@ object ProgramReset {
         val failed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { purge(ok, settings) }.isFailure }
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { m.refresh() }
         if (failed) m.message = "Purge data didn't finish. Nothing more was removed." to true
-        m.go(Screen.HOME)
+        // the setup wizard, as after the phone's Purge (0.14.0: over Budget, Home is gone)
+        m.go(Screen.BUDGET)
         m.phoneGeneration++
+        m.openPhone(net.darkrelay.deaddropfinance.ui.Nav.SetupWizard)
     }
 
     /**

@@ -27,6 +27,8 @@ import kotlinx.coroutines.withContext
 
 const val PROGRAM_NAME = "Dead Drop Finance"
 private const val STARTUP_CHECK_DELAY_MS = 4000L
+/** What the receipt picker offers (0.14.0): what the program reads, images and PDFs, as the phone's picker (any image, PDF). */
+val RECEIPT_TYPES = listOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "pdf")
 
 /**
  * Dead Drop Finance for Windows.
@@ -86,6 +88,8 @@ fun main(args: Array<String>) {
             // the recovery key (0.11.0): every backup's key, DPAPI-protected in the data folder
             val keys = net.darkrelay.deaddropfinance.backup.RecoveryKeys(DesktopRecoveryStore(settings.dir))
             if (smoke == null) m.recoveryKeys = keys
+            // the receipt photos (0.14.0): kept encrypted in the data folder, carried by backups
+            if (smoke == null) m.receiptImages = programReceiptImages(settings.dir)
             // server sync (0.10.0): the phone's own sync code on this budget; its settings and key in the data folder
             val ok = e.opened as? net.darkrelay.deaddropfinance.data.DesktopDatabase.Opened.Ok
             if (ok != null && smoke == null) {
@@ -117,11 +121,14 @@ fun main(args: Array<String>) {
         }
 
         // Erase everything and Purge data (0.13.0), after the phone's confirm screens in More
+        // Hide screen (0.14.0): off by default, as on the phone
+        var hideScreen by remember { mutableStateOf(settings.hideScreen) }
         fun erase() = scope.launch {
             model = ProgramReset.eraseNow(model, settings.dir, settings) { e -> openModel(e) }
             checkAtStartup = settings.checkUpdatesAtStartup
+            hideScreen = settings.hideScreen
         }
-        fun purge() = scope.launch { ProgramReset.purgeNow(model, settings) }
+        fun purge() = scope.launch { ProgramReset.purgeNow(model, settings); hideScreen = settings.hideScreen }
 
         fun checkNow(manual: Boolean) {
             scope.launch { withContext(Dispatchers.IO) { updates.runCheck(manual) } }
@@ -146,6 +153,8 @@ fun main(args: Array<String>) {
         ) {
             // Windows' own title bar, dark like the program (0.9.0)
             LaunchedEffect(Unit) { TitleBar.dark(window) }
+            // Hide screen: the window out of screen captures while it's on
+            LaunchedEffect(hideScreen) { HideScreen.apply(window, hideScreen) }
             // a second launch (0.12.3): this window comes back from the taskbar and to the front
             if (smoke == null) LaunchedEffect(Unit) {
                 instance.watch {
@@ -169,6 +178,11 @@ fun main(args: Array<String>) {
                 update = update,
                 canInstall = updates.canInstall,
                 checkAtStartup = checkAtStartup,
+                hideScreen = hideScreen,
+                onHideScreen = {
+                    hideScreen = it
+                    settings.hideScreen = it
+                },
                 onInstall = {
                     scope.launch {
                         val started = withContext(Dispatchers.IO) { updates.install() }
@@ -210,8 +224,10 @@ fun main(args: Array<String>) {
                     d.file?.let { File(d.directory, it) }
                 },
                 pickReceipt = {
-                    val d = FileDialog(window, "Choose a receipt image", FileDialog.LOAD).apply {
-                        setFilenameFilter { _, n -> n.lowercase().let { it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") } }; isVisible = true
+                    val d = FileDialog(window, "Choose a receipt image or PDF", FileDialog.LOAD).apply {
+                        // what the program reads (0.14.0): photos and images Skia decodes, and PDFs
+                        file = RECEIPT_TYPES.joinToString(";") { "*.$it" }
+                        setFilenameFilter { _, n -> n.substringAfterLast('.', "").lowercase() in RECEIPT_TYPES }; isVisible = true
                     }
                     d.file?.let { File(d.directory, it) }
                 },

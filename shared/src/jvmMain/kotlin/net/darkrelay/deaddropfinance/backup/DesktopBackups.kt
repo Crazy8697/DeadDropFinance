@@ -13,6 +13,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import net.darkrelay.deaddropfinance.data.AppDatabase
 import net.darkrelay.deaddropfinance.data.BudgetStore
+import net.darkrelay.deaddropfinance.data.ReceiptImages
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -21,22 +22,29 @@ import org.json.JSONObject
  * Backup and restore for the desktop program (0.8.0), in the phone's backup format (app/.../backup/Backups.kt): one
  * file encrypted with [BackupCrypto] (AES-256-GCM; from 0.11.0 under the recovery key, before that under a password
  * whose backups still restore with it), holding a zip
- * with manifest.json and one tables/<table>.json per budget table. The desktop has no receipt photos and no phone
- * settings, so it writes neither and ignores both in a phone's backup. No key is stored anywhere: a lost password is a
- * lost backup.
+ * with manifest.json, one tables/<table>.json per budget table and, from 0.14.0, the receipt photos as the phone writes
+ * them (photos/<receipt id>/<page>, each page's image bytes, sealed by the backup's own encryption; on disk each photo
+ * stays under this computer's photo key). The phone's settings (settings.json) are the phone's: the program ignores them
+ * in a phone's backup. A backup without photos (older ones, either side's) restores with none. No key is stored anywhere:
+ * a lost password is a lost backup.
  *
- * Restore reads and checks the whole file first (password, every table); a bad file or a wrong password changes
- * nothing. Then it keeps a copy of the current budget file beside it ([BEFORE_RESTORE], still encrypted), replaces
+ * Restore reads and checks the whole file first (password, every table, every photo, staged beside the photos); a bad
+ * file or a wrong password changes nothing. Then it keeps a copy of the current budget file beside it ([BEFORE_RESTORE], still encrypted), replaces
  * every table in one transaction, checks the rows that went in against the backup before committing, and only then
- * removes the copy. If anything fails the transaction rolls back and the budget is as it was.
+ * removes the copy. If anything fails the transaction rolls back and the budget is as it was. The photos are swapped in
+ * once the budget is in, as on the phone.
  */
 class DesktopBackups(
     private val db: AppDatabase,
     private val dbFile: File,
     private val appVersion: String,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** The program's receipt photos (0.14.0); null carries none and leaves the photos here alone. */
+    private val photos: ReceiptImages? = null,
+    /** Where a restore stages the backup's photos before swapping them in (emptied each time). */
+    private val stagingDir: File? = null,
 ) {
-    data class Summary(val accounts: Int, val envelopes: Int, val transactions: Int)
+    data class Summary(val accounts: Int, val envelopes: Int, val transactions: Int, val receipts: Int = 0, val photos: Int = 0)
 
     /** Writes the backup to [out] (closed when done), encrypted under the recovery key (0.11.0). */
     suspend fun write(out: OutputStream, recoveryKey: ByteArray): Summary = write(out) { BackupCrypto.encryptingWithKey(it, recoveryKey) }
@@ -56,14 +64,22 @@ class DesktopBackups(
                 v to names.associateWith { t -> usePrepared("SELECT * FROM `$t`") { s -> JSONArray().also { a -> while (s.step()) a.put(row(s, t)) } } }
             }
         }
+        val pages = photos?.stored().orEmpty()
+        var written = 0
         ZipOutputStream(encrypting(out)).use { zip ->
             val manifest = JSONObject()
                 .put("format", FORMAT_NAME).put("version", 1).put("schema", schema).put("app", appVersion).put("createdAt", clock())
-                .put("tables", JSONArray(rows.keys.sorted())).put("photos", 0)
+                .put("tables", JSONArray(rows.keys.sorted())).put("photos", pages.size)
             zip.entry("manifest.json", manifest.toString().toByteArray())
             for ((t, a) in rows) zip.entry("tables/$t.json", a.toString().toByteArray())
+            for ((id, page) in pages) {
+                // the photo key is this computer's; in the backup a photo is sealed by the backup's own encryption
+                val bytes = photos!!.read(id, page) ?: continue
+                zip.entry("photos/$id/$page", bytes)
+                written++
+            }
         }
-        return summary(rows)
+        return summary(rows, written)
     }
 
     private fun ZipOutputStream.entry(name: String, bytes: ByteArray) {
@@ -91,17 +107,25 @@ class DesktopBackups(
         return (0 until a.length()).count { i -> a.getJSONObject(i).optInt("deleted", 0) == 0 }
     }
 
-    private fun summary(rows: Map<String, JSONArray>) = Summary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"))
+    private fun summary(rows: Map<String, JSONArray>, photos: Int) =
+        Summary(count(rows, "account"), count(rows, "envelope"), count(rows, "txn"), count(rows, "receipt"), photos)
 
     fun read(input: InputStream, passphrase: CharArray, currentSchema: Int): Map<String, JSONArray> =
         read(input, BackupSecret.OldPassword(passphrase), currentSchema)
 
-    /** Reads and checks a backup without changing anything (the recovery key, or an older backup's password). Throws BackupException when it can't be used. */
-    fun read(input: InputStream, opener: BackupSecret, currentSchema: Int): Map<String, JSONArray> {
+    /**
+     * Reads and checks a backup without changing anything (the recovery key, or an older backup's password). Throws
+     * BackupException when it can't be used. [staged]: where its photos go meanwhile (null: they're checked and skipped).
+     */
+    fun read(input: InputStream, opener: BackupSecret, currentSchema: Int, staged: ReceiptImages? = null): Map<String, JSONArray> =
+        readAll(input, opener, currentSchema, staged).first
+
+    private fun readAll(input: InputStream, opener: BackupSecret, currentSchema: Int, staged: ReceiptImages?): Pair<Map<String, JSONArray>, Int> {
         var manifest: JSONObject? = null
         val rows = mutableMapOf<String, JSONArray>()
+        var pageCount = 0
         try {
-            val plain = BackupCrypto.decrypting(input, opener)
+            val plain = BackupCrypto.decrypting(input, opener, product = "program")
             ZipInputStream(plain).use { zip ->
                 while (true) {
                     val e = zip.nextEntry ?: break
@@ -109,7 +133,15 @@ class DesktopBackups(
                     when {
                         e.name == "manifest.json" -> manifest = JSONObject(String(bytes))
                         e.name.startsWith("tables/") && e.name.endsWith(".json") -> rows[e.name.removePrefix("tables/").removeSuffix(".json")] = JSONArray(String(bytes))
-                        // a phone's backup also carries its settings and receipt photos: the desktop has neither
+                        // the receipt photos, as the phone writes and reads them (0.14.0)
+                        e.name.startsWith("photos/") -> {
+                            val parts = e.name.removePrefix("photos/").split('/')
+                            val page = parts.getOrNull(1)?.toIntOrNull()
+                            if (parts.size != 2 || page == null || page < 0 || !ID.matches(parts[0])) throw BackupException("The backup file is damaged.")
+                            staged?.write(parts[0], page, bytes)
+                            pageCount++
+                        }
+                        // a phone's backup also carries its settings: the program's are its own
                         else -> {}
                     }
                 }
@@ -130,7 +162,7 @@ class DesktopBackups(
         if (m.optString("format") != FORMAT_NAME) throw BackupException("That isn't a Dead Drop Finance backup file.")
         if (m.optInt("schema") > currentSchema) throw BackupException("This backup was made by a newer version. Update the program, then restore.")
         if (rows["account"] == null || rows["envelope"] == null || rows["txn"] == null) throw BackupException("The backup file is damaged.")
-        return rows
+        return rows to pageCount
     }
 
     /**
@@ -143,7 +175,14 @@ class DesktopBackups(
     /** Replaces the budget with the backup's, opened with [secret] (the recovery key, or an older backup's password). */
     suspend fun restore(input: InputStream, opener: BackupSecret, failForTest: Boolean = false): Summary {
         val schema = db.useWriterConnection { c -> c.usePrepared("PRAGMA user_version") { it.step(); it.getLong(0).toInt() } }
-        val rows = read(input, opener, schema)
+        val staging = stagingDir?.takeIf { photos != null }
+        staging?.deleteRecursively()
+        val (rows, pageCount) = try {
+            readAll(input, opener, schema, staging?.let { photos!!.staging(it) })
+        } catch (e: Exception) {
+            staging?.deleteRecursively()
+            throw e
+        }
         // a copy of the current budget, kept until the restore is checked
         val copy = File(dbFile.absoluteFile.parentFile, dbFile.name + BEFORE_RESTORE)
         db.useWriterConnection { c -> c.usePrepared("PRAGMA wal_checkpoint(TRUNCATE)") { while (it.step()) { } } }
@@ -151,15 +190,19 @@ class DesktopBackups(
         try {
             replace(rows, failForTest)
         } catch (e: BackupException) {
+            staging?.deleteRecursively()
             throw e
         } catch (e: Exception) {
+            staging?.deleteRecursively()
             throw BackupException("The backup couldn't be restored: it doesn't fit this version's budget. Nothing was changed.")
         } finally {
             // checked and committed, or rolled back to exactly what was there: the copy isn't needed either way
             // (if the program stops mid-restore, it stays beside the budget)
             copy.delete()
         }
-        return summary(rows)
+        // the budget is in; now the photos (a backup without any leaves none, as on the phone)
+        if (staging != null) photos!!.replaceWith(staging)
+        return summary(rows, if (staging != null) pageCount else 0)
     }
 
     /**
@@ -228,6 +271,7 @@ class DesktopBackups(
         /** The database's bookkeeping never travels (as the phone's Backups.LEFT_OUT). */
         val LEFT_OUT = setOf("connection", "linked_account", "sync_log", "room_master_table", "android_metadata")
         const val BEFORE_RESTORE = ".before-restore"
+        private val ID = Regex("[A-Za-z0-9-]{1,64}")
         private const val SQLITE_INTEGER = 1
         private const val SQLITE_TEXT = 3
         private const val SQLITE_NULL = 5

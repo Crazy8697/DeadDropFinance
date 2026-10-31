@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -61,6 +62,10 @@ sealed interface Nav {
     /** Move money; [backToReady] starts it as a move back into Ready to Assign (fixing an over-assigned budget). */
     /** [intoId]: opened from that envelope's screen, so it starts as Ready to Assign into it. */
     data class MoveMoney(val intoId: String?, val backToReady: Boolean = false) : Nav
+    /** Edit a move made by hand (1.8.1). */
+    data class MoveEdit(val id: String) : Nav
+    /** The setup wizard, opened by itself (the program's Settings, 0.14.0); it closes back to the program. */
+    data object SetupWizard : Nav
     data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
     /** [envelopeId]: opened from that envelope's Add activity, so it starts with the envelope chosen (1.3.0). */
     data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null, val envelopeId: String? = null) : Nav
@@ -96,7 +101,6 @@ sealed interface Nav {
     data object Subscriptions : Nav
     data class Subscription(val key: String) : Nav
     data object Forecast : Nav
-    data object ParkedBuys : Nav
     data object Backup : Nav
     data object SetupImport : Nav
     data object About : Nav
@@ -260,9 +264,6 @@ fun AppRoot(
     var exportNote by remember { mutableStateOf<String?>(null) }
     val receiptsOps = remember(store) { net.darkrelay.deaddropfinance.domain.Receipts(store, actions, platform.receiptFiles) }
     val billActions = remember(store) { net.darkrelay.deaddropfinance.domain.BillActions(store, actions) }
-    val parkedOps = remember(store) { net.darkrelay.deaddropfinance.domain.ParkedBuys(store, actions) }
-    val parked by remember(store) { store.dao.parkedBuys() }.collectAsState(initial = emptyList())
-    var parkWait by remember { mutableIntStateOf(1) }
     var backupState by remember { mutableStateOf(BackupState()) }
     var importSetup by remember { mutableStateOf(SetupImportState()) }
     /** 1.7.3: the picked backup's copy in the app's own storage (never the picker's address again). */
@@ -271,8 +272,6 @@ fun AppRoot(
     var restoreKey by remember { mutableStateOf<ByteArray?>(null) }
     /** 1.7.2: the key or password typed for a restore that waits on the confirm screen (restore while logged in). */
     var restoreTyped by remember { mutableStateOf("") }
-    // a parked buy turns ready with time alone, so the clock is checked every minute
-    var nowMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val subscriptions by remember(store) { store.dao.subscriptions() }.collectAsState(initial = emptyList())
     // bumped when something outside Compose changes (the payday correction)
     var planTick by remember { mutableIntStateOf(0) }
@@ -352,7 +351,6 @@ fun AppRoot(
         platform.setHide(more.hideScreen)
         alertTick++
         planTick++
-        scope.launch { parkWait = parkedOps.defaultWait() }
     }
     /**
      * Restores the picked backup. Logged out: this phone alone, as always. Logged in (1.7.2): the restored budget also becomes
@@ -404,7 +402,6 @@ fun AppRoot(
         s.lockAfterMinutes?.let { platform.setTimeout(it) }
         s.hideScreen?.let { platform.setHide(it) }
         s.checkForUpdatesAtStartup?.let { platform.setCheckAtStartup(it) }
-        s.parkingLotWait?.let { parkWait = it }
         more = platform.more
         alertTick++
     }
@@ -485,12 +482,10 @@ fun AppRoot(
             else -> tab(Nav.Activity)
         }
     }
+    // 0.14.0: the setup wizard opened by itself, from the program's Settings
+    LaunchedEffect(host) { if (host?.start == Nav.SetupWizard && wizard == null) openWizard() }
     // 0.13.0: a screen opened from elsewhere in the program
     LaunchedEffect(host) { host?.requests?.collect { n -> error = null; message = null; stack.clear(); stack.add(n) } }
-    LaunchedEffect(Unit) {
-        parkWait = parkedOps.defaultWait()
-        while (true) { nowMs = System.currentTimeMillis(); delay(60_000) }
-    }
     LaunchedEffect(Unit) {
         // photos left behind by a receipt that's gone (or a scan never saved)
         withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
@@ -501,6 +496,12 @@ fun AppRoot(
     }
 
     val b = budget ?: return
+    // a screen that closes itself and those under it (a deleted bill) when it was the first: back to the program's
+    // screen (0.14.0), or Home on the phone
+    if (stack.isEmpty()) {
+        LaunchedEffect(Unit) { if (host != null) host.onExit() else stack.add(Nav.Home) }
+        return
+    }
     val top = stack.last()
     val hasAccounts = b.accounts.any { !it.archived }
     val suggestions = remember(b, rules) { Suggest.all(b, rules) }
@@ -532,7 +533,7 @@ fun AppRoot(
                 if (stack.last() !is Nav.ReceiptEdit) { stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true)) }
             } catch (e: Exception) {
                 error = if (words.camera) "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
-                    else "That file couldn't be read as an image. Choose a JPG or PNG."
+                    else "That file couldn't be read as a receipt image or PDF. Try another."
             } finally {
                 scanning = false
             }
@@ -577,7 +578,8 @@ fun AppRoot(
                 val head: (@Composable () -> Unit)? = if (!showCard && r == null && !syncOn) null else {
                     {
                         Column {
-                            if (syncOn) SyncStatusLine(syncStatus, onSyncNow = { scope.launch { sync?.syncNow() } })
+                            // the program has its own sync pill and Sync now (0.14.0)
+                            if (syncOn && host == null) SyncStatusLine(syncStatus, onSyncNow = { scope.launch { sync?.syncNow() } })
                             if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { appSettings.setupCardDismissed = true; cardDismissed = true })
                             if (r != null) updateBar(r)
                         }
@@ -591,9 +593,6 @@ fun AppRoot(
                     onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
                     onBonus = { go(Nav.Bonus(null)) },
                     envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
-                    parkedWaiting = net.darkrelay.deaddropfinance.domain.ParkedBuys.waiting(parked).size,
-                    parkedReady = net.darkrelay.deaddropfinance.domain.ParkedBuys.ready(parked, nowMs).size,
-                    onParked = { go(Nav.ParkedBuys) },
                     forecast = if (forecast == null && !late) null else {
                         {
                             Column {
@@ -690,12 +689,9 @@ fun AppRoot(
                 onPurge = { go(Nav.Purge) },
                 onAbout = { go(Nav.About) },
                 onReceipts = { go(Nav.Receipts) },
-                onParked = { go(Nav.ParkedBuys) },
                 onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
                 onBackup = if (host != null) null else { { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) } },
                 backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",
-                parkWait = parkWait,
-                onParkWait = { d -> run(scope) { parkedOps.setDefaultWait(d); parkWait = d } },
                 sortAlerts = {
                     val st = appSettings
                     val notificationsAllowed = key(alertTick) { platform.notificationsAllowed() }
@@ -727,6 +723,7 @@ fun AppRoot(
                     onUseTarget = { avg -> run(scope) { actions.saveEnvelope(e.id, BudgetActions.EnvelopeDraft(e.name, e.mode, target = avg)) } },
                     onArchive = { a -> run(scope) { actions.setEnvelopeArchived(e.id, a) } }, onTransaction = { go(Nav.TxDetail(it)) },
                     onAddActivity = { go(Nav.TxEdit(null, envelopeId = e.id)) },
+                    onMoveRow = { go(Nav.MoveEdit(it)) },
                 )
             }
             is Nav.EnvelopeEdit -> {
@@ -748,6 +745,18 @@ fun AppRoot(
                 )
             }
             is Nav.MoveMoney -> MoveMoneyScreen(b, top.intoId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
+            Nav.SetupWizard -> Gone(::back)
+            is Nav.MoveEdit -> {
+                val m = b.moves.firstOrNull { it.id == top.id }
+                if (m == null) Gone(::back) else MoveMoneyScreen(
+                    b, null, error, ::back, editing = m,
+                    onSaveEdit = { from, to, amount, date ->
+                        if (date == null) error = "Enter the date like 2030-05-17."
+                        else run(scope, popAfter = true) { actions.editMove(m.id, from, to, amount, date) }
+                    },
+                    onDelete = { run(scope, popAfter = true) { actions.deleteMove(m.id) } },
+                ) { _, _, _ -> }
+            }
             is Nav.Assign -> AssignScreen(
                 b, today, error, ::back,
                 onAdd = { id -> run(scope) { if (actions.addToEnvelope(id) == 0L) throw BudgetRuleException("Nothing is ready to assign.") } },
@@ -944,18 +953,6 @@ fun AppRoot(
                 )
             }
             Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: Gone(::back)
-            Nav.ParkedBuys -> ParkedBuysScreen(
-                parked, b, nowMs, parkWait, message ?: error, ::back,
-                onPark = { n, a, w -> run(scope) { parkedOps.park(n, a, w); nowMs = System.currentTimeMillis(); message = null } },
-                onBuy = { id, env ->
-                    run(scope) {
-                        parkedOps.buy(id, env)
-                        message = "Bought. Its charge is sorted to ${b.envelopes.firstOrNull { it.id == env }?.name ?: "that envelope"} when it comes in."
-                    }
-                },
-                onKeep = { id -> run(scope) { parkedOps.keepWaiting(id); nowMs = System.currentTimeMillis(); message = null } },
-                onDrop = { id -> run(scope) { parkedOps.drop(id); message = null } },
-            )
             Nav.Backup -> BackupScreen(
                 if (backupState.confirmServerReplace) backupState.copy(lockedBy = syncStatus.readOnlyBy) else backupState, ::back,
                 onBackUp = {
@@ -1025,14 +1022,14 @@ fun AppRoot(
                 onCancelRestore = { restoreFile?.delete(); restoreFile = null; restoreKey = null; backupState = backupState.copy(restoreName = null, restoreSavedKey = false, error = null) },
             )
             Nav.SetupImport -> {
-                val importer = remember(store) { net.darkrelay.deaddropfinance.domain.SetupImporter(store, actions) }
+                val importer = remember(store) { net.darkrelay.deaddropfinance.domain.SetupImporter(store, actions, product = words.product) }
                 SetupImportScreen(
                     importSetup, ::back,
                     onPick = {
                         platform.pickJson { name, text ->
                             if (text == null) { importSetup = SetupImportState(fileName = name, errors = listOf("The file couldn't be read.")); return@pickJson }
                             scope.launch {
-                                importSetup = when (val parsed = net.darkrelay.deaddropfinance.domain.SetupImport.parse(text)) {
+                                importSetup = when (val parsed = net.darkrelay.deaddropfinance.domain.SetupImport.parse(text, words.product)) {
                                     is net.darkrelay.deaddropfinance.domain.SetupImport.Parsed.Bad -> SetupImportState(fileName = name, errors = parsed.errors)
                                     is net.darkrelay.deaddropfinance.domain.SetupImport.Parsed.Ok -> when (val c = importer.check(parsed.plan)) {
                                         is net.darkrelay.deaddropfinance.domain.SetupImporter.Checked.Bad -> SetupImportState(fileName = name, errors = c.errors)
@@ -1301,7 +1298,7 @@ fun AppRoot(
                 setupDone = true
                 wizard = null
                 wizardForced = false
-                tab(host?.start ?: Nav.Home)
+                if (host?.start == Nav.SetupWizard) host.onExit() else tab(host?.start ?: Nav.Home)
             },
         )
         return
@@ -1324,7 +1321,9 @@ fun AppRoot(
                 }
             }
             // keyed by the currency, so every amount on screen redraws when it changes
-            androidx.compose.runtime.key(currency) { Box(Modifier.fillMaxSize()) { screen(top) } }
+            androidx.compose.runtime.key(currency) {
+                CompositionLocalProvider(LocalHostedRoot provides (host?.sidebar == true && stack.size == 1)) { Box(Modifier.fillMaxSize()) { screen(top) } }
+            }
         }
     }
     keyShown?.let { k ->

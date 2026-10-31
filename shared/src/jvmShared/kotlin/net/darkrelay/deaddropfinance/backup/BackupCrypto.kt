@@ -162,14 +162,15 @@ object BackupCrypto {
     /**
      * Wraps [input] to read a backup's contents: format 2 with the recovery key, format 1 with its password. A file that
      * isn't a backup, the wrong key or password, a changed byte or a file cut short throws BackupException as it's read.
+     * [product]: what the messages call this side, "app" on the phone and "program" on the computer.
      */
-    fun decrypting(input: InputStream, opener: BackupSecret): InputStream {
+    fun decrypting(input: InputStream, opener: BackupSecret, product: String = "app"): InputStream {
         val din = DataInputStream(input)
         val start = ByteArray(MAGIC.size + 1)
         try { din.readFully(start) } catch (e: EOFException) { throw BackupException("That isn't a Dead Drop Finance backup file.") }
         if (!start.copyOfRange(0, MAGIC.size).contentEquals(MAGIC)) throw BackupException("That isn't a Dead Drop Finance backup file.")
         val format = start[MAGIC.size]
-        if (format != FORMAT && format != FORMAT_KEY) throw BackupException("This backup was made by a newer version of the app. Update the app, then restore.")
+        if (format != FORMAT && format != FORMAT_KEY) throw BackupException("This backup was made by a newer version of the $product. Update the $product, then restore.")
         val rest = ByteArray((if (format == FORMAT) HEADER else HEADER_KEY) - start.size)
         try { din.readFully(rest) } catch (e: EOFException) { throw BackupException("That isn't a Dead Drop Finance backup file.") }
         val header = start + rest

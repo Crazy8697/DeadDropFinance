@@ -47,12 +47,12 @@ object SetupImport {
 
     data class SubscriptionIn(val name: String, val payees: List<String>, val status: SubscriptionStatus?, val bill: String?, val given: Set<String>)
 
-    /** Only what the file sets; null is "leave it". [parkingLotWait] is in days. */
+    /** Only what the file sets; null is "leave it". */
     data class SettingsIn(
         val autoApprove: Boolean? = null,
         val alertAmountsOnLockScreen: Boolean? = null, val alertBillReminders: Boolean? = null, val alertAutopayWarnings: Boolean? = null,
         val appLock: Boolean? = null, val lockAfterMinutes: Int? = null, val hideScreen: Boolean? = null,
-        val checkForUpdatesAtStartup: Boolean? = null, val parkingLotWait: Int? = null,
+        val checkForUpdatesAtStartup: Boolean? = null,
     ) {
         /** The settings the file changes, by their file names. */
         fun named(): List<String> = listOfNotNull(
@@ -60,7 +60,7 @@ object SetupImport {
             alertAmountsOnLockScreen?.let { "alerts.amountsOnLockScreen" },
             alertBillReminders?.let { "alerts.billReminders" }, alertAutopayWarnings?.let { "alerts.autopayWarnings" },
             appLock?.let { "appLock" }, lockAfterMinutes?.let { "lockAfterMinutes" }, hideScreen?.let { "hideScreen" },
-            checkForUpdatesAtStartup?.let { "checkForUpdatesAtStartup" }, parkingLotWait?.let { "parkingLotWait" },
+            checkForUpdatesAtStartup?.let { "checkForUpdatesAtStartup" },
         )
     }
 
@@ -92,7 +92,6 @@ object SetupImport {
     )
     val DIRECTIONS = mapOf("out" to -1, "in" to 1, "either" to 0)
     val STATUSES = mapOf("new" to SubscriptionStatus.NEW, "confirmed" to SubscriptionStatus.CONFIRMED, "not_a_subscription" to SubscriptionStatus.DISMISSED)
-    val WAITS = mapOf("1 day" to 1, "2 days" to 2, "1 week" to 7)
 
     private val TOP = setOf("format", "version", "accounts", "envelopes", "bills", "paydays", "rules", "subscriptions", "settings")
     private val ACCOUNT_KEYS = setOf("name", "showInActivity")
@@ -106,7 +105,7 @@ object SetupImport {
      */
     private val ALERT_KEYS = setOf("spending", "lowOrOverspent", "safeToSpendNegative", "amountsOnLockScreen", "billReminders", "autopayWarnings")
     private val SETTING_KEYS = setOf(
-        "autoApprove", "alerts", "appLock", "lockAfterMinutes", "hideScreen", "checkForUpdatesAtStartup", "parkingLotWait",
+        "autoApprove", "alerts", "appLock", "lockAfterMinutes", "hideScreen", "checkForUpdatesAtStartup",
     )
     private val LOCK_MINUTES = setOf(0, 1, 5, 15, 30)
 
@@ -181,7 +180,8 @@ object SetupImport {
 
     private fun label(kind: String, i: Int, o: JSONObject) = "$kind[${i + 1}]" + ((o.opt("name") ?: o.opt("match")) as? String)?.let { " (\"$it\")" }.orEmpty()
 
-    fun parse(text: String): Parsed {
+    /** [product]: what the messages call this side, "app" on the phone and "program" on the computer (0.14.0). */
+    fun parse(text: String, product: String = "app"): Parsed {
         val root = try {
             JSONObject(text)
         } catch (e: JSONException) {
@@ -200,7 +200,7 @@ object SetupImport {
         val envelopes = objects(root, "envelopes", errors).mapIndexed { i, o ->
             val r = Reader(o, label("envelopes", i, o), errors, ENVELOPE_KEYS)
             val name = r.text("name", required = true)
-            if (name != null && (name.equals("Rollover", true) || name.equals("Cash", true))) errors += "${r.where}: $name is made by the app and can't be imported."
+            if (name != null && (name.equals("Rollover", true) || name.equals("Cash", true))) errors += "${r.where}: $name is made by the $product and can't be imported."
             var claimed: List<String>? = null
             if (r.has("categories")) {
                 val a = o.opt("categories") as? JSONArray
@@ -292,7 +292,7 @@ object SetupImport {
                     r.bool("autoApprove"),
                     ar.bool("amountsOnLockScreen"), ar.bool("billReminders"), ar.bool("autopayWarnings"),
                     r.bool("appLock"), r.int("lockAfterMinutes", LOCK_MINUTES, "0, 1, 5, 15 or 30"), r.bool("hideScreen"),
-                    r.bool("checkForUpdatesAtStartup"), r.choice("parkingLotWait", WAITS),
+                    r.bool("checkForUpdatesAtStartup"),
                 )
             }
         }
@@ -316,6 +316,8 @@ object SetupImport {
 class SetupImporter(
     private val store: BudgetStore,
     private val actions: BudgetActions = BudgetActions(store),
+    /** What the messages call this side: "app" on the phone, "program" on the computer (0.14.0). */
+    private val product: String = "app",
     private val today: () -> LocalDate = { LocalDate.now() },
 ) {
     private val dao get() = store.dao
@@ -342,7 +344,7 @@ class SetupImporter(
         val known = (envs.map { it.name.lowercase() } + plan.envelopes.map { it.key() }).toSet()
         for (e in plan.envelopes) {
             val old = envs.firstOrNull { it.name.equals(e.name, true) && !it.isSystem }
-            if (envs.any { it.name.equals(e.name, true) && it.isSystem }) errors += "envelopes (\"${e.name}\"): that envelope is made by the app and can't be imported."
+            if (envs.any { it.name.equals(e.name, true) && it.isSystem }) errors += "envelopes (\"${e.name}\"): that envelope is made by the $product and can't be imported."
             val mode = e.mode ?: old?.mode
             if (mode == null) errors += "envelopes (\"${e.name}\"): a new envelope needs a \"mode\"."
             if (mode == EnvelopeMode.GOAL && (e.goal ?: old?.goalAmount) == null) errors += "envelopes (\"${e.name}\"): a goal envelope needs \"goal\" and \"goalDate\"."
@@ -371,22 +373,22 @@ class SetupImporter(
             val old = billsHere.firstOrNull { it.name.equals(b.name, true) }
             if (old == null && b.amount == null) errors += "bills (\"${b.name}\"): a new bill needs an \"amount\"."
             if (old == null && b.due == null) errors += "bills (\"${b.name}\"): a new bill needs a \"due\" date."
-            b.envelope?.let { if (it.lowercase() !in known) errors += "bills (\"${b.name}\"): there's no envelope called \"$it\" in the file or the app." }
+            b.envelope?.let { if (it.lowercase() !in known) errors += "bills (\"${b.name}\"): there's no envelope called \"$it\" in the file or the $product." }
         }
         val accounts = dao.accountsNow().filter { !it.deleted }
         // accounts are never made by the importer: the file can only say whether a known one has its Activity tab
         for (a in plan.accounts) {
-            if (accounts.none { it.name.equals(a.name, true) }) errors += "accounts (\"${a.name}\"): there's no account called \"${a.name}\" in the app. The importer doesn't make accounts."
+            if (accounts.none { it.name.equals(a.name, true) }) errors += "accounts (\"${a.name}\"): there's no account called \"${a.name}\" in the $product. The importer doesn't make accounts."
         }
         for (r in plan.rules) {
-            r.account?.let { a -> if (accounts.none { it.name.equals(a, true) }) errors += "rules (\"${r.match}\"): there's no account called \"$a\" in the app." }
-            r.bill?.let { if (it.lowercase() !in billNames) errors += "rules (\"${r.match}\"): there's no bill called \"$it\" in the file or the app." }
+            r.account?.let { a -> if (accounts.none { it.name.equals(a, true) }) errors += "rules (\"${r.match}\"): there's no account called \"$a\" in the $product." }
+            r.bill?.let { if (it.lowercase() !in billNames) errors += "rules (\"${r.match}\"): there's no bill called \"$it\" in the file or the $product." }
             val direction = r.direction ?: -1
             if (r.category != null && direction != -1) errors += "rules (\"${r.match}\"): a category is for money out."
             for ((env, _) in r.splits) {
                 if (env.equals(SetupImport.READY, true)) {
                     if (direction <= 0) errors += "rules (\"${r.match}\"): only a rule for money in (\"direction\": \"in\") can go to $env."
-                } else if (env.lowercase() !in known) errors += "rules (\"${r.match}\"): there's no envelope called \"$env\" in the file or the app."
+                } else if (env.lowercase() !in known) errors += "rules (\"${r.match}\"): there's no envelope called \"$env\" in the file or the $product."
             }
             if (r.splits.map { it.first.lowercase() }.distinct().size != r.splits.size) errors += "rules (\"${r.match}\"): an envelope is in the split twice."
         }
@@ -394,7 +396,7 @@ class SetupImporter(
         for (s in plan.subscriptions) {
             val old = subsHere.firstOrNull { it.name.equals(s.name, true) }
             if (old == null && s.payees.isEmpty()) errors += "subscriptions (\"${s.name}\"): a new subscription needs \"payees\"."
-            s.bill?.let { if (it.lowercase() !in billNames) errors += "subscriptions (\"${s.name}\"): there's no bill called \"$it\" in the file or the app." }
+            s.bill?.let { if (it.lowercase() !in billNames) errors += "subscriptions (\"${s.name}\"): there's no bill called \"$it\" in the file or the $product." }
         }
         if (errors.isNotEmpty()) return Checked.Bad(errors)
         val add = linkedMapOf<String, List<String>>()
@@ -415,8 +417,8 @@ class SetupImporter(
     }
 
     /**
-     * Applies a checked plan: envelopes (then their fill order), bills, the next payday, rules, subscriptions, and the
-     * parking lot wait (the other settings live on the phone and are applied by the screen). Returns the preview it
+     * Applies a checked plan: envelopes (then their fill order), bills, the next payday, rules and subscriptions (the
+     * settings live on the device and are applied by the screen). Returns the preview it
      * applied. Throws BudgetRuleException (with what's wrong) if the plan no longer fits.
      */
     suspend fun apply(plan: SetupImport.Plan): Preview {
@@ -526,7 +528,6 @@ class SetupImporter(
                 )
             }
         }
-        plan.settings?.parkingLotWait?.let { ParkedBuys(store, actions, today).setDefaultWait(it) }
         return preview
     }
 }

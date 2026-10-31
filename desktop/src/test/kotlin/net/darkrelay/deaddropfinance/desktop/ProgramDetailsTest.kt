@@ -108,22 +108,23 @@ class ProgramDetailsTest : ProgramScreensBase() {
     @Test fun theCategoriesTabShowsTheTotalAndEachCategoryAndStepsToOlderMonths() {
         show()
         click("nav.CATEGORIES")
-        until("Total spent")
+        // 0.14.0: the program's layout: the total and the table, the month stepper in the top bar
+        tag("card.categoryTotal").assertExists()
         until("Groceries")
         assertTrue(shows("$42.00"))
-        clickText("‹ Older")
-        until("Newer ›")
-        clickText("Newer ›")
+        click("month.older")
+        compose.waitUntil(5_000) { model.monthIndex == minOf(1, model.months.size - 1) }
+        click("month.newer")
         until("$42.00")
         // a category lists its purchases for the month
-        clickText("Groceries", exact = true)
+        click("category.Groceries")
         until("Corner Market")
     }
 
     @Test fun manageCategoriesAddsRenamesAndAsksWhereADeletedCategorysPurchasesGo() {
         show()
         click("nav.CATEGORIES")
-        clickText("Manage", exact = true)
+        click("categories.manage")
         until("New category")
         typeInto("New category", "Sample Hobbies")
         clickText("Add", exact = true)

@@ -12,8 +12,8 @@ class ProgramSetupTest : ProgramScreensBase() {
 
     @Test fun theWizardRunsWithoutAnAppLockPageAndAddsTheStartersPicked() {
         show()
-        click("nav.MORE")
-        clickText("Run the setup wizard again")
+        click("nav.SETTINGS")
+        click("settings.setup")
         until("Setup, step 1 of 4")
         assertTrue(shows("lives on this computer"))
         assertTrue(!shows("app lock"))
@@ -27,7 +27,8 @@ class ProgramSetupTest : ProgramScreensBase() {
         assertTrue(!shows("App lock is"))
         // the button (the page's title says Finish too)
         clickLowest("Finish")
-        until("Import CSV")
+        // back where it was opened from: the program's Settings
+        until("Setup and data")
         refresh()
         assertTrue(b().envelopes.any { it.name == "Eating out" })
     }
@@ -36,8 +37,8 @@ class ProgramSetupTest : ProgramScreensBase() {
         // the example names an account the importer expects to be there (it never makes accounts)
         show { saveAccount(null, "Sample Checking", net.darkrelay.deaddropfinance.data.AccountType.BANK, 0, today.minusDays(10)) }
         saveTo = tmp.newFile("deaddropfinance-setup-example.json")
-        click("nav.MORE")
-        clickText("Import setup", exact = true)
+        click("nav.SETTINGS")
+        click("settings.importSetup")
         clickText("Export example", exact = true)
         compose.waitUntil(5_000) { saveTo!!.length() > 0 }
         assertTrue(saveTo!!.readText().trim().startsWith("{"), "the example from docs/IMPORT.md")

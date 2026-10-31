@@ -30,7 +30,7 @@ import org.robolectric.annotation.Config
 
 /**
  * Payday is marked by hand only (1.3.1): a deposit from a CSV import is an ordinary transaction
- * and starts no payday; marking it by hand sweeps and fills as before. Also a bought parked buy's charge sorted
+ * and starts no payday; marking it by hand sweeps and fills as before. Also
  * against its envelope when it's imported. Synthetic data only.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -108,28 +108,5 @@ class PaydayByHandTest {
         assertEquals(250_00L, b.envelopeBalance(b.rollover!!.id))
         assertEquals(300_00L, b.envelopeBalance(food))
         assertEquals(0L, b.sortedCheck)
-    }
-
-    @Test fun aBoughtParkedBuysChargeIsSortedToItsEnvelopeWhenItsImported() = runBlocking<Unit> {
-        val fun_ = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Sample Fun", EnvelopeMode.FILL_TO_TARGET))
-        val clock = longArrayOf(now - 3L * ParkedBuys.DAY_MS)
-        val parked = ParkedBuys(store, a, { day }, { clock[0] })
-        val lamp = parked.park("Sample Lamp", 89_99, 2)
-        clock[0] = now
-        parked.buy(lamp, fun_)
-        // the store charges tax on top; a grocery charge the same day is left alone
-        val csv = "Date,Description,Amount\n$day,SAMPLE HARDWARE 0012,-95.39\n$day,SAMPLE MARKET,-12.00\n"
-        val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
-        assertEquals(2, res.newIds.size)
-        Arrivals(store, a, { day }, { now }).landed(res.newIds, autoApprove = false)
-        val p = store.dao.parkedBuy(lamp)!!
-        val charge = store.dao.transaction(p.transactionId!!)!!
-        assertEquals(-95_39L, charge.amount)
-        assertEquals(SortedBy.AUTO, charge.sortedBy)
-        assertEquals(fun_, store.dao.linesOf(charge.id).single().envelopeId)
-        assertEquals(-95_39L, a.snapshot().envelopeBalance(fun_))
-        val other = res.newIds.first { it != charge.id }
-        assertNull(store.dao.transaction(other)!!.sortedBy)
-        assertEquals(0L, a.snapshot().sortedCheck)
     }
 }

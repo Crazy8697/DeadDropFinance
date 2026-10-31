@@ -15,7 +15,7 @@ import kotlin.test.assertTrue
 
 /**
  * 0.13.0: receipts in the program (the phone's screens): one added to a transaction from an image file (kept
- * encrypted; the program doesn't read the text, so it's typed in), the Receipts list and a receipt's screen, editing,
+ * encrypted; this one has no text to read, 0.14.0, so it's typed in, as the phone marks), the Receipts list and a receipt's screen, editing,
  * matching a waiting one to its charge, splitting by items, and deleting after the phone's question.
  */
 class ProgramReceiptsTest : ProgramScreensBase() {
@@ -34,10 +34,10 @@ class ProgramReceiptsTest : ProgramScreensBase() {
 
     private fun receipts() = runBlocking { store().dao.receiptsNow() }.filter { !it.deleted }
 
-    /** Fills the receipt form: store, total, and one item per (name, price). */
+    /** Fills the receipt form: store, total, and one item per (name, price). Nothing was read, so they're marked to check. */
     private fun fill(store: String, total: String, items: List<Pair<String, String>>) {
-        typeInto("Store", store)
-        typeInto("Total", total)
+        typeMarked("Store", store)
+        typeMarked("Total", total)
         items.forEachIndexed { i, (name, price) ->
             clickText("Add an item", exact = true)
             val names = compose.onAllNodes(fieldMatcher("Item"), useUnmergedTree = false)
@@ -54,9 +54,9 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         click("act.Corner Market")
         click("dialog.details")
         clickText("Add receipt", exact = true)
-        until("This computer keeps the image with the receipt but doesn't read it")
+        until("It's read on this computer; nothing is sent anywhere.")
         assertFalse(shows("Take a photo"), "no camera on the program")
-        clickText("Choose an image", exact = true)
+        clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
         fill("Corner Market", "42.00", listOf("Sample Apples" to "30.00", "Sample Soap" to "12.00"))
         clickText("Save receipt", exact = true)
@@ -82,9 +82,8 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         clickText("Apply split", exact = true)
         compose.waitUntil(5_000) { refresh(); b().lines.count { it.transactionId == r.transactionId } == 2 }
         assertEquals(setOf(id("Groceries"), id("Gifts")), b().lines.filter { it.transactionId == r.transactionId }.map { it.envelopeId }.toSet())
-        // the Receipts list (More) and deleting it after the phone's question
-        click("nav.MORE")
-        clickText("Receipts", exact = true)
+        // the Receipts list (its own sidebar item, 0.14.0) and deleting it after the phone's question
+        click("nav.RECEIPTS")
         until("Corner Market")
         clickText("Corner Market")
         until("Edit")
@@ -101,14 +100,13 @@ class ProgramReceiptsTest : ProgramScreensBase() {
                 listOf(net.darkrelay.deaddropfinance.domain.BudgetActions.LineDraft(ids.getValue("Groceries"), -42_00, categoryId = category("Groceries")))))
         }
         picked = image()
-        click("nav.MORE")
-        clickText("Receipts", exact = true)
+        click("nav.RECEIPTS")
         clickText("Scan", exact = true)
-        clickText("Choose an image", exact = true)
+        clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
-        typeInto("Store", "Corner Market")
-        typeInto("Total", "42.00")
-        typeInto("Date (yyyy-mm-dd)", today.minusDays(1).toString())
+        typeMarked("Store", "Corner Market")
+        typeMarked("Total", "42.00")
+        typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
         clickText("Save receipt", exact = true)
         compose.waitUntil(5_000) { receipts().size == 1 }
         until("Corner Market, $42.00")
@@ -116,15 +114,14 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         compose.waitUntil(5_000) { receipts().single().transactionId != null }
         assertNotNull(b().transactions.firstOrNull { it.id == receipts().single().transactionId && it.payee == "Corner Market" })
         // one possible charge left (the other has its receipt): a new receipt matches it by itself
-        click("nav.HOME")
-        click("nav.MORE")
-        clickText("Receipts", exact = true)
+        click("nav.BUDGET")
+        click("nav.RECEIPTS")
         clickText("Scan", exact = true)
-        clickText("Choose an image", exact = true)
+        clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
-        typeInto("Store", "Corner Market")
-        typeInto("Total", "42.00")
-        typeInto("Date (yyyy-mm-dd)", today.minusDays(1).toString())
+        typeMarked("Store", "Corner Market")
+        typeMarked("Total", "42.00")
+        typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
         clickText("Save receipt", exact = true)
         until("Matched to Corner Market on")
         compose.waitUntil(5_000) { receipts().size == 2 && receipts().all { it.transactionId != null } }
@@ -133,12 +130,38 @@ class ProgramReceiptsTest : ProgramScreensBase() {
     @Test fun aFileThatIsNotAnImageIsRefusedPlainly() {
         show()
         picked = tmp.newFile("not-an-image.png").also { it.writeText("plain text") }
-        click("nav.MORE")
-        clickText("Receipts", exact = true)
+        click("nav.RECEIPTS")
         clickText("Scan", exact = true)
-        clickText("Choose an image", exact = true)
-        until("That file couldn't be read as an image. Choose a JPG or PNG.")
+        clickText("Choose an image or PDF", exact = true)
+        until("That file couldn't be read as a receipt image or PDF. Try another.")
         assertTrue(receipts().isEmpty())
+    }
+
+    /** 0.14.0: a receipt photo is read on this computer into the phone's form, as the phone reads one. */
+    @Test fun aReceiptPhotoIsReadIntoTheFormAndSavedAsRead() {
+        show()
+        picked = tmp.newFile("sample-grocery.jpg").also { javax.imageio.ImageIO.write(ProgramReceiptReadingTest.photo(ProgramReceiptReadingTest.grocery, 2.0), "jpg", it) }
+        click("nav.RECEIPTS")
+        clickText("Scan", exact = true)
+        until("It's read on this computer; nothing is sent anywhere.")
+        clickText("Choose an image or PDF", exact = true)
+        until("Check the receipt", ms = 60_000)
+        until("SAMPLE FRESH MARKET")
+        assertTrue(shows("12.49"), dump())
+        assertTrue(shows("SAMPLE BREAD"), dump())
+        assertFalse(shows("Store (check this)"), "read clearly: ${dump()}")
+        clickText("Save receipt", exact = true)
+        compose.waitUntil(10_000) { receipts().size == 1 }
+        val r = receipts().single()
+        assertEquals("SAMPLE FRESH MARKET", r.store)
+        assertEquals(12_49L, r.total)
+        assertEquals(3, runBlocking { store().dao.receiptItemsNow() }.count { it.receiptId == r.id })
+    }
+
+    /** A field the reading wasn't sure of (here: nothing could be read) is labeled to check, as on the phone. */
+    private fun typeMarked(label: String, text: String, suffix: String = "") {
+        val marked = "$label (check this)$suffix"
+        typeInto(if (shows(marked)) marked else "$label$suffix", text)
     }
 
     private fun fieldMatcher(label: String) = androidx.compose.ui.test.SemanticsMatcher("field $label") { n ->

@@ -77,6 +77,11 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composa
 
 @Composable
 fun ScreenTitle(title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit = {}) {
+    // a sidebar item's first screen in the program: the program's top bar already names it
+    if (LocalHostedRoot.current) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End, verticalAlignment = Alignment.CenterVertically) { actions() }
+        return
+    }
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         if (onBack != null) TextButton(onClick = onBack) { Text("Back") }
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).padding(start = if (onBack == null) 4.dp else 0.dp))

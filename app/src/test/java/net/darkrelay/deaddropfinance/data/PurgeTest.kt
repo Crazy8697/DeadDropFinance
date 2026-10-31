@@ -12,7 +12,6 @@ import java.time.ZoneOffset
 import kotlinx.coroutines.runBlocking
 import net.darkrelay.deaddropfinance.domain.BillActions
 import net.darkrelay.deaddropfinance.domain.BudgetActions
-import net.darkrelay.deaddropfinance.domain.ParkedBuys
 import net.darkrelay.deaddropfinance.domain.Rules
 import net.darkrelay.deaddropfinance.domain.Sorting
 import net.darkrelay.deaddropfinance.sync.SyncSettings
@@ -103,8 +102,8 @@ class PurgeTest {
         val rid = store.write { put(null, ReceiptEntity(transactionId = tx, store = "Sample Market", total = 18_40, pages = 1, createdAt = now, updatedAt = now)).id }
         val images = ReceiptImages(receipts) { ReceiptImages.keyFrom(secrets) }
         images.write(rid, 0, "invented photo".toByteArray())
-        ParkedBuys(store, a, { day }) { now }.park("Sample Lamp", 24_00, 1)
-        ParkedBuys(store, a, { day }) { now }.setDefaultWait(7)
+        // a row in parked buys' table, kept unused since 1.8.1: Purge empties it with the rest
+        store.write { put(null, net.darkrelay.deaddropfinance.data.ParkedBuyEntity(name = "Sample Lamp", amount = 24_00, waitDays = 1, parkedAt = now, readyAt = now, createdAt = now, updatedAt = now)) }
         settings.autoApprove = true
         settings.setupDone = true
         settings.alertBills = false
@@ -129,7 +128,6 @@ class PurgeTest {
         assertFalse(settings.autoApprove)
         assertFalse(settings.setupDone)
         assertTrue(settings.alertBills)
-        assertEquals(1, ParkedBuys(store, a, { day }).defaultWait())
         assertTrue(store.deviceId().isNotBlank())
     }
 

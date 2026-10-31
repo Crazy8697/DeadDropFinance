@@ -96,13 +96,12 @@ fun UpdateBar(
 }
 
 /** The parts of Home, top to bottom, in the reference prototype's order. Rollover is never one of them. */
-enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, OVER_ASSIGNED, BONUS, PAY_THESE_NOW, TO_SORT, PARKED_BUYS, ENVELOPES }
+enum class HomeSection { SAFE_TO_SPEND, FORECAST, READY_TO_ASSIGN, OVER_ASSIGNED, BONUS, PAY_THESE_NOW, TO_SORT, ENVELOPES }
 
 /**
  * Which parts Home shows, in order: Safe to Spend always first; the forecast when there's a next payday to forecast
  * to; Ready to Assign only when money is waiting, or the over-assigned warning in its place when it's below zero; the
- * payday checklist when it has bills; To sort when something is waiting; the parked buys card; then Home's envelopes
- * with All envelopes.
+ * payday checklist when it has bills; To sort when something is waiting; then Home's envelopes with All envelopes.
  */
 fun homeSections(b: Budget, hasForecast: Boolean, hasChecklist: Boolean): List<HomeSection> = buildList {
     add(HomeSection.SAFE_TO_SPEND)
@@ -112,7 +111,6 @@ fun homeSections(b: Budget, hasForecast: Boolean, hasChecklist: Boolean): List<H
     add(HomeSection.BONUS)
     if (hasChecklist) add(HomeSection.PAY_THESE_NOW)
     if (b.toSort.isNotEmpty()) add(HomeSection.TO_SORT)
-    add(HomeSection.PARKED_BUYS)
     add(HomeSection.ENVELOPES)
 }
 
@@ -137,7 +135,7 @@ fun namesText(names: List<String>): String = when (names.size) {
 /**
  * Home (Stage 11, built from the reference prototype): Safe to Spend is the biggest thing on the screen, then the
  * balance forecast, Ready to Assign (only with money waiting; a warning row when over-assigned), Pay these now, To
- * sort, parked buys, and the everyday envelopes with any debt payment due before payday. Rollover isn't shown here. [top] holds the setup card, the alerts offer and the update bar.
+ * sort, and the everyday envelopes with any debt payment due before payday. Rollover isn't shown here. [top] holds the setup card, the alerts offer and the update bar.
  */
 @Composable
 fun HomeScreen(
@@ -150,9 +148,6 @@ fun HomeScreen(
     onSafeToSpend: () -> Unit,
     /** Over-assigned: moves money back to Ready to Assign. */
     onFixOverAssigned: () -> Unit,
-    parkedWaiting: Int,
-    parkedReady: Int,
-    onParked: () -> Unit,
     /** The late payday note and the balance forecast card. */
     forecast: (@Composable () -> Unit)? = null,
     /** The payday checklist (Pay these now). */
@@ -198,9 +193,6 @@ fun HomeScreen(
             HomeSection.TO_SORT -> item {
                 val n = budget.toSort.size
                 HomeLinkCard(TabIcons.Inbox, "$n transaction${if (n == 1) "" else "s"} to sort", null, onToSort)
-            }
-            HomeSection.PARKED_BUYS -> item {
-                HomeLinkCard(TabIcons.Hourglass, "Parked buys", "$parkedWaiting waiting" + if (parkedReady > 0) ", $parkedReady ready to decide" else "", onParked)
             }
             HomeSection.ENVELOPES -> {
                 items(envelopes, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }

@@ -110,7 +110,8 @@ abstract class ProgramScreensBase {
 
     fun refresh() = runBlocking { model.refresh() }
     fun tag(t: String): SemanticsNodeInteraction = compose.onNodeWithTag(t, useUnmergedTree = true)
-    fun click(t: String) { tag(t).performClick(); compose.waitForIdle() }
+    /** Clicks the node tagged [t], scrolled into view first when it's in a scrolling screen (Settings is long). */
+    fun click(t: String) { runCatching { tag(t).performScrollTo() }; tag(t).performClick(); compose.waitForIdle() }
     fun shows(t: String) = compose.onAllNodesWithText(t, substring = true, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
     /** Waits for [t] to show, scrolling the screen's list to it (a phone list composes only what's on screen). */
     fun until(t: String, ms: Long = 8_000) {

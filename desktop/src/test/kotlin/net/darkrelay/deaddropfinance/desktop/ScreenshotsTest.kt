@@ -23,7 +23,7 @@ class ScreenshotsTest {
         val dir = File(out).also { it.mkdirs() }
         val made = SampleBudget.filled(tmp.newFolder("DeadDropFinance"))
         val m = made.model
-        val shell = Shell(checkAtStartup = true)
+        val shell = Shell(checkAtStartup = true, settings = Settings(tmp.newFolder("settings")))
         fun shot(name: String, setup: () -> Unit) {
             m.dialog = null
             m.drawerEnvelope = null
@@ -32,7 +32,10 @@ class ScreenshotsTest {
             val scene = ImageComposeScene(1400, 900, Density(1f)) { DesktopApp(m, shell) }
             try {
                 scene.render(0)
+                // what's worked out off the UI thread (the payday plan) is in before the last frame
+                Thread.sleep(400)
                 scene.render(500_000_000)
+                Thread.sleep(200)
                 val img = scene.render(1_000_000_000)
                 File(dir, "$name.png").writeBytes(img.encodeToData(EncodedImageFormat.PNG)!!.bytes)
             } finally {
@@ -40,6 +43,19 @@ class ScreenshotsTest {
             }
         }
         val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.14.0") {
+            // 0.14.0: one sidebar; Budget with what Home showed; Receipts; Bills and Categories in the program's layout; Settings
+            shot("01-budget") { m.go(Screen.BUDGET) }
+            shot("02-receipts") { m.go(Screen.RECEIPTS) }
+            shot("03-bills") { m.go(Screen.BILLS) }
+            shot("04-bills-next-payday") { m.go(Screen.BILLS); m.dialog = Dialog.NextPayday }
+            shot("05-categories") { m.go(Screen.CATEGORIES) }
+            shot("06-settings") { m.go(Screen.SETTINGS) }
+            val move = m.budget!!.moves.first { net.darkrelay.deaddropfinance.domain.MoveRules.editable(it) }
+            shot("07-edit-move") { m.go(Screen.ACTIVITY); m.activityTab = null; m.dialog = Dialog.MoveMoney(editId = move.id) }
+            shot("08-scan-receipt") { m.go(Screen.RECEIPTS); m.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }
+            shot("09-sync") { m.go(Screen.SYNC) }
+        }
         if (System.getProperty("ddf.screensRound") == "0.8.0") {
             // 0.8.0: the new and changed screens and dialogs
             shot("01-add-transaction-category") { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"]) }

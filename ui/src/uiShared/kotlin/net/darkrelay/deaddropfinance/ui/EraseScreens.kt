@@ -36,12 +36,12 @@ fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
             "Every account and its balance",
             "Every transaction",
             "Every envelope and what's in it",
-            "Settings, including app lock and Hide screen",
+            if (LocalDeviceWords.current.appLock) "Settings, including app lock and Hide screen" else "Settings, including Hide screen",
         )) {
             Text("  $line", color = DdfColors.Muted)
         }
         Gap()
-        Text("If you might want this back, make a backup first (More, Backup and restore).", color = DdfColors.Warning)
+        Text("If you might want this back, make a backup first (${LocalDeviceWords.current.backupPlace}).", color = DdfColors.Warning)
         Gap()
         Text("The ${LocalDeviceWords.current.product} then starts over like a fresh install, at the setup wizard.", color = DdfColors.Muted)
         Gap(16)
@@ -77,8 +77,8 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
             "Every transaction",
             "Every envelope and what's in it",
             "Bills, paydays, rules and subscriptions",
-            "Receipts and their photos, and parked buys",
-            "Settings, including app lock and Hide screen",
+            "Receipts and their photos",
+            if (LocalDeviceWords.current.appLock) "Settings, including app lock and Hide screen" else "Settings, including Hide screen",
         )) {
             Text("  $line", color = DdfColors.Muted)
         }

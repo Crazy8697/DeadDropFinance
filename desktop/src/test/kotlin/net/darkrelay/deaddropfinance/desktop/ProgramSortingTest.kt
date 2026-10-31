@@ -54,8 +54,8 @@ class ProgramSortingTest : ProgramScreensBase() {
         show()
         rule("sample bookshop", "Gifts")
         rule("sample hardware", "Groceries")
-        click("nav.MORE")
-        clickText("Rules", exact = true)
+        click("nav.SETTINGS")
+        click("settings.rules")
         until("\"sample bookshop\"")
         until("\"sample hardware\"")
         // a new rule is tried first; Up on the second moves it back to the top
@@ -84,9 +84,9 @@ class ProgramSortingTest : ProgramScreensBase() {
     @Test fun autoApproveSortsRuleMatchesAsTheyArriveAndListsThemUnderRecentlySorted() {
         show()
         rule("sample bookshop", "Gifts")
-        click("nav.MORE")
+        click("nav.SETTINGS")
         until("Approve rule matches automatically")
-        toggleFor("Approve rule matches automatically")
+        click("setting.autoApprove")
         assertTrue(ProgramAppSettings(settings).autoApprove, "the setting is kept in the program's settings")
         val tx = runBlocking {
             val id = a().toSort("Sample Bookshop 7", 15_00)

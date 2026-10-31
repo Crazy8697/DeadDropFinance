@@ -19,8 +19,8 @@ class ProgramEraseTest : ProgramScreensBase() {
         val dir = dataDir()
         File(dir, "receipts").mkdirs(); File(dir, "receipts/sample-0.enc").writeText("x")
         File(dir, "secrets.bin").writeText("x")
-        click("nav.MORE")
-        clickText("Erase everything and start over")
+        click("nav.SETTINGS")
+        click("settings.erase")
         until("This deletes everything Dead Drop Finance keeps on this computer, for good:")
         assertTrue(shows("The program then starts over like a fresh install, at the setup wizard."))
         typeInto("Type ERASE to confirm", "ERASE")
@@ -43,8 +43,8 @@ class ProgramEraseTest : ProgramScreensBase() {
         show()
         val dir = dataDir()
         File(dir, "receipts").mkdirs(); File(dir, "receipts/sample-0.enc").writeText("x")
-        click("nav.MORE")
-        clickText("Purge data", exact = true)
+        click("nav.SETTINGS")
+        click("settings.purge")
         until("Type PURGE to confirm")
         typeInto("Type PURGE to confirm", "PURGE")
         clickLowest("Purge data")
@@ -53,6 +53,6 @@ class ProgramEraseTest : ProgramScreensBase() {
         assertFalse(File(dir, "receipts").exists())
         // the setup wizard, as after the phone's purge
         until("Setup, step 1 of 4")
-        assertEquals(Screen.HOME, model.screen)
+        assertEquals(Screen.BUDGET, model.screen)
     }
 }

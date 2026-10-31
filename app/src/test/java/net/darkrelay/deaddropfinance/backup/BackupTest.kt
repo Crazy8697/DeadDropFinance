@@ -29,7 +29,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import net.darkrelay.deaddropfinance.domain.BillActions
 import net.darkrelay.deaddropfinance.domain.BudgetActions
-import net.darkrelay.deaddropfinance.domain.ParkedBuys
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -115,7 +114,6 @@ class BackupTest {
         images.write(rid, 1, photo2)
         BillActions(store, actions) { day }.saveBill(null, BillActions.BillDraft("Sample Power", 90_00, day.plusDays(12), envelopeId = food, reminder = true))
         BillActions(store, actions) { day }.correctPayday(day.plusDays(14))
-        ParkedBuys(store, actions, { day }).park("Sample Lamp", 24_00, 2)
         actions.saveBonus(null, 30_00, day, "Gift card", "Sample gift")
         prefs.getValue("sync").edit(commit = true) { putBoolean("auto_approve", true); putInt("interval_hours", 12) }
         prefs.getValue("lock").edit(commit = true) { putInt("lock_timeout_minutes", 15) }

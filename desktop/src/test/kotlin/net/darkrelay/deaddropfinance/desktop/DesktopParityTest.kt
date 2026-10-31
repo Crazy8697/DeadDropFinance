@@ -4,6 +4,7 @@ import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import java.time.LocalDate
@@ -122,11 +123,12 @@ class DesktopParityTest {
         assertTrue(changesFor(t.id).any { it.operation.name == "DELETE" || it.changedFields.contains("\"deleted\":true") })
     }
 
-    @Test fun aMoveRowAndTheStartingBalanceOpenNothing() {
+    /** 0.14.0: a move made by hand opens Edit move (ProgramEditMoveTest); before, move rows opened nothing. */
+    @Test fun aMoveRowOpensEditMove() {
         show()
         click("nav.ACTIVITY")
         click("act.Moved from Dining out")
-        assertNull(m.dialog)
+        assertTrue((m.dialog as? Dialog.MoveMoney)?.editId != null, m.dialog.toString())
     }
 
     // ---- transfers, ATM withdrawals, bonus income, money in, Pending ----
@@ -223,7 +225,10 @@ class DesktopParityTest {
         click("drawer.archive")
         assertTrue(b().envelopes.first { it.id == id("Gifts") }.archived)
         tag("archived.Gifts").assertExists()
-        click("unarchive.Gifts")
+        m.drawerEnvelope = null
+        compose.waitForIdle()
+        tag("unarchive.Gifts").performScrollTo().performClick()
+        compose.waitForIdle()
         assertFalse(b().envelopes.first { it.id == id("Gifts") }.archived)
     }
 
