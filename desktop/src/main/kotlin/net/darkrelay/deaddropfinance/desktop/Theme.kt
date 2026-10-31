@@ -70,8 +70,16 @@ object C {
     val Good = Color(0xFF2FBF71)
     val Bad = P.error
     val Warn = P.warning
-    /** The menu strip above everything, a shade darker than a card. */
-    val MenuBar = Color(0xFF0D1217)
+    /**
+     * The menus (0.15.0), as DarkRelay's other Windows programs have them: the menu bar (#16181d), an open menu (#1e2128) with its border (#3a4150), the
+     * highlighted entry (#2d6cdf) with white text on it, and the disabled text (#5c6370). Menu text is [Text].
+     */
+    val MenuBar = Color(0xFF16181D)
+    val MenuPanel = Color(0xFF1E2128)
+    val MenuBorder = Color(0xFF3A4150)
+    val MenuSelected = Color(0xFF2D6CDF)
+    val MenuSelectedText = Color(0xFFFFFFFF)
+    val MenuDisabled = Color(0xFF5C6370)
     /** Text on a teal button. */
     val OnTeal = Color(0xFFEAF8FC)
     /** A switch's track when it's off. */

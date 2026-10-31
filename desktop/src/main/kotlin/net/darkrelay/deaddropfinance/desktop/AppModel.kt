@@ -87,7 +87,7 @@ const val TO_SORT = "__tosort__"
 /** Where a restore stages a backup's receipt photos, in the data folder, before swapping them in (0.14.0). */
 const val RESTORE_STAGING = "receipts-restore"
 
-class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDate::now) {
+class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now) {
 
     var budget by mutableStateOf<Budget?>(null)
         private set
@@ -147,6 +147,19 @@ class AppModel(val engine: Engine?, private val today: () -> LocalDate = LocalDa
     var phoneGeneration by mutableStateOf(0)
     /** Rises when the payday plan (Bills, Budget's forecast) must be worked out again: the payday was changed. */
     var planTick by mutableStateOf(0)
+
+    /**
+     * Export CSV (Activity's button and File > Export CSV, 0.15.0): what Activity's tab shows for the budget month (the
+     * moves too, on All), saved where the user picks.
+     */
+    fun exportCsv(shell: Shell) {
+        val b = budget ?: return
+        val acct = b.accounts.firstOrNull { it.id == activityTab }
+        val f = shell.pickSave(net.darkrelay.deaddropfinance.domain.ActivityExport.fileName(acct?.name, month, today())) ?: return
+        val text = net.darkrelay.deaddropfinance.domain.ActivityExport.csv(b, acct?.id, month, moves = acct == null)
+        message = if (runCatching { f.writeText(text, Charsets.UTF_8) }.isSuccess) "Saved ${f.name}." to false
+            else "${f.name} couldn't be saved there." to true
+    }
 
     fun openPhone(n: net.darkrelay.deaddropfinance.ui.Nav) {
         dialog = null

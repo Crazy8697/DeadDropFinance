@@ -1,5 +1,10 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -143,9 +148,16 @@ fun main(args: Array<String>) {
             exitApplication()
         }
 
+        // the menus' shortcuts (0.15.0): the window's keys, once the program's Shell is made below
+        var keysShell by remember { mutableStateOf<Shell?>(null) }
         Window(
             onCloseRequest = ::quit,
             state = windowState,
+            onPreviewKeyEvent = { e ->
+                val s = keysShell
+                s != null && e.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                    ProgramMenus.onKey(e.key, e.isCtrlPressed, e.isAltPressed, model, s)
+            },
             title = PROGRAM_NAME,
             icon = painterResource("deaddropfinance-256.png"),
             // the smoke test never takes focus from whatever the user is doing
@@ -239,6 +251,7 @@ fun main(args: Array<String>) {
                 onErase = { erase() },
                 onPurge = { purge() },
             )
+            SideEffect { keysShell = shell }
             DesktopApp(model, shell)
             if (smoke != null) {
                 LaunchedEffect(Unit) {

@@ -84,6 +84,11 @@ data class EnvelopeEntity(
     /** Debt: an optional required payment and its due date (reminders come with bills in Stage 10). */
     @ColumnInfo(name = "required_payment") val requiredPayment: Long? = null,
     @ColumnInfo(name = "due_date") val dueDate: LocalDate? = null,
+    /**
+     * Debt (schema 13, phone 1.9.0, program 0.15.0): the yearly interest rate in hundredths of a percent (2499 is
+     * 24.99%), for Debt paydown's payoff date and interest. Null: not given.
+     */
+    @ColumnInfo(name = "interest_rate") val interestRate: Long? = null,
     val archived: Boolean = false,
     /** The fill order: payday auto-fill and the Assign screen go through envelopes in this order. */
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
@@ -104,7 +109,7 @@ data class EnvelopeEntity(
         "name" to name, "mode" to mode.name, "target" to target, "per_payday" to perPayday,
         "goal_amount" to goalAmount, "goal_date" to goalDate?.toString(), "debt_owed" to debtOwed,
         "debt_owed_since" to debtOwedSince?.toString(), "required_payment" to requiredPayment,
-        "due_date" to dueDate?.toString(), "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "reminder" to reminder,
+        "due_date" to dueDate?.toString(), "interest_rate" to interestRate, "archived" to archived, "sort_order" to sortOrder, "everyday" to everyday, "reminder" to reminder,
         "reminder_days" to reminderDays, "is_unplanned" to unplanned, "deleted" to deleted,
     )
 }

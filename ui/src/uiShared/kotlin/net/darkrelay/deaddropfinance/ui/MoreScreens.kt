@@ -66,6 +66,8 @@ fun MoreScreen(
     currency: String = net.darkrelay.deaddropfinance.domain.Currencies.DEFAULT,
     onCurrency: ((String) -> Unit)? = null,
     onReceipts: (() -> Unit)? = null,
+    /** Reports (1.9.0): the twelve reports. */
+    onReports: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
     onSetupImport: (() -> Unit)? = null,
     backupLine: String = "Encrypted, one file",
@@ -79,6 +81,9 @@ fun MoreScreen(
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         if (onReceipts != null) {
             ListRow(onReceipts) { Column { Text("Receipts"); Text("Scanned receipts, and the ones waiting for their charge", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
+        if (onReports != null) {
+            ListRow(onReports) { Column { Text("Reports"); Text("Spending, income, trends, bills, net worth, debt, goals and prices", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         }
         if (onSetupImport != null) {
             ListRow(onSetupImport) { Column { Text("Import setup"); Text("Envelopes, bills, rules and settings from a JSON file", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
@@ -137,7 +142,8 @@ fun MoreScreen(
 
 @Composable
 fun SettingRow(title: String, help: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    // 1.9.0: a gap the text never crosses, so a long description can't run into the switch
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f)) { Text(title); Text(help, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
         Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
     }

@@ -1,5 +1,9 @@
 package net.darkrelay.deaddropfinance.ui
 
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -151,6 +155,7 @@ fun EnvelopeDetailScreen(
                         Detail("Each payday", envelope.perPayday?.let { Money.format(it) } ?: "Not set")
                         envelope.requiredPayment?.let { Detail("Required payment", Money.format(it)) }
                         envelope.dueDate?.let { Detail("Due", it.toString()) }
+                        envelope.interestRate?.let { Detail("Interest rate", net.darkrelay.deaddropfinance.domain.Reports.rateText(it) + " a year") }
                     }
                     EnvelopeMode.CASH -> Text("ATM withdrawals land here. Log what you spend in cash by hand.", color = DdfColors.Muted)
                     EnvelopeMode.ROLLOVER -> Text("Payday leftovers from Fill to target envelopes. Spend it on anything; nothing touches it by itself.", color = DdfColors.Muted)
@@ -230,6 +235,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
     var owed by remember { mutableStateOf(existing?.debtOwed?.let { Money.plain(it) } ?: "") }
     var required by remember { mutableStateOf(existing?.requiredPayment?.let { Money.plain(it) } ?: "") }
     var due by remember { mutableStateOf(existing?.dueDate?.toString() ?: "") }
+    var rate by remember { mutableStateOf(existing?.interestRate?.let { net.darkrelay.deaddropfinance.domain.Reports.rateText(it).removeSuffix("%") } ?: "") }
     var everyday by remember { mutableStateOf(existing?.everyday ?: false) }
     var reminder by remember { mutableStateOf(existing?.reminder ?: false) }
     var reminderDays by remember { mutableIntStateOf(existing?.reminderDays ?: 2) }
@@ -259,6 +265,12 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                     AmountField("Add each payday", perPayday, { perPayday = it })
                     AmountField("Required payment (optional)", required, { required = it })
                     DateField("Due date (optional)", due, { due = it })
+                    OutlinedTextField(
+                        value = rate, onValueChange = { rate = it }, label = { Text("Interest rate, % a year (optional)") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth().testTag("envelope.rate"),
+                        isError = rate.isNotBlank() && net.darkrelay.deaddropfinance.domain.Reports.parseRate(rate) == null,
+                    )
+                    Text("With the balance owed, Reports shows the payoff date and the interest on the way.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     SettingRow("Remind me", "With a required payment and due date, a reminder like a bill's, each month. Off by default.", reminder, true, { reminder = it })
                     if (reminder) Picker("How early", listOf(0 to "On the day", 1 to "1 day before", 2 to "2 days before", 3 to "3 days before", 7 to "A week before"), reminderDays, { reminderDays = it })
                 }
@@ -305,6 +317,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
                         everyday = if (system) null else everyday,
                         reminder = if (mode == EnvelopeMode.DEBT) reminder else null,
                         reminderDays = if (mode == EnvelopeMode.DEBT) reminderDays else null,
+                        interestRate = if (mode == EnvelopeMode.DEBT && rate.isNotBlank()) (net.darkrelay.deaddropfinance.domain.Reports.parseRate(rate) ?: -1) else null,
                     ),
                 )
             },

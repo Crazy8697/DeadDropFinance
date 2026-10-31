@@ -407,4 +407,40 @@ class MigrationTest {
             db.close()
         }
     }
+
+    /**
+     * 12 to 13 (1.9.0): a Debt envelope's interest rate. A 1.8.x budget with a Debt envelope (owed, per payday, a
+     * required payment and due date) and a payment from it migrates with every row and value kept; the new column is
+     * empty until a rate is given, and then it is kept.
+     */
+    @Test fun twelveToThirteenAddsTheInterestRateAndKeepsEveryRow() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-12.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 12)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL(
+            "INSERT INTO envelope (id, name, mode, per_payday, debt_owed, debt_owed_since, required_payment, due_date, archived, sort_order, everyday, reminder, reminder_days, is_unplanned, created_at, updated_at, deleted) " +
+                "VALUES ('e1', 'Sample Loan', 'DEBT', 5000, 90000, '2030-01-01', 7500, '2030-01-20', 0, 1, 0, 1, 2, 0, 1, 1, 0)",
+        )
+        raw.execSQL("UPDATE txn_line SET bucket = 'ENVELOPE', envelope_id = 'e1' WHERE id = 'l1'")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            val e = d.envelope("e1")!!
+            assertEquals("Sample Loan", e.name)
+            assertEquals(EnvelopeMode.DEBT, e.mode)
+            assertEquals(5000L, e.perPayday); assertEquals(90000L, e.debtOwed); assertEquals(7500L, e.requiredPayment)
+            assertEquals(java.time.LocalDate.of(2030, 1, 20), e.dueDate)
+            assertTrue(e.reminder)
+            assertNull("no rate until one is given", e.interestRate)
+            assertEquals("e1", d.linesOf("t1").single().envelopeId)
+            assertEquals(-1234L, d.transaction("t1")!!.amount)
+            assertEquals(1, d.changes().size)
+            d.upsertEnvelope(e.copy(interestRate = 2499))
+            assertEquals(2499L, d.envelope("e1")!!.interestRate)
+        } finally {
+            db.close()
+        }
+    }
 }

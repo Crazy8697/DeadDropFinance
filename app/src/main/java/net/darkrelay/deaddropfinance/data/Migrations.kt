@@ -146,5 +146,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12)
+    /** 12 to 13 (1.9.0): a Debt envelope's interest rate, one nullable column (the program runs the same SQL). */
+    val V12_V13 = object : Migration(12, 13) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SchemaChanges.V12_V13.forEach { db.execSQL(it) }
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13)
 }

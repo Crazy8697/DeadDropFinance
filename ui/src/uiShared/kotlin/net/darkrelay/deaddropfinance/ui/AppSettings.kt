@@ -57,6 +57,10 @@ class ProgramHost(
     val onExit: () -> Unit = {},
     /** A sidebar item (0.14.0, Receipts): the program's top bar names the screen, so its first screen has no title or Back. */
     val sidebar: Boolean = false,
+    /** Reports' budget month from the program's own month stepper (0.15.0); null: the screens step it themselves. */
+    val month: (() -> Int)? = null,
+    /** The program's date (0.15.0), the one its own screens use; null: today. */
+    val today: (() -> java.time.LocalDate)? = null,
 )
 
 /** The first screen of a sidebar item in the program (0.14.0): its title and Back aren't drawn (the top bar has the name). */

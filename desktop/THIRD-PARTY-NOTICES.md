@@ -319,6 +319,15 @@ their NOTICE files are repeated below and in desktop/NOTICE.
 | `org.apache.pdfbox:fontbox` | 3.0.8 | Apache-2.0 |
 | `commons-logging:commons-logging` | 1.4.0 | Apache-2.0 |
 
+## Material Design Icons (the menus' icons, from 0.15.0)
+
+License: Pictogrammers Free License: the icons are Apache-2.0 (the Apache License 2.0 text is the program's own LICENSE.txt)
+Upstream: https://pictogrammers.com/library/mdi/
+
+The menus' 23 icons are Material Design Icons 6.9.96, the same set DarkRelay's other Windows programs use in their menus: each icon's outline is a
+path in the program's code (MenuIcons.kt), not a font or a library, so nothing from it ships as a file or a jar. The
+icons are not changed.
+
 ## Inside Skiko's native library
 
 skiko-windows-x64.dll is Skia, Google's 2D graphics library, built by JetBrains with the libraries below linked in.

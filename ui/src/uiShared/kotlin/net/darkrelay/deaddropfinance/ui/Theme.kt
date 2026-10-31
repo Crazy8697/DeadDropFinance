@@ -41,9 +41,13 @@ val PhonePalette = DdfPalette(
  */
 val ProgramPalette = DdfPalette(
     background = Color(0xFF0A0D10), surface = Color(0xFF11161B), surfaceHigh = Color(0xFF11161B), outline = Color(0xFF1F2A33),
-    outlineHigh = Color(0xFF2A3843), text = Color(0xFFDFE8EF), muted = Color(0xFF8BA0B0), cyan = Color(0xFF19C2E6),
+    // 0.15.0: text and muted text as DarkRelay's other Windows programs have them (#e6e6e6, #9aa0a6)
+    outlineHigh = Color(0xFF2A3843), text = Color(0xFFE6E6E6), muted = Color(0xFF9AA0A6), cyan = Color(0xFF19C2E6),
     teal = Color(0xFF0E7490), warning = Color(0xFFD9A441), error = Color(0xFFE2574C),
 )
+
+/** The report charts' extra series colors (1.9.0), after cyan and amber: green, violet, rose, sky. Both palettes use them. */
+val ChartColors = listOf(Color(0xFF2FBF71), Color(0xFFA78BFA), Color(0xFFF472B6), Color(0xFF7DD3FC))
 
 /** The app's screens shown in the program (0.14.1): their text actions are drawn as the program's buttons. */
 val LocalProgramStyle = androidx.compose.runtime.staticCompositionLocalOf { false }

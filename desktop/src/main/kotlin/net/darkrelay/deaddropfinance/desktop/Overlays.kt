@@ -385,7 +385,7 @@ private fun EnvelopeDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.E
                     EnvelopeMode.GOAL -> BudgetActions.EnvelopeDraft(name, mode, goalAmount = cents, goalDate = e?.goalDate, everyday = everyday)
                     // 0.12.3: a Debt envelope keeps what this dialog doesn't show (its required payment and due date)
                     else -> BudgetActions.EnvelopeDraft(name, mode, perPayday = cents, debtOwed = e?.debtOwed,
-                        requiredPayment = e?.requiredPayment, dueDate = e?.dueDate, everyday = everyday)
+                        requiredPayment = e?.requiredPayment, dueDate = e?.dueDate, interestRate = e?.interestRate, everyday = everyday)
                 }
                 shell.run { if (model.saveEnvelope(e?.id, draft)) model.dialog = null }
             }
@@ -396,8 +396,8 @@ private fun EnvelopeDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.E
             Select("Kind", modes.map { it to modeName(it) }, mode, { mode = it }, m, tag = "f.mode")
             Field(when (mode) { EnvelopeMode.FILL_TO_TARGET -> "Target"; EnvelopeMode.GOAL -> "Goal amount"; else -> "Each payday" }, amount, { amount = it }, m, Money.plain(0), tag = "f.amount")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TOGGLE_GAP)) {
+            Column(Modifier.weight(1f).testTag("f.everyday.text")) {
                 T("Everyday spending", 13.5.sp)
                 T("Counts in Safe to spend", 11.5.sp, C.Dim2)
             }
@@ -448,12 +448,12 @@ private fun AccountDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Ac
             Field("Balance as of", date, { date = it }, m, tag = "f.startDate")
             Field("Held amount", held, { held = it }, m, "Optional", tag = "f.held")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { T("Track only, not in the budget", 13.5.sp); T("The balance shows, but never counts in Ready to assign", 11.5.sp, C.Dim2) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TOGGLE_GAP)) {
+            Column(Modifier.weight(1f).testTag("f.trackOnly.text")) { T("Track only, not in the budget", 13.5.sp); T("The balance shows, but never counts in Ready to assign", 11.5.sp, C.Dim2) }
             Switch(trackOnly, { trackOnly = it }, "f.trackOnly")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { T("Show in Activity", 13.5.sp); T("Gives the account its own tab", 11.5.sp, C.Dim2) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TOGGLE_GAP)) {
+            Column(Modifier.weight(1f).testTag("f.show.text")) { T("Show in Activity", 13.5.sp); T("Gives the account its own tab", 11.5.sp, C.Dim2) }
             Switch(show, { show = it }, "f.show")
         }
     }

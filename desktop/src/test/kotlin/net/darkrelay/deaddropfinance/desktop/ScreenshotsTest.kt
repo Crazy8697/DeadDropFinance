@@ -44,6 +44,14 @@ class ScreenshotsTest {
             }
         }
         val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.15.0") {
+            // 0.15.0: Settings (the toggle rows) at the size the window opens and at its minimum, and in full; the reports
+            // and the open menus are ProgramReportsTest's and ProgramMenusTest's pictures in the same round
+            shot("settings-1400x900") { m.go(Screen.SETTINGS) }
+            shot("settings-1100x700", w = 1100, h = 700) { m.go(Screen.SETTINGS) }
+            shot("settings-full-1400", h = 1500) { m.go(Screen.SETTINGS) }
+            shot("settings-full-1100", w = 1100, h = 1500) { m.go(Screen.SETTINGS) }
+        }
         if (System.getProperty("ddf.screensRound") == "0.14.2") {
             // 0.14.2: Settings at the size the window opens and at its minimum, and in full (a taller canvas, to show every
             // row); every screen and the app's screens the program opens at the minimum, 1100 x 700

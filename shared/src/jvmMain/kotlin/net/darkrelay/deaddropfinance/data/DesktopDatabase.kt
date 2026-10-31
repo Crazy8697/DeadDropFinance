@@ -11,7 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 /**
- * Opens the desktop program's own budget database: the phone's schema (AppDatabase, the same tables and version 12),
+ * Opens the desktop program's own budget database: the phone's schema (AppDatabase, the same tables and version 13),
  * in a file of its own, never the phone's, encrypted like the phone's (SQLCipher 4 format with a raw 32-byte key) with
  * the key protected by Windows DPAPI for the current user ([DesktopKey], budget.key beside it in the data folder).
  *
@@ -82,6 +82,7 @@ object DesktopDatabase {
         return Room.databaseBuilder<AppDatabase>(name = file.absolutePath)
             .setDriver(CipherDriver { copy.copyOf() })
             .setQueryCoroutineContext(Dispatchers.IO)
+            .addMigrations(*DesktopMigrations.ALL)
             .build()
     }
 

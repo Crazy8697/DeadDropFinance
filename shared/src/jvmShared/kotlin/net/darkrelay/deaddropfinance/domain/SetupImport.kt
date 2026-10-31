@@ -447,6 +447,8 @@ class SetupImporter(
                     goalAmount = pick("goal", e.goal, old?.goalAmount), goalDate = pick("goalDate", e.goalDate, old?.goalDate),
                     debtOwed = pick("owed", e.owed, old?.debtOwed), requiredPayment = pick("requiredPayment", e.requiredPayment, old?.requiredPayment),
                     dueDate = pick("dueDate", e.dueDate, old?.dueDate), everyday = e.everyday, reminder = e.remind, reminderDays = e.remindDays,
+                    // a setup file doesn't carry the interest rate (1.9.0): an envelope already here keeps its own
+                    interestRate = old?.interestRate,
                 ),
                 today(),
             )

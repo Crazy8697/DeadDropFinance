@@ -109,6 +109,11 @@ sealed interface Nav {
     data object SafeToSpend : Nav
     /** Settings > Server (1.4.0): connect, the status, devices, log out. */
     data object Server : Nav
+    /** Reports (stage 27, 1.9.0): the twelve tiles; a report; a payee's page; an item's prices. */
+    data object Reports : Nav
+    data class Report(val kind: net.darkrelay.deaddropfinance.domain.Reports.Kind) : Nav
+    data class Merchant(val key: String) : Nav
+    data class PriceItem(val key: String) : Nav
 }
 
 /** Where a notification opens the app ([where]: MainActivity.OPEN_*); [n] rises with each one. */
@@ -256,6 +261,8 @@ fun AppRoot(
     val sorting = remember(store) { Sorting(store, actions) }
     val categoryActions = remember(store) { CategoryActions(store) }
     var categoryMonth by remember { mutableIntStateOf(0) }
+    /** Reports' budget month on the phone (0: the open one); in the program its top bar's month ([ProgramHost.month]). */
+    var reportMonth by remember { mutableIntStateOf(0) }
     /** Activity's selected account tab; null is All, where Activity opens. */
     var activityTab by remember { mutableStateOf<String?>(null) }
     /** 1.8.0: Activity's budget month (0: the open one), and what Export CSV said last. */
@@ -303,7 +310,8 @@ fun AppRoot(
     var importState by remember { mutableStateOf(ImportState()) }
     var washCandidates by remember { mutableStateOf<List<TransactionEntity>>(emptyList()) }
     val scope = rememberCoroutineScope()
-    val today = LocalDate.now()
+    // the program's own date when it shows these screens (0.15.0), so its month stepper and these agree
+    val today = host?.today?.invoke() ?: LocalDate.now()
     val words = LocalDeviceWords.current
 
     // setup
@@ -692,6 +700,7 @@ fun AppRoot(
                 onPurge = { go(Nav.Purge) },
                 onAbout = { go(Nav.About) },
                 onReceipts = { go(Nav.Receipts) },
+                onReports = { go(Nav.Reports) },
                 onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
                 onBackup = if (host != null) null else { { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) } },
                 backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",
@@ -959,6 +968,20 @@ fun AppRoot(
                 )
             }
             Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: Gone(::back)
+            Nav.Reports, is Nav.Report, is Nav.Merchant, is Nav.PriceItem -> {
+                val data = ReportData(b, today, receipts, receiptItems, forecast)
+                val month = host?.month?.invoke() ?: reportMonth
+                val onMonth: ((Int) -> Unit)? = if (host?.month != null) null else { i -> reportMonth = i.coerceIn(0, data.months.size - 1) }
+                when (top) {
+                    is Nav.Report -> ReportScreen(
+                        top.kind, data, month, onMonth, ::back, onMerchant = { go(Nav.Merchant(it)) }, onItem = { go(Nav.PriceItem(it)) },
+                        onForecast = { go(Nav.Forecast) }, onEnvelope = { go(Nav.Envelope(it)) },
+                    )
+                    is Nav.Merchant -> MerchantScreen(data, top.key, month, ::back) { go(Nav.PriceItem(it)) }
+                    is Nav.PriceItem -> PriceItemScreen(data, top.key, ::back)
+                    else -> ReportsScreen(data, month, onMonth, if (stack.size > 1) ::back else null) { go(Nav.Report(it)) }
+                }
+            }
             Nav.Backup -> BackupScreen(
                 if (backupState.confirmServerReplace) backupState.copy(lockedBy = syncStatus.readOnlyBy) else backupState, ::back,
                 onBackUp = {

@@ -63,6 +63,11 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   ordinary posted ones (`pending` 0 where `source` is `SYNC`) and clears `external_id` on every row. Every budget row
   stays: accounts that were linked are ordinary manual accounts. `external_id` stays in `txn`, unused (dropping a
   column means rebuilding `txn`); `source` keeps `SYNC` on the rows that came that way, and nothing new gets it.
+- Version 13 (1.9.0, program 0.15.0): `interest_rate` on `envelope` (nullable): a Debt envelope's yearly interest rate
+  in hundredths of a percent, for the Debt paydown report's payoff date and interest. Migration 12 to 13 only adds;
+  `MigrationTest` checks it on the phone, and `DesktopMigrationTest` opens a 0.14.x (schema 12) budget in the program
+  with every row kept. The program runs the same SQL (`SchemaChanges`) through its own migration (`DesktopMigrations`).
+  Sync and restore write columns by name, so a device on 1.8.x ignores the rate and never clears it.
 - Add activity on envelopes (1.3.0) needed no schema change: it saves an ordinary transaction.
 - Payday by hand only (1.3.1) needed no schema change and no migration: paydays already run, their moves and the change
   log stay as they are; new deposits from a CSV or a notification simply no longer mark payday.

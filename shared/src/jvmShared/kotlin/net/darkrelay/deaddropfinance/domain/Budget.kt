@@ -106,6 +106,10 @@ class Budget(
         return balanceOf(a, postedOnly = false, through = s.minusDays(1))
     }
 
+    /** The balance at the end of [date], pending rows included (Net worth, 0.15.0). */
+    fun balanceOn(accountId: String, date: LocalDate): Long =
+        accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = false, through = date) } ?: 0L
+
     /** The balance with pending rows left out: what a bank's own balance is compared with. */
     fun postedBalance(accountId: String): Long = accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true) } ?: 0L
 

@@ -29,8 +29,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -39,8 +37,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
-import kotlin.math.roundToInt
-import kotlin.math.sin
 import net.darkrelay.deaddropfinance.data.AccountType
 import net.darkrelay.deaddropfinance.data.EnvelopeEntity
 import net.darkrelay.deaddropfinance.data.EnvelopeMode
@@ -346,13 +342,7 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
                 shell.run { model.planImport(id, f.name, f.readText()) }
             }, ghost = true, small = true, enabled = !all, tag = "importCsv")
             // 0.13.0: Export CSV, what this tab shows for the budget month above (the moves too, on All), where the user saves it
-            Btn("Export CSV", {
-                val name = net.darkrelay.deaddropfinance.domain.ActivityExport.fileName(selected?.name, model.month, model.today())
-                val f = shell.pickSave(name) ?: return@Btn
-                val text = net.darkrelay.deaddropfinance.domain.ActivityExport.csv(b, selected?.id, model.month, moves = selected == null)
-                model.message = if (runCatching { f.writeText(text, Charsets.UTF_8) }.isSuccess) "Saved ${f.name}." to false
-                    else "${f.name} couldn't be saved there." to true
-            }, ghost = true, small = true, tag = "exportCsv")
+            Btn("Export CSV", { model.exportCsv(shell) }, ghost = true, small = true, tag = "exportCsv")
             // 0.13.0: the phone's Activity, with To sort, approving, recently sorted and what sorting learned
             Btn("To sort (${b.toSort.size})", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Activity) }, ghost = true, small = true, tag = "toSort")
             Btn("Transfer", { model.dialog = Dialog.Transfer(fromId = selected?.id) }, ghost = true, small = true, enabled = b.accounts.count { !it.archived } >= 2, tag = "transfer")
@@ -432,58 +422,6 @@ fun AccountsScreen(model: AppModel, shell: Shell) {
     }
 }
 
-// ---- Reports (Phase 5 placeholders) ---------------------------------------------------------------------------------
-
-private val reports = listOf(
-    "Spending by envelope" to "Where the month actually went",
-    "Spending by category" to "Rolled up across envelopes",
-    "Income vs expense" to "Month over month",
-    "Trends" to "A line per envelope over time",
-    "Money flow" to "Income into envelopes into spending",
-    "Bills calendar" to "What is due and when",
-    "Net worth" to "All accounts over time",
-    "Debt paydown" to "Interest, plan and payoff date",
-    "Payday forecast" to "What the next payday covers",
-    "Savings goals" to "Progress against each target",
-    "Merchant pages" to "Totals, trips and most bought",
-    "Price history" to "What an item cost over time",
-)
-
-@Composable
-fun ReportsScreen() {
-    Body {
-        RowHead("Reports") { Tag("Phase 5", cyan = true) }
-        T("Nothing here is built yet. These tiles mark where each report would sit once the charts phase starts.", 12.5.sp, C.Dim, modifier = Modifier.padding(bottom = 16.dp))
-        BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val perRow = maxOf(1, ((maxWidth + 14.dp) / (270.dp + 14.dp)).toInt())
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                reports.chunked(perRow).forEach { chunk ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        chunk.forEach { (title, sub) -> PlaceholderTile(title, sub, Modifier.weight(1f)) }
-                        repeat(perRow - chunk.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PlaceholderTile(title: String, sub: String, modifier: Modifier) {
-    Frame(modifier.height(168.dp), dashed = true) {
-        Column(Modifier.fillMaxSize().padding(16.dp).testTag("report.$title")) {
-            T(title, 13.5.sp, weight = FontWeight.SemiBold)
-            T(sub, 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 4.dp))
-            Row(Modifier.weight(1f).fillMaxWidth().padding(top = 12.dp).alpha(0.35f), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                for (i in 0 until 9) {
-                    val pct = (18 + (sin(i * 1.7) * 30 + 40).roundToInt()).coerceIn(0, 100) / 100f
-                    Box(Modifier.weight(1f).fillMaxHeight(pct).background(Brush.verticalGradient(listOf(C.Cyan, C.Teal))))
-                }
-            }
-        }
-    }
-}
-
 // ---- Sync (0.10.0) -------------------------------------------------------------------------------------------------
 
 @Composable
@@ -530,14 +468,18 @@ internal fun Panel(title: String, hint: String?, modifier: Modifier = Modifier, 
 
 @Composable
 internal fun ToggleRow(title: String, sub: String, on: Boolean, tag: String, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
+    // 0.15.0: a gap the text never crosses, so a long description can't run into the switch
+    Row(Modifier.fillMaxWidth().padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TOGGLE_GAP)) {
+        Column(Modifier.weight(1f).testTag("$tag.text")) {
             T(title, 13.5.sp)
             T(sub, 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 2.dp))
         }
         Switch(on, onChange, tag)
     }
 }
+
+/** Between a toggle row's text and its switch (0.15.0). */
+internal val TOGGLE_GAP = 16.dp
 
 @Composable
 internal fun Kv(key: String, value: String, last: Boolean = false, tag: String? = null) {

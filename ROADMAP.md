@@ -41,7 +41,6 @@ POST-RELEASE
 21  Debt payoff planning: interest, payoff plans, projected dates (simple debt envelopes are in Stage 6)
 22  Self-hosted server: two-way sync + in-depth desktop web version
 69G Google Drive sync
-69D Dropbox sync
 
 Cut: OneDrive sync, Play Store, Android Studio install
 Notes: Every stage ships as 0.N.0; 1.0.0 (Stage 16) is the first full release. Stages 12 to 15 shipped together as 0.15.0. Kotlin pinned to 2.4.21 + KSP 2.3.12, fallback bundled 2.2.10. Test the Room / SQLCipher androidx.sqlite version clash at Stage 6. Behavior spec lives in FEATURES.md.

@@ -1,5 +1,6 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,7 +23,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -110,9 +110,10 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                                 model.phoneNav != null && model.budget != null && unavailable == null -> PhoneScreens(model, shell, model.phoneNav!!, onExit = { model.phoneNav = null })
                                 model.screen == Screen.SETTINGS -> SettingsScreen(model, shell)
                                 model.screen == Screen.SYNC -> SyncScreen(model, model.server)
-                                model.screen == Screen.REPORTS -> ReportsScreen()
                                 unavailable != null -> UnavailableScreen(unavailable)
                                 model.budget == null -> Box(Modifier.fillMaxSize().padding(18.dp)) { T("Opening your budget...", color = C.Dim) }
+                                // 0.15.0: the twelve reports, the app's own screens as a sidebar item, on the top bar's month
+                                model.screen == Screen.REPORTS -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Reports, sidebar = true, month = { model.monthIndex })
                                 // 0.14.0: Receipts, the phone's screens as a sidebar item; Bills and Categories in the program's layout
                                 // 0.14.1: Receipts in the program's layout too
                                 model.screen == Screen.RECEIPTS -> ProgramReceiptsScreen(model)
@@ -142,44 +143,64 @@ fun DesktopApp(model: AppModel, shell: Shell) {
     }
 }
 
-// ---- the menu strip (File, Edit, View, Help) -------------------------------------------------------------------
+// ---- the menu strip (File, View, Help: ProgramMenus) ---------------------------------------------------------------
 
 @Composable
 private fun MenuStrip(model: AppModel, shell: Shell) {
-    Row(Modifier.fillMaxWidth().height(26.dp).background(C.MenuBar).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Menu("File") { close ->
-            MenuItem("Back up...", enabled = model.budget != null) { close(); model.startBackup() }
-            MenuItem("Restore...", enabled = model.budget != null) { close(); shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
-            MenuItem("Exit") { close(); shell.onExit() }
-        }
-        Menu("Edit") { close ->
-            MenuItem("Add transaction", enabled = model.budget != null) { close(); model.dialog = Dialog.AddTransaction(model.activityTab) }
-            MenuItem("Move money", enabled = model.budget != null) { close(); model.dialog = Dialog.MoveMoney() }
-        }
-        Menu("View") { close -> Screen.entries.forEach { s -> MenuItem(s.title) { close(); model.go(s) } } }
-        Menu("Help") { close ->
-            MenuItem("Check for updates") { close(); shell.onCheckNow() }
-            MenuItem((if (shell.checkAtStartup) "✓ " else "    ") + "Check for updates at startup") { close(); shell.onCheckAtStartup(!shell.checkAtStartup) }
-        }
+    Row(Modifier.fillMaxWidth().height(26.dp).background(C.MenuBar).bottomLine().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        ProgramMenus.menus.forEach { menu -> Menu(menu, model, shell) }
     }
 }
 
+/** A menu as DarkRelay's other Windows programs draw one: its title in the bar, highlighted while open; a panel of entries under it. */
 @Composable
-private fun Menu(title: String, items: @Composable (close: () -> Unit) -> Unit) {
+private fun Menu(menu: ProgramMenus.Menu, model: AppModel, shell: Shell) {
     var open by remember { mutableStateOf(false) }
     val src = remember { MutableInteractionSource() }
     Box {
+        val lit = open || hovered(src)
         Box(
-            Modifier.clip(RoundedCornerShape(4.dp)).background(if (open || hovered(src)) C.NavHover else Color.Transparent).hoverable(src)
-                .clickable { open = true }.padding(horizontal = 9.dp, vertical = 3.dp).testTag("menu.$title"),
-        ) { T(title, 12.sp, if (open || hovered(src)) C.Text else C.Dim) }
-        DropdownMenu(open, { open = false }, containerColor = C.Panel2, modifier = Modifier.border(1.dp, C.Line2)) { items { open = false } }
+            Modifier.fillMaxHeight().background(if (lit) C.MenuSelected else Color.Transparent).hoverable(src)
+                .clickable { open = true }.padding(horizontal = 9.dp).testTag("menu.${menu.title}"),
+            contentAlignment = Alignment.Center,
+        ) { T(menu.title, 13.sp, if (lit) C.MenuSelectedText else C.Text) }
+        DropdownMenu(
+            open, { open = false }, containerColor = C.MenuPanel, shape = RoundedCornerShape(0.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, C.MenuBorder), tonalElevation = 0.dp, shadowElevation = 6.dp,
+            modifier = Modifier.widthIn(min = 230.dp).testTag("menuPanel.${menu.title}"),
+        ) {
+            menu.items.forEach { item ->
+                if (item == null) MenuSeparator()
+                else MenuEntry(item, item.enabled(model, shell)) { open = false; item.run(model, shell) }
+            }
+        }
+    }
+}
+
+/** One entry: its icon, its name and its shortcut, highlighted under the mouse. */
+@Composable
+private fun MenuEntry(item: ProgramMenus.Item, enabled: Boolean, onClick: () -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val lit = enabled && hovered(src)
+    val color = when { !enabled -> C.MenuDisabled; lit -> C.MenuSelectedText; else -> C.Text }
+    Row(
+        Modifier.fillMaxWidth().height(28.dp).background(if (lit) C.MenuSelected else Color.Transparent).hoverable(src)
+            .clickable(enabled = enabled, interactionSource = src, indication = null, onClick = onClick)
+            .padding(start = 10.dp, end = 14.dp).testTag("menuItem.${item.label}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.foundation.Image(
+            androidx.compose.ui.graphics.vector.rememberVectorPainter(item.icon), null, Modifier.size(16.dp),
+            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(color),
+        )
+        T(item.label, 13.sp, color, modifier = Modifier.padding(start = 10.dp).weight(1f))
+        item.shortcut?.let { T(it.text, 13.sp, color, modifier = Modifier.padding(start = 28.dp).testTag("shortcut.${item.label}")) }
     }
 }
 
 @Composable
-private fun MenuItem(text: String, enabled: Boolean = true, onClick: () -> Unit) {
-    DropdownMenuItem(text = { T(text, 13.sp, if (enabled) C.Text else C.Dim2) }, onClick = onClick, enabled = enabled, modifier = Modifier.testTag("menuItem.$text"))
+private fun MenuSeparator() {
+    Box(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp).height(1.dp).background(C.MenuBorder))
 }
 
 // ---- the update bar ---------------------------------------------------------------------------------------------

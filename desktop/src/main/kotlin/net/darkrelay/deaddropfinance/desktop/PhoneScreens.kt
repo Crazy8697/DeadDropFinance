@@ -51,7 +51,7 @@ import net.darkrelay.deaddropfinance.ui.budgetFlow
  * phone's. What they need from the device comes from [ProgramPlatform] and [ProgramAppSettings].
  */
 @Composable
-fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit = {}, sidebar: Boolean = false) {
+fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit = {}, sidebar: Boolean = false, month: (() -> Int)? = null) {
     val ok = model.engine?.opened as? DesktopDatabase.Opened.Ok ?: return
     val platform = remember(ok) { ProgramPlatform(model, shell, ok.file.parentFile) }
     val settings = remember(ok) { ProgramAppSettings(shell.settings ?: Settings(ok.file.parentFile)) }
@@ -68,7 +68,7 @@ fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit =
                     androidx.compose.runtime.key(start, model.phoneGeneration) {
                         AppRoot(
                             ok.store, settings, platform, startupUpdateCheck = false, sync = model.server?.sync,
-                            host = ProgramHost(start, onExit = onExit, sidebar = sidebar),
+                            host = ProgramHost(start, onExit = onExit, sidebar = sidebar, month = month, today = model.today),
                         )
                     }
                 }

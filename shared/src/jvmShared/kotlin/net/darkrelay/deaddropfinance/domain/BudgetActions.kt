@@ -87,6 +87,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         /** Debt: remind like a bill, [reminderDays] ahead; null keeps what the envelope has. */
         val reminder: Boolean? = null,
         val reminderDays: Int? = null,
+        /** Debt (1.9.0): the yearly interest rate in hundredths of a percent; null: none given. */
+        val interestRate: Long? = null,
     )
 
     suspend fun saveEnvelope(id: String?, d: EnvelopeDraft, today: LocalDate = LocalDate.now()): String {
@@ -98,6 +100,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             if (it != null && it < 0) throw BudgetRuleException("Amounts here can't be negative.")
         }
         if (d.mode == EnvelopeMode.GOAL && (d.goalAmount == null || d.goalDate == null)) throw BudgetRuleException("A goal needs an amount and a date.")
+        if (d.interestRate != null && d.interestRate !in 0..Reports.MAX_RATE) throw BudgetRuleException("Enter an interest rate from 0 to 100%.")
         return store.write {
             val old = id?.let { dao.envelope(it) }
             if (old != null && old.isSystem) {
@@ -117,7 +120,8 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
                 name = d.name.trim(), mode = d.mode, target = d.target, perPayday = d.perPayday, goalAmount = d.goalAmount,
                 goalDate = d.goalDate, debtOwed = d.debtOwed, debtOwedSince = owedSince, requiredPayment = d.requiredPayment,
                 dueDate = d.dueDate, everyday = d.everyday ?: base.everyday, reminder = d.reminder ?: base.reminder,
-                reminderDays = d.reminderDays ?: base.reminderDays, updatedAt = now,
+                reminderDays = d.reminderDays ?: base.reminderDays,
+                interestRate = if (d.mode == EnvelopeMode.DEBT) d.interestRate else null, updatedAt = now,
             )
             put(old, new).id
         }

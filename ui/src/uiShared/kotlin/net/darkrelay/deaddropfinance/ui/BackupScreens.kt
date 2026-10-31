@@ -127,8 +127,6 @@ fun BackupScreen(
             }
         }
 
-        SectionTitle("Cloud")
-        Row(Modifier.padding(vertical = 4.dp)) { Text("Dropbox", Modifier.weight(1f), color = DdfColors.Muted); Text("later", color = DdfColors.Muted) }
         Gap(24)
     }
 }

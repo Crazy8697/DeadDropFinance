@@ -1,5 +1,6 @@
 package net.darkrelay.deaddropfinance.ui
 
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
@@ -84,7 +85,7 @@ fun ScreenTitle(title: String, onBack: (() -> Unit)?, actions: @Composable () ->
         return
     }
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (onBack != null) TextButton(onClick = onBack) { Text("Back") }
+        if (onBack != null) TextButton(onClick = onBack, modifier = Modifier.testTag("back")) { Text("Back") }
         Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).padding(start = if (onBack == null) 4.dp else 0.dp))
         actions()
     }
