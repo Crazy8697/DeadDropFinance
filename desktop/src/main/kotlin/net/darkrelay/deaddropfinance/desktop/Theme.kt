@@ -1,5 +1,6 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,14 +72,15 @@ object C {
     val Bad = P.error
     val Warn = P.warning
     /**
-     * The menus (0.15.0), as DarkRelay's other Windows programs have them: the menu bar (#16181d), an open menu (#1e2128) with its border (#3a4150), the
-     * highlighted entry (#2d6cdf) with white text on it, and the disabled text (#5c6370). Menu text is [Text].
+     * The menus (0.15.0), as DarkRelay's other Windows programs have them: the menu bar (#16181d), an open menu (#1e2128)
+     * with its border (#3a4150) and the disabled text (#5c6370). Menu text is [Text]. 0.15.1: the highlighted entry is the
+     * selected sidebar item's dark teal (cyan at 12% over a card) with its cyan text, not their blue.
      */
     val MenuBar = Color(0xFF16181D)
     val MenuPanel = Color(0xFF1E2128)
     val MenuBorder = Color(0xFF3A4150)
-    val MenuSelected = Color(0xFF2D6CDF)
-    val MenuSelectedText = Color(0xFFFFFFFF)
+    val MenuSelected = Cyan.copy(alpha = 0.12f).compositeOver(Panel)
+    val MenuSelectedText = Cyan
     val MenuDisabled = Color(0xFF5C6370)
     /** Text on a teal button. */
     val OnTeal = Color(0xFFEAF8FC)
@@ -248,11 +250,6 @@ fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSel
             }
         }
     }
-}
-
-@Composable
-fun Glow(size: Dp, radius: Dp, modifier: Modifier = Modifier) {
-    Box(modifier.size(size).clip(RoundedCornerShape(radius)).background(Brush.radialGradient(listOf(C.Cyan, C.Teal))))
 }
 
 /**

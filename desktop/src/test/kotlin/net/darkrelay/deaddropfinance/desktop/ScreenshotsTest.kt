@@ -44,6 +44,37 @@ class ScreenshotsTest {
             }
         }
         val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.15.1") {
+            // 0.15.1: every app screen the program opens, at its text sizes with its title in the top bar, at the size the
+            // window opens and its minimum; Receipts and Settings; the sidebar's icon close up
+            val opened = listOf(
+                "scan" to net.darkrelay.deaddropfinance.ui.Nav.Scan(null), "rules" to net.darkrelay.deaddropfinance.ui.Nav.Rules,
+                "subscriptions" to net.darkrelay.deaddropfinance.ui.Nav.Subscriptions, "manage-categories" to net.darkrelay.deaddropfinance.ui.Nav.ManageCategories,
+                "import-csv" to net.darkrelay.deaddropfinance.ui.Nav.Import, "import-setup" to net.darkrelay.deaddropfinance.ui.Nav.SetupImport,
+                "about" to net.darkrelay.deaddropfinance.ui.Nav.About, "to-sort" to net.darkrelay.deaddropfinance.ui.Nav.Activity,
+                "fill-order" to net.darkrelay.deaddropfinance.ui.Nav.Envelopes, "forecast" to net.darkrelay.deaddropfinance.ui.Nav.Forecast,
+                "add-bill" to net.darkrelay.deaddropfinance.ui.Nav.BillEdit(null), "envelope" to net.darkrelay.deaddropfinance.ui.Nav.Envelope(made.ids["Groceries"]!!),
+                "envelope-edit" to net.darkrelay.deaddropfinance.ui.Nav.EnvelopeEdit(made.ids["Groceries"]!!), "accounts" to net.darkrelay.deaddropfinance.ui.Nav.Accounts,
+                "purge" to net.darkrelay.deaddropfinance.ui.Nav.Purge, "erase" to net.darkrelay.deaddropfinance.ui.Nav.Erase,
+                "licenses" to net.darkrelay.deaddropfinance.ui.Nav.Licenses,
+            )
+            for ((w, h) in listOf(1400 to 900, 1100 to 700)) {
+                opened.forEachIndexed { i, (name, nav) -> shot("hosted-%02d-%s-%dx%d".format(i + 1, name, w, h), w = w, h = h) { m.go(Screen.BUDGET); m.openPhone(nav) } }
+                shot("receipts-${w}x$h", w = w, h = h) { m.go(Screen.RECEIPTS) }
+                shot("settings-${w}x$h", w = w, h = h) { m.go(Screen.SETTINGS) }
+            }
+            // the sidebar's top, with the icon, drawn at twice the size (a 200% display) for a close look
+            m.go(Screen.BUDGET)
+            val scene = ImageComposeScene(2800, 1800, Density(2f)) { DesktopApp(m, shell) }
+            try {
+                scene.render(0); Thread.sleep(300)
+                val whole = scene.render(500_000_000)
+                val crop = org.jetbrains.skia.Image.makeFromBitmap(org.jetbrains.skia.Bitmap().also { b ->
+                    b.allocN32Pixels(416, 120); whole.readPixels(b, 0, 52)
+                })
+                File(dir, "sidebar-icon-2x.png").writeBytes(crop.encodeToData(EncodedImageFormat.PNG)!!.bytes)
+            } finally { scene.close() }
+        }
         if (System.getProperty("ddf.screensRound") == "0.15.0") {
             // 0.15.0: Settings (the toggle rows) at the size the window opens and at its minimum, and in full; the reports
             // and the open menus are ProgramReportsTest's and ProgramMenusTest's pictures in the same round

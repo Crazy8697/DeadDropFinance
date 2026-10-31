@@ -116,13 +116,13 @@ try {
     $out = Join-Path $tmp "smoke.txt"
     $r = RunProgram @("--smoke-test", "`"$out`"") $out
     if ($r["version"] -ne $Version -or $r["showing"] -ne "true" -or $r["focused"] -ne "false" -or
-        $r["settingsDir"] -ne $data -or $r["db"] -ne "ok" -or $r["dbSchema"] -ne "12" -or
+        $r["settingsDir"] -ne $data -or $r["db"] -ne "ok" -or $r["dbSchema"] -ne "13" -or
         $r["dbFile"] -ne (Join-Path $data "budget.db") -or $r["dbEncrypted"] -ne "true") { Fail "smoke test: $((Get-Content $out) -join '; ')" }
     if (IsPlain (Join-Path $data "budget.db")) { Fail "budget.db is still plain SQLite" }
     if (-not (Test-Path (Join-Path $data "budget.key"))) { Fail "no budget.key beside the budget" }
     $written = @(Get-ChildItem -Recurse -File $dir | Where-Object { $_.LastWriteTime -gt $script:installedAt.AddSeconds(2) })
     if ($written.Count) { Fail "the program wrote into its folder: $($written.Name -join ', ')" }
-    Ok "installed program: name, version $Version, shown off screen, not focused, settings and encrypted budget (schema 12, $($r["envelopes"]) envelopes, $($r["categories"]) categories) in the throwaway APPDATA, nothing written in its folder"
+    Ok "installed program: name, version $Version, shown off screen, not focused, settings and encrypted budget (schema 13, $($r["envelopes"]) envelopes, $($r["categories"]) categories) in the throwaway APPDATA, nothing written in its folder"
     if ($old) {
         if ($plain -and $r["dbMigrated"] -ne "true") { Fail "the plain budget wasn't moved into an encrypted one: $((Get-Content $out) -join '; ')" }
         if ($r["envelopes"] -ne $old["envelopes"] -or $r["categories"] -ne $old["categories"]) { Fail "the encrypted budget doesn't hold what the older one did" }

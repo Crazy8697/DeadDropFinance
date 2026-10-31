@@ -56,6 +56,9 @@ class ReportData(
     fun month(i: Int): Budget.Month = months[i.coerceIn(0, months.size - 1)]
 }
 
+/** 1.9.1: items come only from scanned receipts, so with none there is nothing to list. */
+const val NEEDS_RECEIPTS = "No items yet. Items come from scanned receipts: scan a receipt and its lines show here."
+
 private val dayFormat = DateTimeFormatter.ofPattern("MMM d")
 private val fullDay = DateTimeFormatter.ofPattern("MMM d, yyyy")
 private val monthFormat = DateTimeFormatter.ofPattern("MMMM yyyy")
@@ -106,7 +109,7 @@ fun ReportsScreen(d: ReportData, monthIndex: Int, onMonth: ((Int) -> Unit)?, onB
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Kind.entries.chunked(cols).forEach { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { k -> Tile(k, d, m, Modifier.weight(1f)) { onOpen(k) } }
+                        row.forEach { k -> ReportTile(k, d, m, Modifier.weight(1f)) { onOpen(k) } }
                         repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
@@ -116,8 +119,9 @@ fun ReportsScreen(d: ReportData, monthIndex: Int, onMonth: ((Int) -> Unit)?, onB
     }
 }
 
+/** A report's tile: its name, its line and its small chart (the grid's, and the phone Home's cards, 1.9.1). */
 @Composable
-private fun Tile(k: Kind, d: ReportData, m: Budget.Month, modifier: Modifier, onOpen: () -> Unit) {
+fun ReportTile(k: Kind, d: ReportData, m: Budget.Month, modifier: Modifier, onOpen: () -> Unit) {
     Card(modifier.height(176.dp).clickable(onClick = onOpen).testTag("report.${k.name}")) {
         Column(Modifier.padding(12.dp)) {
             Text(k.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -190,7 +194,7 @@ private fun TileBody(k: Kind, d: ReportData, m: Budget.Month) {
             val items = Reports.priceItems(b, d.receipts, d.items)
             val top = items.firstOrNull()
             MiniLine(top?.let { Reports.priceHistory(b, d.receipts, d.items, it.key).map { p -> p.unitPrice } } ?: emptyList())
-            Small(top?.let { "${it.name}, bought ${it.times} time${if (it.times == 1) "" else "s"}" } ?: "Nothing bought yet.")
+            Small(top?.let { "${it.name}, bought ${it.times} time${if (it.times == 1) "" else "s"}" } ?: "Needs scanned receipts.")
         }
     }
 }
@@ -424,7 +428,7 @@ fun ReportScreen(
                 var q by remember { mutableStateOf("") }
                 OutlinedTextField(q, { q = it }, label = { Text("Find an item") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("price.search"))
                 val items = Reports.priceItems(b, d.receipts, d.items).filter { q.isBlank() || it.key.contains(Reports.itemKey(q)) }
-                if (items.isEmpty()) EmptyState(if (q.isBlank()) "Nothing bought yet. Items come from scanned receipts' lines, and from the memo on a purchase with no receipt." else "No item matches that.")
+                if (items.isEmpty()) EmptyState(if (q.isBlank()) NEEDS_RECEIPTS else "No item matches that.")
                 items.take(200).forEach { x ->
                     ListRow({ onItem(x.key) }) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("item.${x.key}")) {
@@ -455,7 +459,7 @@ fun MerchantScreen(d: ReportData, key: String, monthIndex: Int, onBack: () -> Un
             KeyValue("This budget month") { MoneyText(month?.total ?: 0) }
         }
         SectionTitle("Most bought")
-        if (all.items.isEmpty()) Small("No items yet: they come from a scanned receipt's lines, or a purchase's memo.")
+        if (all.items.isEmpty()) Small(NEEDS_RECEIPTS)
         all.items.take(30).forEach { i ->
             ListRow({ onItem(i.key) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -503,7 +507,7 @@ fun PriceItemScreen(d: ReportData, key: String, onBack: () -> Unit) {
                 }
             }
         }
-        Small("The price of one: a receipt's unit price, or its amount over the quantity. A purchase with no receipt counts when its memo names the item.", Modifier.padding(vertical = 8.dp))
+        Small("The price of one: a scanned receipt line's unit price, or its amount over the quantity.", Modifier.padding(vertical = 8.dp))
         Gap(24)
     }
 }

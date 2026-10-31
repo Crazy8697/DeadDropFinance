@@ -247,7 +247,11 @@ private val navIcons = mapOf(
 private fun Sidebar(model: AppModel) {
     Column(Modifier.width(208.dp).fillMaxHeight().background(C.Panel).rightLine().padding(vertical = 12.dp)) {
         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Glow(26.dp, 7.dp)
+            // 0.15.1: the program's own icon (the master icon's 256 px picture, the window's), drawn smoothly at this size
+            val icon = remember { androidx.compose.ui.res.useResource("deaddropfinance-256.png") { androidx.compose.ui.res.loadImageBitmap(it) } }
+            androidx.compose.foundation.Image(
+                icon, "Dead Drop Finance", Modifier.size(28.dp).testTag("sidebar.icon"), filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+            )
             Spacer(Modifier.width(9.dp))
             Column {
                 T("Dead Drop", 14.sp, weight = FontWeight.Bold, spacing = 0.2.sp)
@@ -285,15 +289,32 @@ private fun NavButton(s: Screen, on: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TopBar(model: AppModel) {
+private fun TopBar(model: AppModel) = androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val narrow = maxWidth < 1150.dp
     val budgety = model.screen in setOf(Screen.BUDGET, Screen.ACTIVITY, Screen.ACCOUNTS, Screen.BILLS, Screen.CATEGORIES, Screen.REPORTS)
     Row(
         Modifier.fillMaxWidth().height(52.dp).background(C.Panel).bottomLine().padding(horizontal = 18.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        T(model.screen.title, 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.testTag("title"))
-        if (budgety && model.budget != null) MonthPicker(model)
-        Spacer(Modifier.weight(1f))
+        // 0.15.1: an app screen opened inside this one: Back, then "Reports > Price history"
+        val sub = model.hostTitles.current
+        val back = sub?.back ?: if (sub != null && model.phoneNav != null) { { model.phoneNav = null } } else null
+        if (back != null) Btn("Back", back, ghost = true, small = true, tag = "top.back")
+        // the names and the month take the room the buttons leave: a long sub-screen name is shortened, nothing wraps
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f, fill = false).testTag("title")) {
+                T(model.screen.title, 16.sp, weight = FontWeight.SemiBold, maxLines = 1)
+                if (sub != null) {
+                    T("›", 16.sp, C.Dim, maxLines = 1, modifier = Modifier.padding(horizontal = 7.dp))
+                    androidx.compose.material3.Text(
+                        sub.title, Modifier.weight(1f, fill = false).testTag("title.sub"), style = ts(16.sp, C.Text, FontWeight.SemiBold),
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            // 0.15.1: with a sub-screen's name beside it in a narrow window, the open month reads "Since Oct 26"
+            if (budgety && model.budget != null) MonthPicker(model, short = sub != null && narrow)
+        }
         SyncPill(model.server) { model.go(Screen.SYNC) }
         // 0.14.1: Scan, the phone's Scan screen (an image or a PDF, read on this computer)
         if (model.screen == Screen.RECEIPTS && model.budget != null) Btn("Scan", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }, tag = "top.scan")
@@ -305,14 +326,14 @@ private fun TopBar(model: AppModel) {
 }
 
 @Composable
-private fun MonthPicker(model: AppModel) {
+private fun MonthPicker(model: AppModel, short: Boolean = false) {
     val months = model.months
     val shape = RoundedCornerShape(7.dp)
     Row(Modifier.clip(shape).background(C.Panel2).border(1.dp, C.Line2, shape).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         val older = model.monthIndex < months.size - 1
         val newer = model.monthIndex > 0
         Box(Modifier.clickable(enabled = older) { model.monthIndex++ }.padding(horizontal = 6.dp).testTag("month.older")) { T("◀", 13.sp, if (older) C.Dim else C.Line2) }
-        T(monthLabel(model.month), 13.sp, modifier = Modifier.padding(horizontal = 4.dp).testTag("month.label"))
+        T(monthLabel(model.month, short), 13.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 4.dp).testTag("month.label"))
         Box(Modifier.clickable(enabled = newer) { model.monthIndex-- }.padding(horizontal = 6.dp).testTag("month.newer")) { T("▶", 13.sp, if (newer) C.Dim else C.Line2) }
     }
 }
@@ -342,14 +363,14 @@ private fun UnavailableScreen(reason: String) {
 }
 
 /** A budget month in words, as the phone's Categories shows it. */
-fun monthLabel(m: net.darkrelay.deaddropfinance.domain.Budget.Month): String {
+fun monthLabel(m: net.darkrelay.deaddropfinance.domain.Budget.Month, short: Boolean = false): String {
     val f = java.time.format.DateTimeFormatter.ofPattern("MMM d")
     val s = m.start
     val e = m.end
     return when {
         s == null && e == null -> "All activity (no payday marked yet)"
         s == null -> "Before ${e!!.format(f)}"
-        e == null -> "This budget month, since ${s.format(f)}"
+        e == null -> if (short) "Since ${s.format(f)}" else "This budget month, since ${s.format(f)}"
         else -> "${s.format(f)} to ${e.minusDays(1).format(f)}"
     }
 }

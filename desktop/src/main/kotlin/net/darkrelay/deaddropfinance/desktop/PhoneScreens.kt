@@ -58,7 +58,11 @@ fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit =
     // the program's own screens read the budget again after these screens change it
     LaunchedEffect(ok.store) { budgetFlow(ok.store).drop(1).collect { withContext(Dispatchers.IO) { model.refresh() } } }
     // 0.14.1: the program's colors (the shared ProgramPalette), not the phone's, and its buttons for text actions
-    remember { net.darkrelay.deaddropfinance.ui.DdfColors.palette = net.darkrelay.deaddropfinance.ui.ProgramPalette }
+    // 0.15.1: and its text sizes, in its font (the shared theme picks them with the palette)
+    remember {
+        net.darkrelay.deaddropfinance.ui.ProgramType.family = Segoe
+        net.darkrelay.deaddropfinance.ui.DdfColors.palette = net.darkrelay.deaddropfinance.ui.ProgramPalette
+    }
     DdfTheme {
         CompositionLocalProvider(LocalDeviceWords provides PROGRAM_WORDS, net.darkrelay.deaddropfinance.ui.LocalProgramStyle provides true) {
             Box(Modifier.fillMaxSize().background(C.Bg).testTag("phone.${start.javaClass.simpleName}")) {
@@ -68,7 +72,7 @@ fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit =
                     androidx.compose.runtime.key(start, model.phoneGeneration) {
                         AppRoot(
                             ok.store, settings, platform, startupUpdateCheck = false, sync = model.server?.sync,
-                            host = ProgramHost(start, onExit = onExit, sidebar = sidebar, month = month, today = model.today),
+                            host = ProgramHost(start, onExit = onExit, sidebar = sidebar, month = month, today = model.today, titles = model.hostTitles),
                         )
                     }
                 }

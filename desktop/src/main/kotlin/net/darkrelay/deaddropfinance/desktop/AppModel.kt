@@ -141,6 +141,9 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         phoneNav = null
     }
 
+    /** 0.15.1: the shown app screen's title and Back, for the top bar ("Reports > Price history"). */
+    val hostTitles = net.darkrelay.deaddropfinance.ui.HostTitles()
+
     /** 0.13.0: one of the phone app's screens, opened from a program screen (To sort, Details, Fill order); Back returns. */
     var phoneNav by mutableStateOf<net.darkrelay.deaddropfinance.ui.Nav?>(null)
     /** Rises when the phone's screens must start over (after Purge data, which then opens the setup wizard). */

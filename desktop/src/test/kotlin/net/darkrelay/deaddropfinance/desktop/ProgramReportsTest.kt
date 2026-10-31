@@ -5,6 +5,9 @@ import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import androidx.compose.ui.graphics.toAwtImage
 import java.io.File
@@ -70,7 +73,7 @@ class ProgramReportsTest {
         m
     }
 
-    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") == "0.15.0" }?.let { File(it).also { d -> d.mkdirs() } }
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.0", "0.15.1") }?.let { File(it).also { d -> d.mkdirs() } }
 
     private fun every(w: Int, h: Int, m: AppModel, suffix: String = "", check: (Reports.Kind) -> String?) = runDesktopComposeUiTest(w, h) {
         m.go(Screen.REPORTS)
@@ -84,8 +87,33 @@ class ProgramReportsTest {
             onNodeWithTag("reportView.${k.name}", useUnmergedTree = true).assertExists()
             check(k)?.let { onNodeWithTag(it, useUnmergedTree = true).assertExists() }
             shots?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(it, "report-${(k.ordinal + 1).toString().padStart(2, '0')}-${k.name.lowercase().replace('_', '-')}-${w}x$h$suffix.png")) }
-            onNodeWithTag("back", useUnmergedTree = true).let { runCatching { it.performClick() }.getOrElse { onNodeWithTag("nav.REPORTS").performClick() } }
+            // 0.15.1: one title, in the top bar after the screen's name, and its Back there; none inside the page
+            onNodeWithTag("title.sub", useUnmergedTree = true).assertTextEquals(k.title)
+            onAllNodesWithText(k.title, useUnmergedTree = true).assertCountEquals(1)
+            onNodeWithTag("back", useUnmergedTree = true).assertDoesNotExist()
+            onNodeWithTag("top.back").performClick()
             waitForIdle()
+            onNodeWithTag("reports", useUnmergedTree = true).assertExists()
+            onNodeWithTag("title.sub", useUnmergedTree = true).assertDoesNotExist()
+        }
+        // 0.15.1: a payee's page and an item's prices, opened from their reports, on a budget with scanned receipts
+        if (suffix.isEmpty() && m.budget!!.transactions.any { it.payee == "Corner Market" }) {
+            fun shot(name: String) = shots?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(it, "$name-${w}x$h.png")) }
+            onNodeWithTag("report.MERCHANTS").performClick(); waitForIdle()
+            onNodeWithTag("merchants.allTime", useUnmergedTree = true).performClick(); waitForIdle()
+            onNodeWithTag("merchant.Corner Market", useUnmergedTree = true).performClick(); waitForIdle()
+            onNodeWithTag("merchantPage", useUnmergedTree = true).assertExists()
+            onNodeWithTag("title.sub", useUnmergedTree = true).assertTextEquals("Corner Market")
+            shot("merchant-page")
+            onNodeWithTag("top.back").performClick(); waitForIdle()
+            onNodeWithTag("top.back").performClick(); waitForIdle()
+            onNodeWithTag("report.PRICE_HISTORY").performClick(); waitForIdle()
+            onNodeWithTag("item.milk 2%", useUnmergedTree = true).performClick(); waitForIdle()
+            onNodeWithTag("pricePage", useUnmergedTree = true).assertExists()
+            onNodeWithTag("title.sub", useUnmergedTree = true).assertTextEquals("Milk 2%")
+            shot("price-item")
+            onNodeWithTag("top.back").performClick(); waitForIdle()
+            onNodeWithTag("top.back").performClick(); waitForIdle()
             onNodeWithTag("reports", useUnmergedTree = true).assertExists()
         }
     }

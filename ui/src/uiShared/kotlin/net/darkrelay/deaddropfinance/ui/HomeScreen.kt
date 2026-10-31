@@ -155,6 +155,8 @@ fun HomeScreen(
     envelopes: List<EnvelopeEntity> = budget.everydayEnvelopes,
     /** Bonus income: money outside the bank, added to Ready to Assign. */
     onBonus: () -> Unit = {},
+    /** 1.9.1: the reports picked for Home and Customize (HomeReportCards), under everything else; null shows none. */
+    dashboard: (@Composable () -> Unit)? = null,
 ) {
     val sections = homeSections(budget, forecast != null, checklist != null)
     LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -198,6 +200,7 @@ fun HomeScreen(
                 item { TextButton(onClick = onAllEnvelopes) { Text("All envelopes", color = DdfColors.Cyan) } }
             }
         }
+        dashboard?.let { d -> item { d() } }
         item { Gap(24) }
     }
 }

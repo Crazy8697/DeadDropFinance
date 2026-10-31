@@ -60,6 +60,11 @@ class SyncSettings(private val prefs: SharedPreferences) : net.darkrelay.deaddro
         get() = prefs.getStringSet("reminded", emptySet())!!.toSet()
         set(v) = prefs.edit { putStringSet("reminded", v) }
 
+    /** 1.9.1: Home's report cards, in order, comma-separated; this phone's own (not a carried key, so not in a backup). */
+    override var homeReports: List<String>
+        get() = prefs.getString("home_reports", "").orEmpty().split(",").filter { it.isNotBlank() }
+        set(v) = prefs.edit { putString("home_reports", v.joinToString(",")) }
+
     // ---- backup (this phone's own: not carried in a backup) -------------------------------------------------------
 
     /** When the last backup was saved (epoch millis), and the file's name, for the backup screen. */

@@ -1,5 +1,8 @@
 package net.darkrelay.deaddropfinance.ui
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+
 /**
  * The app's own settings that AppRoot reads and writes (not in the budget). The phone keeps them in SharedPreferences
  * (SyncSettings); the program keeps them in its settings file.
@@ -17,6 +20,14 @@ interface AppSettings {
     var lastBackupName: String
     /** The bill reminders and autopay warnings already sent (BillAlerts). */
     var reminded: Set<String>
+
+    /**
+     * 1.9.1: the reports the phone's Home shows as cards, in order (report kind names): this phone's own, never synced
+     * and not carried in a backup. Empty (the default) is Home as it was. The program has no Home, so it keeps none.
+     */
+    var homeReports: List<String>
+        get() = emptyList()
+        set(@Suppress("UNUSED_PARAMETER") v) {}
 }
 
 /** Where a notification opens the app (MainActivity's extra; the program's notice). */
@@ -61,7 +72,27 @@ class ProgramHost(
     val month: (() -> Int)? = null,
     /** The program's date (0.15.0), the one its own screens use; null: today. */
     val today: (() -> java.time.LocalDate)? = null,
+    /** 0.15.1: where a sub-screen's title and Back go, the program's top bar; null: the screens draw their own. */
+    val titles: HostTitles? = null,
 )
+
+/**
+ * A sub-screen's title and Back for the program's top bar (0.15.1): the screen shows neither, so the program shows
+ * "Reports > Price history" and its Back. Set by ScreenTitle while the screen is shown, cleared when it goes.
+ */
+class HostTitles {
+    class Entry(val owner: Any, val title: String, val back: (() -> Unit)?)
+
+    var current by androidx.compose.runtime.mutableStateOf<Entry?>(null)
+        private set
+
+    fun show(owner: Any, title: String, back: (() -> Unit)?) { current = Entry(owner, title, back) }
+
+    fun clear(owner: Any) { if (current?.owner === owner) current = null }
+}
+
+/** The program's [HostTitles] while it shows these screens (0.15.1); null on the phone. */
+val LocalHostTitles = androidx.compose.runtime.staticCompositionLocalOf<HostTitles?> { null }
 
 /** The first screen of a sidebar item in the program (0.14.0): its title and Back aren't drawn (the top bar has the name). */
 val LocalHostedRoot = androidx.compose.runtime.staticCompositionLocalOf { false }

@@ -165,4 +165,20 @@ class ReportScreensTest {
         open(Kind.PAYDAY_FORECAST, d); compose.onNodeWithText("Mark a payday to see what the next one covers.").assertExists()
         for (k in Kind.entries) open(k, d)
     }
+
+    @Test fun thePhoneKeepsItsOwnTextSizesAndItsOwnTitles() {
+        var body = 0f; var title = 0f
+        show {
+            DdfTheme {
+                body = androidx.compose.material3.MaterialTheme.typography.bodyLarge.fontSize.value
+                title = androidx.compose.material3.MaterialTheme.typography.titleLarge.fontSize.value
+                ReportScreen(Kind.PRICE_HISTORY, data, 0, {}, {}, {}, {}, {}, {})
+            }
+        }
+        assertEquals(16f, body, 0f)
+        assertEquals(22f, title, 0f)
+        // on the phone the screen draws its own title and Back
+        compose.onNodeWithText("Price history").assertExists()
+        compose.onNodeWithTag("back").assertExists()
+    }
 }

@@ -327,7 +327,7 @@ object Reports {
 
     // ---- 11. merchant pages -------------------------------------------------------------------------------------
 
-    /** An item bought: from receipt items, or a transaction's memo where it has no receipt items. */
+    /** An item bought: a scanned receipt's line (1.9.1: only those; a transaction's memo is never an item). */
     data class Bought(val key: String, val name: String, val times: Int, val quantityMilli: Long, val spent: Long)
 
     data class Merchant(
@@ -363,12 +363,9 @@ object Reports {
             val bought = HashMap<String, Bought>()
             for (t in purchases) {
                 val its = byTx[t.id].orEmpty().flatMap { r -> itemsOf[r.id].orEmpty() }.filter { itemName(it).isNotBlank() && it.amount > 0 }
-                if (its.isNotEmpty()) for (i in its) {
+                for (i in its) {
                     val k = itemKey(itemName(i))
                     bought.merge(k, Bought(k, itemName(i), 1, i.quantityMilli, i.amount)) { a, n -> a.copy(times = a.times + 1, quantityMilli = a.quantityMilli + n.quantityMilli, spent = a.spent + n.spent) }
-                } else if (t.memo.isNotBlank()) {
-                    val k = itemKey(t.memo)
-                    bought.merge(k, Bought(k, t.memo.trim(), 1, 1000, -t.amount)) { a, n -> a.copy(times = a.times + 1, quantityMilli = a.quantityMilli + 1000, spent = a.spent + n.spent) }
                 }
             }
             val cats = ts.flatMap { t -> lines[t.id].orEmpty().filter { it.bucket == LineBucket.ENVELOPE || it.bucket == LineBucket.UNSORTED } }
@@ -394,7 +391,6 @@ object Reports {
     private fun seen(b: Budget, receipts: List<ReceiptEntity>, items: List<ReceiptItemEntity>): List<Seen> {
         val tx = b.transactions.associateBy { it.id }
         val live = receipts.filter { !it.deleted && it.kind == net.darkrelay.deaddropfinance.data.ReceiptKind.PURCHASE }.associateBy { it.id }
-        val withItems = HashSet<String>()
         val out = mutableListOf<Seen>()
         for (i in items) {
             if (i.deleted || i.amount <= 0) continue
@@ -403,14 +399,9 @@ object Reports {
             if (name.isBlank()) continue
             val t = r.transactionId?.let { tx[it] }
             val date = r.date ?: t?.date ?: continue
-            r.transactionId?.let { withItems += it }
             val qty = if (i.quantityMilli > 0) i.quantityMilli else 1000
             val unit = i.unitPrice ?: ((i.amount * 1000 + qty / 2) / qty)
             out += Seen(itemKey(name), name, Price(date, r.store.ifBlank { t?.payee.orEmpty() }, unit, qty))
-        }
-        for (t in b.transactions) {
-            if (!shopping(t) || t.amount >= 0 || t.memo.isBlank() || t.id in withItems) continue
-            out += Seen(itemKey(t.memo), t.memo.trim(), Price(t.date, t.payee, -t.amount, 1000))
         }
         return out
     }

@@ -114,6 +114,8 @@ sealed interface Nav {
     data class Report(val kind: net.darkrelay.deaddropfinance.domain.Reports.Kind) : Nav
     data class Merchant(val key: String) : Nav
     data class PriceItem(val key: String) : Nav
+    /** 1.9.1: the phone's Home dashboard, which reports show as cards. */
+    data object HomeCustomize : Nav
 }
 
 /** Where a notification opens the app ([where]: MainActivity.OPEN_*); [n] rises with each one. */
@@ -263,6 +265,8 @@ fun AppRoot(
     var categoryMonth by remember { mutableIntStateOf(0) }
     /** Reports' budget month on the phone (0: the open one); in the program its top bar's month ([ProgramHost.month]). */
     var reportMonth by remember { mutableIntStateOf(0) }
+    /** 1.9.1: the reports on the phone's Home, as this phone saved them. */
+    var homeCards by remember { mutableStateOf(HomeDashboard.read(appSettings.homeReports)) }
     /** Activity's selected account tab; null is All, where Activity opens. */
     var activityTab by remember { mutableStateOf<String?>(null) }
     /** 1.8.0: Activity's budget month (0: the open one), and what Export CSV said last. */
@@ -621,6 +625,15 @@ fun AppRoot(
                             )
                         }
                     },
+                    // the phone only: the program has no Home
+                    dashboard = if (host != null) null else {
+                        {
+                            HomeReportCards(
+                                homeCards, ReportData(b, today, receipts, receiptItems, forecast), reportMonth,
+                                onOpen = { go(Nav.Report(it)) }, onCustomize = { go(Nav.HomeCustomize) },
+                            )
+                        }
+                    },
                 )
             }
             Nav.Envelopes -> EnvelopesScreen(
@@ -968,6 +981,7 @@ fun AppRoot(
                 )
             }
             Nav.Forecast -> forecast?.let { ForecastScreen(it, ::back) } ?: Gone(::back)
+            Nav.HomeCustomize -> HomeCustomizeScreen(homeCards, onChange = { c -> homeCards = c; appSettings.homeReports = HomeDashboard.write(c) }, onBack = ::back)
             Nav.Reports, is Nav.Report, is Nav.Merchant, is Nav.PriceItem -> {
                 val data = ReportData(b, today, receipts, receiptItems, forecast)
                 val month = host?.month?.invoke() ?: reportMonth
@@ -1351,7 +1365,7 @@ fun AppRoot(
             }
             // keyed by the currency, so every amount on screen redraws when it changes
             androidx.compose.runtime.key(currency) {
-                CompositionLocalProvider(LocalHostedRoot provides (host?.sidebar == true && stack.size == 1)) { Box(Modifier.fillMaxSize()) { screen(top) } }
+                CompositionLocalProvider(LocalHostedRoot provides (host?.sidebar == true && stack.size == 1), LocalHostTitles provides host?.titles) { Box(Modifier.fillMaxSize()) { screen(top) } }
             }
         }
     }

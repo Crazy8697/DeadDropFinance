@@ -79,8 +79,19 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composa
 
 @Composable
 fun ScreenTitle(title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit = {}) {
+    // 0.15.1: in the program a sub-screen's title and Back are in its top bar ("Reports > Price history"), not here
+    val titles = LocalHostTitles.current
+    if (titles != null && !LocalHostedRoot.current) {
+        val owner = androidx.compose.runtime.remember { Any() }
+        val back by androidx.compose.runtime.rememberUpdatedState(onBack)
+        val hasBack = onBack != null
+        androidx.compose.runtime.DisposableEffect(title, hasBack) {
+            titles.show(owner, title, if (hasBack) { { back?.invoke() } } else null)
+            onDispose { titles.clear(owner) }
+        }
+    }
     // a sidebar item's first screen in the program: the program's top bar already names it
-    if (LocalHostedRoot.current) {
+    if (LocalHostedRoot.current || titles != null) {
         Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.End, verticalAlignment = Alignment.CenterVertically) { actions() }
         return
     }

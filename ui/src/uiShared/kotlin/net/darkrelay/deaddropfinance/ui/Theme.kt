@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 
 /** DarkRelay colors (the reference mockup's): near-black, cyan accent, teal buttons. */
 object DdfColors {
@@ -77,5 +78,32 @@ private fun scheme() = darkColorScheme(
     error = DdfColors.Error,
 )
 
+/**
+ * The text sizes (1.9.1, program 0.15.1): the phone's are Material's own; with the program's colors (the screens shown
+ * inside the program) they're the program's, in its font, so a hosted screen's text matches its sidebar and top bar.
+ * Picked here, once, with the palette, as the colors are.
+ */
 @Composable
-fun DdfTheme(content: @Composable () -> Unit) = MaterialTheme(colorScheme = scheme(), content = content)
+fun DdfTheme(content: @Composable () -> Unit) =
+    MaterialTheme(colorScheme = scheme(), typography = if (DdfColors.palette == ProgramPalette) ProgramType.typography() else PhoneTypography, content = content)
+
+/** The phone's text sizes: Material 3's. */
+val PhoneTypography = androidx.compose.material3.Typography()
+
+/** The program's text sizes (sp): its body 13.5 (the sidebar's), its top bar title 16, its hints 11.5. */
+object ProgramType {
+    /** The program's font (Segoe UI), set by the program with the palette; the default font until then. */
+    var family: androidx.compose.ui.text.font.FontFamily = androidx.compose.ui.text.font.FontFamily.Default
+
+    private fun s(size: Double, line: Double, weight: androidx.compose.ui.text.font.FontWeight = androidx.compose.ui.text.font.FontWeight.Normal) =
+        androidx.compose.ui.text.TextStyle(fontFamily = family, fontWeight = weight, fontSize = size.sp, lineHeight = line.sp)
+
+    fun typography() = androidx.compose.material3.Typography(
+        displayLarge = s(30.0, 38.0), displayMedium = s(26.0, 34.0), displaySmall = s(22.0, 30.0),
+        headlineLarge = s(22.0, 30.0), headlineMedium = s(20.0, 28.0), headlineSmall = s(17.0, 24.0),
+        titleLarge = s(16.0, 22.0, androidx.compose.ui.text.font.FontWeight.SemiBold), titleMedium = s(14.0, 20.0, androidx.compose.ui.text.font.FontWeight.Medium),
+        titleSmall = s(13.5, 19.0, androidx.compose.ui.text.font.FontWeight.Medium),
+        bodyLarge = s(13.5, 19.0), bodyMedium = s(13.0, 18.0), bodySmall = s(11.5, 16.0),
+        labelLarge = s(13.0, 18.0, androidx.compose.ui.text.font.FontWeight.Medium), labelMedium = s(12.0, 16.0), labelSmall = s(11.0, 15.0),
+    )
+}

@@ -322,12 +322,12 @@ class ReportsTest {
         assertEquals(4, market.trips)
         assertEquals(114_00L, market.total)
         assertEquals(28_50L, market.average)
-        // Milk: from the receipt, and the memo on the trip without one
+        // Milk and Bread: from the receipt only (1.9.1); the "Milk" memo on the trip without a receipt isn't an item
         val milk = market.items.first { it.key == "milk" }
-        assertEquals(2, milk.times)
-        assertEquals(3000L, milk.quantityMilli)
-        assertEquals(11_00L, milk.spent)
-        assertEquals(listOf("milk", "bread"), market.items.map { it.key })
+        assertEquals(1, milk.times)
+        assertEquals(2000L, milk.quantityMilli)
+        assertEquals(7_00L, milk.spent)
+        assertEquals(listOf("bread", "milk"), market.items.map { it.key })
         assertEquals("Groceries", market.byCategory.first().name)
         // one budget month: only its trips
         val thisMonth = Reports.merchants(b, listOf(r), items, b.month(0)).first { it.key == market.key }
@@ -353,12 +353,27 @@ class ReportsTest {
         val b = made.b()
         val h = Reports.priceHistory(b, receipts, items, Reports.itemKey("Milk 2%"))
         assertEquals(listOf(p1.plusDays(2) to 3_50L, p2 to 3_75L), h.map { it.date to it.unitPrice })
-        // the memo on a purchase with no receipt is an item too
-        val memo = Reports.priceHistory(b, receipts, items, "milk")
-        assertEquals(listOf(p2.minusDays(1) to 4_00L), memo.map { it.date to it.unitPrice })
+        // a purchase's memo is never an item (1.9.1)
+        assertEquals(emptyList(), Reports.priceHistory(b, receipts, items, "milk"))
         val list = Reports.priceItems(b, receipts, items)
         assertEquals("milk 2%", list.first().key)
         assertEquals(2, list.first().times)
-        assertTrue(list.any { it.key == "milk" })
+        assertEquals(listOf("milk 2%"), list.map { it.key })
+    }
+
+    @Test fun memosWithoutReceiptsAreNeverItems() = runBlocking {
+        // a budget with memos on its purchases (one a comma list) and no scanned receipts
+        val (a, _) = open()
+        val chk = a.saveAccount(null, "Sample Checking", AccountType.BANK, 500_00, p1)
+        val e = a.saveEnvelope(null, EnvelopeDraft("Sample Fun", EnvelopeMode.FILL_TO_TARGET, target = 100_00))
+        for ((memo, amt) in listOf("Sample Subscription" to 20_00L, "Sample Name" to 15_00L, "bread, eggs, sample jam" to 9_00L)) {
+            a.saveTransaction(null, TransactionDraft(chk, p2, "Sample Shop", memo, -amt, listOf(LineDraft(e, -amt))))
+        }
+        val b = a.snapshot()
+        assertEquals(emptyList(), Reports.priceItems(b, emptyList(), emptyList()))
+        val shop = Reports.merchants(b, emptyList(), emptyList(), null).single()
+        // the totals still come from the transactions
+        assertEquals(3, shop.trips); assertEquals(44_00L, shop.total)
+        assertEquals(emptyList(), shop.items)
     }
 }

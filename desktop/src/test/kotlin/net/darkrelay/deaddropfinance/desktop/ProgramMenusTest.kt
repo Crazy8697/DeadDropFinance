@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
@@ -123,7 +124,7 @@ class ProgramMenusTest {
 
     /** Each menu open, for the round's screenshots (only with -Pddf.screens and round 0.15.0). */
     @Test fun screenshotsOfTheOpenMenus() {
-        val dir = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") == "0.15.0" }
+        val dir = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.0", "0.15.1") }
         assumeTrue(dir != null)
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }
         for (menu in listOf("File", "View", "Help")) runDesktopComposeUiTest(1400, 900) {
@@ -151,7 +152,7 @@ class ProgramMenusTest {
         assertEquals(Color(0xFF16181D), C.MenuBar)
         assertEquals(Color(0xFF1E2128), C.MenuPanel)
         assertEquals(Color(0xFF3A4150), C.MenuBorder)
-        assertEquals(Color(0xFF2D6CDF), C.MenuSelected)
+        assertEquals(C.Cyan.copy(alpha = 0.12f).compositeOver(C.Panel), C.MenuSelected)
         assertEquals(Color(0xFF5C6370), C.MenuDisabled)
     }
 }

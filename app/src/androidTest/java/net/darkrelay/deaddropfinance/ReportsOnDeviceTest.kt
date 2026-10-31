@@ -158,6 +158,25 @@ class ReportsOnDeviceTest {
                 settle()
                 save(scenario, "phone-report-${(k.ordinal + 1).toString().padStart(2, '0')}-${k.name.lowercase().replace('_', '-')}")
             }
+            // 1.9.1: an item's prices and a payee's page; Home as a phone that never customized it, and with two cards
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.PriceItemScreen(data, "milk 2%", {}) } }
+            settle(); save(scenario, "phone-price-item")
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.MerchantScreen(data, net.darkrelay.deaddropfinance.domain.Payees.clean("Corner Market"), 0, {}) {} } }
+            settle(); save(scenario, "phone-merchant-page")
+            fun home(cards: List<Kind>) = scenario.onActivity {
+                screen = {
+                    net.darkrelay.deaddropfinance.ui.HomeScreen(
+                        budget, top = null, onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
+                        envelopes = budget.fillOrder, forecast = { net.darkrelay.deaddropfinance.ui.ForecastCard(data.forecast!!) {} },
+                        dashboard = { net.darkrelay.deaddropfinance.ui.HomeReportCards(cards, data, 0, onOpen = {}, onCustomize = {}) },
+                    )
+                }
+            }
+            home(emptyList()); settle(); save(scenario, "phone-home-default")
+            home(listOf(Kind.SAVINGS_GOALS, Kind.SPENDING_BY_ENVELOPE)); settle(); save(scenario, "phone-home-customized")
+            var cards by mutableStateOf(listOf(Kind.SAVINGS_GOALS, Kind.SPENDING_BY_ENVELOPE))
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.HomeCustomizeScreen(cards, { cards = it }, {}) } }
+            settle(); save(scenario, "phone-home-customize-screen")
         }
     }
 }
