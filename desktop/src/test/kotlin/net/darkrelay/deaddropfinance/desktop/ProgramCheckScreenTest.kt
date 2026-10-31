@@ -24,7 +24,7 @@ import kotlin.test.assertTrue
 
 /**
  * 0.15.4 (phone 1.9.5): the check screen in the program, at the size its window opens and at its minimum, with the
- * real Food Lion photo read through the Scan button's own path: item cards (one Checked), the totals breakdown, the Taxed
+ * real Food Lion photo (0.15.5: the very file picked on 0.15.3) read through the Scan button's own path: item cards (one Checked), the totals breakdown, the Taxed
  * toggles, the store and date in yellow; then Clear's question, where Cancel keeps it.
  */
 @OptIn(ExperimentalTestApi::class)
@@ -35,12 +35,12 @@ class ProgramCheckScreenTest {
 
     @After fun close() { models.forEach { it.engine?.close() }; DdfColors.palette = PhonePalette }
 
-    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") == "0.15.4" }?.let { File(it).also { d -> d.mkdirs() } }
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5") }?.let { File(it).also { d -> d.mkdirs() } }
 
     private fun run(w: Int, h: Int) = runDesktopComposeUiTest(w, h) {
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }
-        val photo = listOf(File("../shared/src/jvmTest/resources/receipts/food-lion/food-lion-receipt.webp"), File("shared/src/jvmTest/resources/receipts/food-lion/food-lion-receipt.webp"))
-            .first { it.isFile }.copyTo(File(tmp.root, "food-lion-receipt.webp"))
+        val photo = listOf(File("../shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png"), File("shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png"))
+            .first { it.isFile }.copyTo(File(tmp.root, "food-lion-scanned-in-0.15.3.png"))
         setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()), pickReceipt = { photo })) }
         waitForIdle()
         fun shot(name: String) = shots?.let { dir ->

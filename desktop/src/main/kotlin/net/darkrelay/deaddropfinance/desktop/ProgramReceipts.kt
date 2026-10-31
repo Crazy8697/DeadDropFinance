@@ -39,9 +39,17 @@ class TessReader(tessdata: File) : TextReader {
         }
         // one block of text: keeps an item and its price, far apart on the line, on the same line
         TessAPI1.TessBaseAPISetPageSegMode(api, ITessAPI.TessPageSegMode.PSM_SINGLE_BLOCK)
+        // 0.15.5: its own notes ("Estimating resolution as 365") go nowhere, never to the program's error output
+        TessAPI1.TessBaseAPISetVariable(api, "debug_file", if (System.getProperty("os.name").orEmpty().startsWith("Windows")) "NUL" else "/dev/null")
     }
 
-    override fun read(g: ImageCleanup.Gray): List<ReceiptParser.Line> {
+    override fun read(g: ImageCleanup.Gray): List<ReceiptParser.Line> = read(g, ITessAPI.TessPageSegMode.PSM_SINGLE_BLOCK)
+
+    /** 0.15.5: the page as scattered text (Tesseract's sparse text mode): what the one-block read can drop. */
+    override fun readSparse(g: ImageCleanup.Gray): List<ReceiptParser.Line> = read(g, ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT)
+
+    private fun read(g: ImageCleanup.Gray, mode: Int): List<ReceiptParser.Line> {
+        TessAPI1.TessBaseAPISetPageSegMode(api, mode)
         val px = ByteBuffer.allocateDirect(g.width * g.height)
         for (v in g.px) px.put(v.toByte())
         px.flip()
@@ -63,6 +71,7 @@ class TessReader(tessdata: File) : TextReader {
             }
         } finally {
             TessAPI1.TessBaseAPIClear(api)
+            TessAPI1.TessBaseAPISetPageSegMode(api, ITessAPI.TessPageSegMode.PSM_SINGLE_BLOCK)
         }
         return out
     }
@@ -125,6 +134,7 @@ class ProgramReceiptScanner(private val images: ReceiptImages, private val reade
     /** A page the engine fails on is kept with no lines. */
     private fun safe(r: TextReader) = object : TextReader {
         override fun read(g: ImageCleanup.Gray) = runCatching { r.read(g) }.getOrDefault(emptyList())
+        override fun readSparse(g: ImageCleanup.Gray) = runCatching { r.readSparse(g) }.getOrDefault(emptyList())
         override fun close() {}
     }
 

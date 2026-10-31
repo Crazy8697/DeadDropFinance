@@ -162,6 +162,25 @@ object ImageCleanup {
     }
 
     /** A smaller copy whose longer side is at most [max] pixels (for storing and showing). */
+    /** 0.15.5: [g] made [factor] times bigger, each new pixel between the four it falls among (bilinear). */
+    fun scaleUp(g: Gray, factor: Int): Gray {
+        if (factor <= 1) return g
+        val w = g.width * factor; val h = g.height * factor
+        val out = IntArray(w * h)
+        for (y in 0 until h) {
+            val sy = ((y + 0.5) / factor - 0.5).coerceIn(0.0, (g.height - 1).toDouble())
+            val y0 = sy.toInt(); val y1 = minOf(y0 + 1, g.height - 1); val fy = sy - y0
+            for (x in 0 until w) {
+                val sx = ((x + 0.5) / factor - 0.5).coerceIn(0.0, (g.width - 1).toDouble())
+                val x0 = sx.toInt(); val x1 = minOf(x0 + 1, g.width - 1); val fx = sx - x0
+                val top = g[x0, y0] * (1 - fx) + g[x1, y0] * fx
+                val bottom = g[x0, y1] * (1 - fx) + g[x1, y1] * fx
+                out[y * w + x] = (top * (1 - fy) + bottom * fy + 0.5).toInt()
+            }
+        }
+        return Gray(w, h, out)
+    }
+
     fun scaleDown(g: Gray, max: Int): Gray {
         val longSide = maxOf(g.width, g.height)
         if (longSide <= max) return g

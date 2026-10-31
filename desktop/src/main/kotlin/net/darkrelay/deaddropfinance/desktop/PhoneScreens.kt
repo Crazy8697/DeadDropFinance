@@ -194,6 +194,8 @@ class ProgramPlatform(private val model: AppModel, private val shell: Shell, pri
     // 1.9.5 (0.15.4): the receipt being checked, encrypted beside the receipt photos until it is saved or cleared
     override fun loadScanDraft(): String? = receiptImages.readDraft()
     override fun saveScanDraft(json: String?) = receiptImages.writeDraft(json)
+    override fun loadEditDraft(receiptId: String): String? = receiptImages.readDraft("edit-$receiptId")
+    override fun saveEditDraft(receiptId: String, json: String?) = receiptImages.writeDraft(json, "edit-$receiptId")
 
     // About's Licenses: the notices the installed program carries
     override fun docs(): List<String> = shell.docs()

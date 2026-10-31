@@ -37,6 +37,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import net.darkrelay.deaddropfinance.UpdateCheck
 import net.darkrelay.deaddropfinance.data.BudgetStore
@@ -177,6 +178,10 @@ interface Platform {
     fun loadScanDraft(): String? = null
     /** 1.9.5: keeps the receipt being checked ([json]), or clears it (null). */
     fun saveScanDraft(json: String?) {}
+    /** 0.15.5: the unsaved edits of saved receipt [receiptId], kept (encrypted) until saved or cleared; null when none. */
+    fun loadEditDraft(receiptId: String): String? = null
+    /** 0.15.5: keeps the unsaved edits of saved receipt [receiptId] ([json]), or clears them (null). */
+    fun saveEditDraft(receiptId: String, json: String?) {}
     /** The documents and license texts the app carries (assets/licenses), by file name. */
     fun docs(): List<String>
     /** One carried document's text, or null. */
@@ -889,7 +894,20 @@ fun AppRoot(
             )
             is Nav.ReceiptEdit -> {
                 val saved = receipts.firstOrNull { it.id == top.id }
-                val form = if (top.isNew) scanForm else remember(top.id) { saved?.let { r -> ReceiptForm.from(r, receiptItems.filter { it.receiptId == r.id }) } }
+                // 0.15.5: a saved receipt's edits are kept like a new scan's: as left, through other screens and a restart,
+                // until Save or Clear (Clear throws out the unsaved edits only)
+                val form = if (top.isNew) scanForm else remember(top.id, saved != null) {
+                    saved?.let { r ->
+                        runCatching { platform.loadEditDraft(r.id) }.getOrNull()?.let { j -> runCatching { ReceiptForm.fromJson(org.json.JSONObject(j)) }.getOrNull() }
+                            ?: ReceiptForm.from(r, receiptItems.filter { it.receiptId == r.id })
+                    }
+                }
+                if (!top.isNew && form != null) {
+                    LaunchedEffect(form) {
+                        androidx.compose.runtime.snapshotFlow { form.toJson().toString() }.drop(1)
+                            .collect { j -> withContext(Dispatchers.IO) { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, j) } } } }
+                    }
+                }
                 val pageCount = if (top.isNew) scanPages.size else saved?.pages ?: 0
                 val pages by produceState(emptyList<androidx.compose.ui.graphics.ImageBitmap?>(), top.id, pageCount) {
                     value = (0 until pageCount).map { platform.receiptPage(top.id, it) }
@@ -899,12 +917,12 @@ fun AppRoot(
                     envelopes = b.fillOrder.filter { !it.isSystem },
                     // 1.9.5: Back keeps the receipt being checked (Clear throws it out)
                     onBack = ::back,
-                    onClear = if (top.isNew) { { dropScan(); back() } } else null,
+                    onClear = if (top.isNew) { { dropScan(); back() } } else { { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, null) } }; back() } },
                     onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
                     onSave = {
                         run(scope) {
                             val id = receiptsOps.save(top.id, form.draft(pageCount), if (top.isNew) scanFor else null)
-                            if (!top.isNew) { back(); return@run }
+                            if (!top.isNew) { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, null) } }; back(); return@run }
                             val forTx = scanFor
                             scanId = null; scanForm = null; scanPages.clear()
                             clearDraft()
@@ -933,7 +951,7 @@ fun AppRoot(
                     r, receiptItems.filter { it.receiptId == r.id }, pages, b.transactions.firstOrNull { it.id == r.transactionId }, b, itemReturns, message ?: error,
                     onBack = ::back, onEdit = { go(Nav.ReceiptEdit(r.id, isNew = false)) }, onMatch = { go(Nav.ReceiptMatch(r.id)) },
                     onSplit = { go(Nav.ItemSplit(r.id)) }, onDetach = { run(scope) { receiptsOps.detach(r.id) } },
-                    onDelete = { run(scope, popAfter = true) { receiptsOps.delete(r.id) } }, onTransaction = { go(Nav.TxDetail(it)) },
+                    onDelete = { run(scope, popAfter = true) { receiptsOps.delete(r.id); runCatching { platform.saveEditDraft(r.id, null) } } }, onTransaction = { go(Nav.TxDetail(it)) },
                 )
             }
             is Nav.ReceiptMatch -> {

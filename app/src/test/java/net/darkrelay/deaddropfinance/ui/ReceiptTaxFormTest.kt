@@ -125,16 +125,10 @@ class ReceiptTaxFormTest {
         assertEquals(0, compose.onAllNodes(hasTestTag("tax.addsUp")).fetchSemanticsNodes().size)
     }
 
-    @Test fun aPriceOneDigitFromAddingUpIsPointedAtAndNeverChanged() {
-        val f = form(
-            """
-            SAMPLE MART
-            08/14/2030
-            SAMPLE CREAM 9.49
-            SAMPLE BUTTER 2.99
-            TOTAL 8.48
-            """,
-        )
+    /** 0.15.5: only a price the reader already doubted is pointed at; a clean line never is, even one digit away. */
+    @Test fun aDoubtedPriceOneDigitFromAddingUpIsPointedAtAndNeverChanged() {
+        val lines = listOf("SAMPLE MART" to 95, "08/14/2030" to 95, "SAMPLE CREAM 9.49" to 40, "SAMPLE BUTTER 2.99" to 95, "TOTAL 8.48" to 95)
+        val f = ReceiptForm.from(ReceiptParser.parseLines(lines.map { (t, c) -> ReceiptParser.Line(t, c) }))
         show(f)
         assertEquals(mapOf(0 to 5_49L), f.misread(f.totals(f.taxWork())))
         compose.onNodeWithText("price may be misread: \$5.49 would make it add up").performScrollTo().assertExists()
@@ -145,6 +139,35 @@ class ReceiptTaxFormTest {
         compose.waitForIdle()
         assertEquals(0, compose.onAllNodesWithText("price may be misread: \$5.49 would make it add up").fetchSemanticsNodes().size)
         compose.onNodeWithTag("tax.addsUp").performScrollTo().assertExists()
+    }
+
+    @Test fun aCleanPriceIsNeverPointedAtTheGapStillShows() {
+        val f = form(
+            """
+            SAMPLE MART
+            08/14/2030
+            SAMPLE CREAM 9.49
+            SAMPLE BUTTER 2.99
+            TOTAL 8.48
+            """,
+        )
+        show(f)
+        assertEquals(emptyMap<Int, Long>(), f.misread(f.totals(f.taxWork())))
+        compose.onNodeWithText("the items come to \$4.00 more than the total paid").performScrollTo().assertExists()
+        assertEquals(0, compose.onAllNodesWithText("would make it add up", substring = true).fetchSemanticsNodes().size)
+    }
+
+    /** 0.15.5: an envelope guessed from the built-in section map is never yellow. */
+    @Test fun anEnvelopeFromTheSectionMapIsNeverYellow() {
+        val f = form("SAMPLE MART\n08/14/2030\nHBA\nSAMPLE SHAMPOO 4.00\nTOTAL 4.00")
+        val household = net.darkrelay.deaddropfinance.data.EnvelopeEntity(id = "h", name = "Household", mode = net.darkrelay.deaddropfinance.data.EnvelopeMode.FILL_TO_TARGET, createdAt = 1, updatedAt = 1)
+        f.guessEnvelopes(emptyList(), listOf(household))
+        assertEquals("h", f.items.single().envelopeId)
+        screen = { ReceiptEditScreen(f, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = listOf(household)) }
+        if (!shown) { compose.setContent { DdfTheme { screen?.invoke() } }; shown = true }
+        compose.waitForIdle()
+        assertTrue(f.items.none { "envelope" in it.unsure })
+        assertEquals(0, compose.onAllNodes(androidx.compose.ui.test.hasTestTag("warn") and androidx.compose.ui.test.hasAnyAncestor(androidx.compose.ui.test.hasTestTag("item.envelope.0")), useUnmergedTree = true).fetchSemanticsNodes().size)
     }
 
     @Test fun unmatchedTaxAsksThroughTheTogglesAndSaveWaits() {

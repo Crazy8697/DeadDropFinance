@@ -160,7 +160,8 @@ class ReceiptForm(
 
     /**
      * When the items don't add up to the total paid: the items whose price, with one digit read differently, would close
-     * the gap exactly, each with the price that would. Nothing is changed by itself.
+     * the gap exactly, each with the price that would. Nothing is changed by itself. 0.15.5: only items the reader already
+     * doubted (a smudged, low-confidence or guessed line: its price, quantity or name unsure); none, when none of those would.
      */
     fun misread(totals: ReceiptTotals): Map<Int, Long> {
         val gap = totals.gap ?: return emptyMap()
@@ -168,6 +169,7 @@ class ReceiptForm(
         val out = linkedMapOf<Int, Long>()
         items.forEachIndexed { i, r ->
             if (liveIndex(i) == null) return@forEachIndexed
+            if (r.unsure.keys.none { it in setOf("price", "qty", "name") }) return@forEachIndexed
             val now = Money.parse(r.amount) ?: return@forEachIndexed
             val want = now + gap
             if (want <= 0) return@forEachIndexed
@@ -429,8 +431,14 @@ fun ReceiptEditScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear this receipt?") },
-            text = { Text("Nothing has been saved. The photos, what was read and your changes are thrown out.") },
+            // 0.15.5: on a saved receipt, Clear throws out the edits not saved yet; the saved receipt stays as it is
+            title = { Text(if (isNew) "Clear this receipt?" else "Clear your changes?") },
+            text = {
+                Text(
+                    if (isNew) "Nothing has been saved. The photos, what was read and your changes are thrown out."
+                    else "Only the changes not saved yet are thrown out. The saved receipt stays as it is.",
+                )
+            },
             // Cancel is the default: the filled button
             confirmButton = { Button(onClick = { confirmClear = false }, modifier = Modifier.testTag("clear.cancel")) { Text("Cancel") } },
             dismissButton = { TextButton(onClick = { confirmClear = false; onClear?.invoke() }, modifier = Modifier.testTag("clear.confirm")) { Text("Clear", color = DdfColors.Error) } },
@@ -443,8 +451,9 @@ fun ReceiptEditScreen(
 private fun ItemCard(
     form: ReceiptForm, i: Int, r: ItemRow, work: ReceiptTax.Result, misreadTo: Long?, showEnvelope: Boolean, envelopeOptions: List<Pair<String?, String>>,
 ) {
-    fun warn(field: String): String? = if (r.checked) null else r.unsure[field]
-        ?: if (field == "price" && misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else null
+    // the price the gap points at says which price would add up, before the reader's own doubt about it
+    fun warn(field: String): String? = if (r.checked) null
+        else if (field == "price" && misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else r.unsure[field]
     val taxedNow = form.taxedOf(i, work)
     val taxWarn = warn("taxed") ?: if (!r.checked && taxedNow == null) "not sure whether it's taxed" else null
     ItemCardFrame(Modifier.padding(bottom = 10.dp).alpha(if (r.checked) 0.6f else 1f).testTag("item.card.$i")) {

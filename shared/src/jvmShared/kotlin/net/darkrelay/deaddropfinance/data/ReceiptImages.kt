@@ -70,12 +70,13 @@ class ReceiptImages(private val dir: File, private val key: () -> ByteArray) : R
      * its own inside this one: never taken for a page or a backup's photo, kept by a sweep, gone with the folder on Erase
      * or Purge. Null clears it.
      */
-    fun writeDraft(text: String?) {
+    fun writeDraft(text: String?, name: String = "scan") {
         val d = staging(File(dir, "draft"))
-        if (text == null) { d.delete("scan"); File(dir, "draft").delete() } else d.write("scan", 0, text.toByteArray(Charsets.UTF_8))
+        if (text == null) { d.delete(name); File(dir, "draft").delete() } else d.write(name, 0, text.toByteArray(Charsets.UTF_8))
     }
 
-    fun readDraft(): String? = staging(File(dir, "draft")).read("scan", 0)?.toString(Charsets.UTF_8)
+    /** 0.15.5: [name] "scan" is the new scan being checked; "edit-<receipt id>", the unsaved edits of a saved receipt. */
+    fun readDraft(name: String = "scan"): String? = staging(File(dir, "draft")).read(name, 0)?.toString(Charsets.UTF_8)
 
     /** A store for [other] files under this same key: a restore stages its photos there first. */
     fun staging(other: File) = ReceiptImages(other, key)

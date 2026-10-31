@@ -86,6 +86,7 @@ object ReceiptParser {
     private val notTotal = Regex("""\b(SAVINGS|SAVED|ITEMS|DISCOUNT|TAX|POINTS|QTY|NUMBER|COUPONS?)\b""")
     // "Tx 1" as printed, and as text recognition reads it: "Txt", "TxI", "Tx|"
     private val taxWord = Regex("""\b(SALES TAX|TAX|TAXES|VAT|GST|HST|PST)\b|\bTX\s*[0-9TLI|](?![A-Z0-9])""")
+    private val taxBlockHeading = Regex("""^\W*TAX(ES)?\s+(PAID|SUMMARY|DETAIL|DETAILS|BREAKDOWN)\W*$""")
     private val taxTotalWord = Regex("""\bTOTAL\s+(SALES\s+)?TAX(ES)?\b|\bTAX\s+TOTAL\b|\bTOTAL\s+TX\b""")
     private val notTax = Regex("""\b(TAXABLE|NON[- ]?TAX(ABLE)?|PRE[- ]?TAX|TAX EXEMPT)\b""")
     // a tax table row that starts with its letter and rate: "A 7.00% 45.46 3.18", "B = 6.25 %"
@@ -153,16 +154,21 @@ object ReceiptParser {
         .replace(Regex("""(?<=\d)[lI](?=[\d.,])|(?<=[\d.,])[lI](?=\d)""")) { "1" }
 
     /** A price at the end of [raw]: the words before it, the cents (negative when marked so) and the flags after it. */
-    private data class Price(val before: String, val cents: Long, val flags: List<String>, val guessed: Boolean = false)
+    private data class Price(val before: String, val cents: Long, val flags: List<String>, val guessed: Boolean = false, val markLost: Boolean = false)
 
     private fun priceOf(raw: String): Price? {
         var s = fixDigits(raw.trim())
         // as text recognition reads an item's end: a mark after its letter read as a digit or letters ("2.99 A 2",
         // "3.64 Acs"), or the price's point dropped ("219 Ax"): only right after a price, only with a letter
         val asRead = s
+        var markLost = false
         if (price.find(s) == null) {
             Regex("""(\d[.,]\d{2}\s+[A-Z])\s*\S{1,3}$""").find(s)?.let { s = s.substring(0, it.range.first) + it.groupValues[1] }
                 ?: Regex("""(?<=\s)(\d{1,2})(\d{2})(\s+[A-Z][a-z*×#+]{0,3})$""").find(s)?.let { s = s.substring(0, it.range.first) + "${it.groupValues[1]}.${it.groupValues[2]}${it.groupValues[3]}" }
+                // 0.15.5: a colon for the point, only with a tax letter after it ("1:99 A *"; a time has none)
+                ?: Regex("""(?<=\s)(\d{1,4}):(\d{2})(\s+[A-Z](?:\s*[*xX×#+]+)?)$""").find(s)?.let { s = s.substring(0, it.range.first) + "${it.groupValues[1]}.${it.groupValues[2]}${it.groupValues[3]}" }
+                // 0.15.5: the letter itself read as marks ("2.99 ‘ *"): the price stands, the tax mark is lost
+                ?: Regex("""(\d[.,]\d{2})((?:\s+[^\sA-Za-z0-9]{1,3}){1,2})$""").find(s)?.takeIf { m -> s.substring(0, m.range.first).count { c -> c.isLetter() } >= 2 }?.let { s = s.substring(0, it.range.first) + it.groupValues[1]; markLost = true }
         }
         val m = price.find(s) ?: return null
         val whole = m.groupValues[2].replace(",", "").toLong()
@@ -171,7 +177,7 @@ object ReceiptParser {
         val before = s.substring(0, m.range.first).trim().trimEnd('$').trim()
         // "A *", "A*", and as text recognition reads them, "Ax", "A x": a capital letter, then marks
         val flags = Regex("""[A-Z]{1,2}(?![A-Z])|[a-z]+|[*#+%^~×]""").findAll(m.groupValues[5]).map { it.value }.toList()
-        return Price(before, if (negative) -cents else cents, flags, guessed = s != asRead)
+        return Price(before, if (negative) -cents else cents, flags, guessed = s != asRead && !markLost, markLost = markLost)
     }
 
     /** The tax letter among a price's flags: the first one or two capital letters that isn't a unit word or W/M. */
@@ -268,6 +274,8 @@ object ReceiptParser {
             val isTaxRow = (taxWord.containsMatchIn(u) || taxTableRow.containsMatchIn(u)) && !notTax.containsMatchIn(u) && !dueWord.containsMatchIn(u) &&
                 !taxTotalWord.containsMatchIn(u) && !totalWord.containsMatchIn(u.replace(taxWord, ""))
             val p = priceOf(l.text)
+            // 0.15.5: the tax block's heading ("Tax Paid", "Tax Summary"): what follows is the tax block, never items
+            if (p == null && taxBlockHeading.containsMatchIn(u)) { firstSummary = minOf(firstSummary, i); return@forEachIndexed }
             if (p == null) {
                 // a tax row whose end the text recognition garbled ("7.00 Tx 2 45,46 muy!") is still a tax row
                 if (isTaxRow && taxMoney.containsMatchIn(fixDigits(u))) { taxRows += i; firstSummary = minOf(firstSummary, i) }
@@ -375,7 +383,7 @@ object ReceiptParser {
             // a quantity or weight line, with or without its line total
             // "lb" as text recognition reads it: "1b", "Ib"
             // and stray marks read around the "@" ("1.26 1b@", a long dash, "2.89/Ib")
-            val fixed = fixDigits(l.text.trim()).replace(Regex("""/\s*[Il1|]b\b"""), "/lb").replace(Regex("""(?<=\d)\s*[1Il|]b\b"""), " lb")
+            val fixed = fixDigits(l.text.trim()).replace(Regex("""^[^A-Za-z0-9$]+"""), "").replace(Regex("""/\s*[Il1|]b\b"""), "/lb").replace(Regex("""(?<=\d)\s*[1Il|]b\b"""), " lb")
                 .replace(Regex("""@\s*[\u2014\u2013=~_:;,.\-]+\s*(?=\$?\d)"""), "@ ")
             val q = qtyLine.matchEntire(fixed) ?: weightNoAt.matchEntire(fixed)
             val qm = q ?: qtyLineMisread.matchEntire(fixed)?.takeIf { m ->
@@ -468,6 +476,7 @@ object ReceiptParser {
             val why = mutableMapOf<String, String>()
             unit?.let { up -> if (kotlin.math.abs((up * qty + 500) / 1000 - kotlin.math.abs(amount)) > 1) { why["qty"] = "quantity times price doesn't match the line total"; why["price"] = why.getValue("qty") } }
             if (p.guessed) why["price"] = "price may be misread"
+            if (p.markLost) why["taxed"] = "tax mark couldn't be read"
             add(desc, qty, unit, amount, letter, l, "", why)
             pendingDesc = null
         }

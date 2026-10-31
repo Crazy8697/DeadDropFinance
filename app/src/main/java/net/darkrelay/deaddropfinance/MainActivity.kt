@@ -484,6 +484,8 @@ class MainActivity : ComponentActivity() {
         // 1.9.5: the receipt being checked, encrypted beside the receipt photos until it is saved or cleared
         override fun loadScanDraft(): String? = app.receiptImages.readDraft()
         override fun saveScanDraft(json: String?) = app.receiptImages.writeDraft(json)
+        override fun loadEditDraft(receiptId: String): String? = app.receiptImages.readDraft("edit-$receiptId")
+        override fun saveEditDraft(receiptId: String, json: String?) = app.receiptImages.writeDraft(json, "edit-$receiptId")
 
         override fun sweepReceiptFiles(keep: Set<String>) {
             runCatching { app.receiptImages.sweep(keep) }

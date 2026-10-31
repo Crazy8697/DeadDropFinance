@@ -20,6 +20,8 @@ import androidx.compose.ui.test.filter
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onRoot
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -63,6 +65,87 @@ class ProgramFoodLionScanTest : ProgramScreensBase() {
         until("Save receipt", ms = 90_000)
         compose.waitForIdle()
     }
+
+    /**
+     * 0.15.5: the very file picked in the program's Scan button on 0.15.3 (a small screenshot of the photo, 467 x 815,
+     * text a dozen pixels high): enlarged before it's read, and the balance and total tax its one-block read drops taken
+     * from a second, scattered read. Every line, the breakdown, and the total read from the receipt.
+     */
+    @Test fun theFilePickedOn0153ThroughTheScanButton() {
+        show()
+        val original = listOf(File("../shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png"), File("shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png")).first { it.isFile }
+        scanFromReceipts(original.copyTo(File(tmp.root, "food-lion-scanned-in-0.15.3.png")))
+        assertEquals(21, (0 until 40).count { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("item.card.$it"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() })
+        names.forEachIndexed { i, n -> assertTrue(sameName(text("item.name.$i"), n), "item $i: '${text("item.name.$i")}'") }
+        assertEquals(prices, (0 until 21).map { text("item.price.$it") })
+        assertEquals(qtys, (0 until 21).map { text("item.qty.$it") })
+        assertEquals("", text("receipt.store"))
+        assertEquals("", text("receipt.date"))
+        assertTrue(shows("store wasn't on the photo") && shows("date wasn't on the photo"))
+        assertEquals("63.56", text("breakdown.untaxed"))
+        assertEquals("45.46", text("breakdown.taxed"))
+        assertEquals("3.18", text("breakdown.tax"))
+        assertEquals("112.20", text("breakdown.total"))
+        assertTrue(!shows("total wasn't read"), "read from the receipt")
+        assertTrue(shows("Untaxed items, taxed items and tax come to the total paid."), dump())
+    }
+
+    /** 0.15.5: a saved receipt's edits are kept like a new scan's, through another screen and a restart; Clear throws out only them. */
+    @Test fun aSavedReceiptsEditsAreKeptUntilSavedOrClearedAndClearKeepsTheSavedReceipt() {
+        show()
+        val id = runBlocking {
+            net.darkrelay.deaddropfinance.domain.Receipts(store(), a()).save(
+                "saved-1",
+                net.darkrelay.deaddropfinance.domain.Receipts.Draft(
+                    "Corner Market", today, 12_00, 0,
+                    listOf(net.darkrelay.deaddropfinance.domain.Receipts.DraftItem("SAMPLE APPLES", amount = 5_00), net.darkrelay.deaddropfinance.domain.Receipts.DraftItem("SAMPLE SOAP", amount = 7_00)),
+                ),
+            )
+        }
+        refresh()
+        fun openEdit() { model.go(Screen.RECEIPTS); model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.ReceiptEdit(id, isNew = false)); until("Edit receipt") }
+        openEdit()
+        tag("item.name.0").performTextReplacement("SAMPLE GREEN APPLES"); compose.waitForIdle()
+        click("item.checked.1")
+        Thread.sleep(300); compose.waitForIdle()
+        // another screen, and back
+        click("nav.BUDGET")
+        openEdit()
+        assertEquals("SAMPLE GREEN APPLES", text("item.name.0"))
+        assertTrue(shows("✓ Checked"))
+        shots?.let { compose.onRoot().captureToImage().toAwtImage().let { img -> ImageIO.write(img, "png", File(it, "program-edit-draft-after-screen-switch.png")) } }
+        // a restart
+        val dir = dataDir()
+        compose.setContent {}
+        compose.waitForIdle()
+        model.engine?.close()
+        model = AppModel(runBlocking { Engine.start(dir) }).also { runBlocking { it.refresh() } }
+        compose.setContent { DesktopApp(model, shell) }
+        compose.waitForIdle()
+        openEdit()
+        assertEquals("SAMPLE GREEN APPLES", text("item.name.0"))
+        // nothing saved yet
+        assertEquals(listOf("SAMPLE APPLES", "SAMPLE SOAP"), runBlocking { store().dao.itemsOf(id) }.map { it.text })
+        // Clear on a saved receipt: says so, keeps the saved receipt, throws out the edits
+        click("receipt.clear")
+        until("Clear your changes?")
+        assertTrue(shows("Only the changes not saved yet are thrown out. The saved receipt stays as it is."))
+        click("clear.confirm")
+        compose.waitForIdle()
+        assertEquals(listOf("SAMPLE APPLES", "SAMPLE SOAP"), runBlocking { store().dao.itemsOf(id) }.map { it.text })
+        assertTrue(runBlocking { store().dao.receipt(id) } != null)
+        openEdit()
+        assertEquals("SAMPLE APPLES", text("item.name.0"))
+        assertTrue(!shows("✓ Checked"))
+        // and Save keeps the edit and clears the draft
+        tag("item.name.1").performTextReplacement("SAMPLE DISH SOAP"); compose.waitForIdle()
+        Thread.sleep(300)
+        click("receipt.save")
+        compose.waitUntil(5_000) { runBlocking { store().dao.itemsOf(id) }.any { it.text == "SAMPLE DISH SOAP" } }
+        assertTrue(File(dir, "receipts").listFiles().orEmpty().none { it.name == "draft" }, File(dir, "receipts").list().orEmpty().joinToString())
+    }
+
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") == "0.15.5" }?.let { File(it).also { d -> d.mkdirs() } }
 
     @Test fun theRealPhotoThroughTheScanButton() {
         show()

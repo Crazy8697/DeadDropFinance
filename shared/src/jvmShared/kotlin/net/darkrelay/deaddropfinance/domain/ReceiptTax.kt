@@ -74,6 +74,14 @@ object ReceiptTax {
             val shares = largestRemainder(l.amount, set.map { sums.getValue(it).coerceAtLeast(0) })
             set.forEachIndexed { k, x -> given[x] = shares[k] }
         }
+        // 0.15.5: every letter settled, one of them taxed, and its line's tax read differently from the receipt's total tax
+        // (a misread digit): the total tax, as the receipt adds it up, is what that letter carried
+        val taxedLetters = given.filterValues { it > 0 }.keys
+        if (tax != null && taxedLetters.size == 1 && given.values.sum() != totalTax && (letters.all { it in given } || given.values.sum() > totalTax)) {
+            val l = taxedLetters.single()
+            val others = given.filterKeys { it != l }.values.sum()
+            if (totalTax - others > 0) given[l] = totalTax - others
+        }
         var pool = totalTax - given.values.sum()
         val rest = letters - given.keys
 
