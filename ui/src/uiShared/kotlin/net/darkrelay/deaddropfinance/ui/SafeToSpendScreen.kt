@@ -21,7 +21,7 @@ import net.darkrelay.deaddropfinance.domain.Money
  */
 @Composable
 fun SafeToSpendScreen(budget: Budget, error: String?, onBack: () -> Unit, onToggle: (String, Boolean) -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Safe to Spend", onBack)
         Text("Counts what's left in the envelopes switched on here, until next payday. Bills and set-asides live in their own envelopes, so they're already out of it.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Gap()

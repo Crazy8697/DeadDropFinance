@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -77,7 +76,7 @@ fun MoreScreen(
     onServer: (() -> Unit)? = null,
     serverLine: String = "Not connected",
 ) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("More", onBack = null)
         ListRow(onAccounts) { Text("Accounts") }
         ListRow(onImport) { Column { Text("Import CSV"); Text("Old School: a bank or payment app export", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
@@ -162,7 +161,7 @@ fun accountTypeName(t: AccountType) = when (t) {
 
 @Composable
 fun AccountsScreen(budget: Budget, onBack: () -> Unit, onAccount: (String) -> Unit, onAdd: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Accounts", onBack) { TextButton(onClick = onAdd) { Text("Add") } }
         if (budget.accounts.isEmpty()) EmptyState("No accounts yet. Add one to get started.")
         budget.accounts.forEach { a ->
@@ -204,7 +203,7 @@ fun AccountEditScreen(
     var confirmArchive by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val balance = existing?.let { budget?.accountBalance(it.id) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New account" else "Edit account", onBack)
         if (existing != null && balance != null && budget != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -274,37 +273,27 @@ fun AccountEditScreen(
         Gap(24)
     }
     if (confirmDelete && existing != null && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete ${existing.name}?") },
-            text = {
-                Text(
-                    "This deletes the account and its " + (if (deleteCount == 1) "1 transaction" else "$deleteCount transactions") +
-                        " for good. Envelope balances and Ready to Assign change to match. A transfer with another account stays there as an " +
-                        "entry to sort. This can't be undone.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete for good", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Delete ${existing.name}?",
+            "This deletes the account and its " + (if (deleteCount == 1) "1 transaction" else "$deleteCount transactions") +
+                " for good. Envelope balances and Ready to Assign change to match. A transfer with another account stays there as an " +
+                "entry to sort. This can't be undone.",
+            "Delete for good",
+            onCancel = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDelete() }, destructive = true,
         )
     }
     if (confirmArchive && existing != null) {
         val amount = balance?.let { Money.format(it) }
-        AlertDialog(
-            onDismissRequest = { confirmArchive = false },
-            title = { Text(if (existing.archived) "Unarchive ${existing.name}?" else "Archive ${existing.name}?") },
-            text = {
-                Text(
-                    when {
-                        existing.archived && existing.trackOnly -> "It comes back to the account list. It stays track only, so its balance still doesn't count in Ready to Assign."
-                        existing.archived -> "Its balance${amount?.let { " ($it)" } ?: ""} goes back into Ready to Assign, and the account is back in the budget."
-                        existing.trackOnly -> "It leaves the account list. Its transactions stay as history."
-                        else -> "This takes its balance${amount?.let { " ($it)" } ?: ""} out of Ready to Assign, as if the account was never in the budget. Its transactions stay as history."
-                    },
-                )
+        ConfirmDialog(
+            if (existing.archived) "Unarchive ${existing.name}?" else "Archive ${existing.name}?",
+            when {
+                existing.archived && existing.trackOnly -> "It comes back to the account list. It stays track only, so its balance still doesn't count in Ready to Assign."
+                existing.archived -> "Its balance${amount?.let { " ($it)" } ?: ""} goes back into Ready to Assign, and the account is back in the budget."
+                existing.trackOnly -> "It leaves the account list. Its transactions stay as history."
+                else -> "This takes its balance${amount?.let { " ($it)" } ?: ""} out of Ready to Assign, as if the account was never in the budget. Its transactions stay as history."
             },
-            confirmButton = { TextButton(onClick = { confirmArchive = false; onArchive(!existing.archived) }) { Text(if (existing.archived) "Unarchive" else "Archive") } },
-            dismissButton = { TextButton(onClick = { confirmArchive = false }) { Text("Cancel") } },
+            if (existing.archived) "Unarchive" else "Archive",
+            onCancel = { confirmArchive = false }, onConfirm = { confirmArchive = false; onArchive(!existing.archived) },
         )
     }
 }
@@ -364,17 +353,12 @@ fun BudgetStartSetting(start: java.time.LocalDate?, onChange: (java.time.LocalDa
         }
     }
     confirm?.let { d ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            title = { Text("Start the budget on ${budgetStartFormat.format(d)}?") },
-            text = {
-                Text(
-                    "Envelope balances and Ready to Assign will be recalculated from this date. Transactions before it stay in your account " +
-                        "balances and in Categories. No transaction is changed or deleted.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { confirm = null; edit = false; onChange(d) }) { Text("Change it") } },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Start the budget on ${budgetStartFormat.format(d)}?",
+            "Envelope balances and Ready to Assign will be recalculated from this date. Transactions before it stay in your account " +
+                "balances and in Categories. No transaction is changed or deleted.",
+            "Change it",
+            onCancel = { confirm = null }, onConfirm = { confirm = null; edit = false; onChange(d) },
         )
     }
 }

@@ -65,7 +65,7 @@ fun HomeReportCards(cards: List<Kind>, data: ReportData, monthIndex: Int, onOpen
  */
 @Composable
 fun HomeCustomizeScreen(cards: List<Kind>, onChange: (List<Kind>) -> Unit, onBack: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).testTag("home.customizeScreen")) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp).testTag("home.customizeScreen")) {
         ScreenTitle("Customize Home", onBack)
         Text(
             "Reports to show on Home, as cards. Drag the handle to change the order. This is kept on this phone only.",

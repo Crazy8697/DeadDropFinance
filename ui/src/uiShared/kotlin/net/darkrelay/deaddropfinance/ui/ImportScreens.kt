@@ -58,11 +58,11 @@ fun ImportScreen(
     onImport: (CsvImport.Plan) -> Unit,
     onToggleSkip: (Int) -> Unit = {},
 ) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Import CSV", onBack)
         if (budget.accounts.none { !it.archived }) {
             EmptyState("No accounts yet. Add the account this file belongs to first.")
-            return@Column
+            return@ScrollColumn
         }
         Text("Choose a CSV file exported from your bank or payment app. It's read once and never stored.", color = DdfColors.Muted)
         Gap()
@@ -77,8 +77,8 @@ fun ImportScreen(
                 }
             }
         }
-        val text = s.text ?: return@Column
-        val layout = s.layout ?: return@Column
+        val text = s.text ?: return@ScrollColumn
+        val layout = s.layout ?: return@ScrollColumn
         s.fileName?.let { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
         Picker("Into account", budget.accounts.filter { !it.archived }.map { it.id to it.name }, s.accountId, onAccount)
         SectionTitle("Columns")
@@ -89,7 +89,7 @@ fun ImportScreen(
         }
         Picker("Date format", CsvImport.DATE_FORMATS.map { it to it }, layout.dateFormat, { onLayout(layout.copy(dateFormat = it, dateAmbiguous = false)) })
         if (layout.dateAmbiguous) Text("These dates read both month-first and day-first. Check the format.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
-        val account = s.accountId ?: return@Column
+        val account = s.accountId ?: return@ScrollColumn
         val read = CsvImport.read(text, layout)
         val plan = CsvImport.plan(read, account, budget.transactions, s.skippedRows)
         SectionTitle("Preview")

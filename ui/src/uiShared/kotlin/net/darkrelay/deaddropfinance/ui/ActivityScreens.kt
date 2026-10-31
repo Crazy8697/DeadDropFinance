@@ -39,7 +39,6 @@ import net.darkrelay.deaddropfinance.domain.Sorting
 import net.darkrelay.deaddropfinance.domain.Suggest
 import net.darkrelay.deaddropfinance.data.RuleEntity
 import net.darkrelay.deaddropfinance.data.SortedBy
-import androidx.compose.material3.AlertDialog
 
 /**
  * Activity's tabs (1.2.0): All, then one per account shown in Activity, in account order. [selected] null is All.
@@ -160,7 +159,7 @@ private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
 private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity, budget: Budget, tabs: ActivityTabs, onTransaction: (String) -> Unit, month: Budget.Month = Budget.Month(null, null)) {
     val txs = budget.transactions.filter { (it.accountId == a.id || it.transferAccountId == a.id) && month.contains(it.date) }
         .sortedWith(compareByDescending<TransactionEntity> { it.date }.thenByDescending { it.createdAt })
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
             Column(Modifier.padding(12.dp)) {
                 Text("Current balance", color = DdfColors.Muted)
@@ -194,7 +193,7 @@ private fun AllActivity(
     val envelopes = budget.envelopes.associateBy { it.id }
     var confirmAll by remember { mutableStateOf(false) }
     val suggested = budget.toSort.count { it.id in sorting.suggestions }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         if (budget.accounts.none { !it.archived }) EmptyState("No accounts yet. Add one in More to get started.")
         sorting.learned.forEach { r -> LearnedRuleCard(r, budget) { undo -> sorting.onLearned(r.id, undo) } }
         sorting.offer?.let { o -> OfferCard(o, budget, sorting.onOffer) }
@@ -227,17 +226,13 @@ private fun AllActivity(
         Gap(24)
     }
     if (confirmAll) {
-        AlertDialog(
-            onDismissRequest = { confirmAll = false },
-            title = { Text("Approve $suggested suggested?") },
-            text = {
-                Text(
-                    "$suggested of the ${budget.toSort.size} in To sort have a suggestion. Each goes where its suggestion says, splits and returns " +
-                        "included. You can change any of them afterwards.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { confirmAll = false; sorting.onApproveAll() }) { Text("Approve $suggested") } },
-            dismissButton = { TextButton(onClick = { confirmAll = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Approve $suggested suggested?",
+            "$suggested of the ${budget.toSort.size} in To sort have a suggestion. Each goes where its suggestion says, splits and returns " +
+                "included. You can change any of them afterwards.",
+            "Approve $suggested",
+            onCancel = { confirmAll = false },
+            onConfirm = { confirmAll = false; sorting.onApproveAll() },
         )
     }
 }
@@ -474,7 +469,7 @@ fun TransactionEditScreen(
     val destOptions: List<Pair<String?, String>> =
         (if (kind == EditKind.INCOME) listOf<Pair<String?, String>>("rta" to "Ready to assign") else emptyList()) + envelopeOptions +
             (if (kind == EditKind.SPEND) emptyList() else listOf<Pair<String?, String>>(null to "Not sorted yet (To sort)"))
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New transaction" else "Edit transaction", onBack)
         if (existing == null) {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -611,23 +606,20 @@ fun TransactionDetailScreen(
     var askPayday by remember { mutableStateOf(false) }
     var payFill by remember { mutableStateOf(false) }
     if (askPayday) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { askPayday = false },
-            title = { Text("Mark as payday?") },
-            text = {
-                Column {
-                    Text("The budget month closes on ${t.date}, and Fill to target leftovers sweep into Rollover.")
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("markFillRow")) {
-                        Checkbox(payFill, { payFill = it }, modifier = Modifier.testTag("markFill"))
-                        Text("Fill envelopes from it, in fill order")
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { askPayday = false; onPayday(true, payFill) }) { Text("Mark as payday") } },
-            dismissButton = { TextButton(onClick = { askPayday = false }) { Text("Cancel") } },
-        )
+        ConfirmDialog(
+            "Mark as payday?",
+            "The budget month closes on ${t.date}, and Fill to target leftovers sweep into Rollover.",
+            "Mark as payday",
+            onCancel = { askPayday = false },
+            onConfirm = { askPayday = false; onPayday(true, payFill) },
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.testTag("markFillRow")) {
+                Checkbox(payFill, { payFill = it }, modifier = Modifier.testTag("markFill"))
+                Text("Fill envelopes from it, in fill order")
+            }
+        }
     }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(t.payee.ifBlank { if (t.kind == TransactionKind.TRANSFER) "Transfer" else "Transaction" }, onBack) { TextButton(onClick = onEdit) { Text("Edit") } }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {

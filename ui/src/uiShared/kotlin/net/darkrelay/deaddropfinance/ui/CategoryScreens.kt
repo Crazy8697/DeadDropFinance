@@ -52,7 +52,7 @@ fun CategoriesScreen(
     val index = monthIndex.coerceIn(0, months.size - 1)
     val month = months[index]
     val totals = budget.categoryTotals(month)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Categories", onBack = null) { TextButton(onClick = onManage) { Text("Manage") } }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             TextButton(onClick = { onMonth(index + 1) }, enabled = index < months.size - 1) { Text("‹ Older") }
@@ -92,7 +92,7 @@ fun CategoryPurchasesScreen(
     val months = budget.months(today)
     val month = months[monthIndex.coerceIn(0, months.size - 1)]
     val rows = budget.categoryPurchases(month, categoryId)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(budget.categoryName(categoryId), onBack)
         Text(monthLabel(month, today), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -131,7 +131,7 @@ fun ManageCategoriesScreen(
     var renameText by remember { mutableStateOf("") }
     var deleting by remember { mutableStateOf<CategoryEntity?>(null) }
     var moveTo by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Manage categories", onBack)
         Text(
             "A category says what a purchase was. Envelopes claim categories in their editor; a category nothing claims goes to Unplanned.",
@@ -164,17 +164,15 @@ fun ManageCategoriesScreen(
     }
     deleting?.let { c ->
         val n = usage(c.id)
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("Delete ${c.name}?") },
-            text = {
-                Column {
-                    Text("$n purchase${if (n == 1) "" else "s"} or rule${if (n == 1) "" else "s"} use it. Choose the category to move them to. Their envelopes don't change.")
-                    Picker("Move them to", categories.filter { it.id != c.id }.map { it.id to it.name }, moveTo, { moveTo = it })
-                }
-            },
-            confirmButton = { TextButton(onClick = { onDelete(c.id, moveTo); deleting = null }, enabled = moveTo != null) { Text("Delete", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("Cancel") } },
-        )
+        ConfirmDialog(
+            "Delete ${c.name}?",
+            "$n purchase${if (n == 1) "" else "s"} or rule${if (n == 1) "" else "s"} use it. Choose the category to move them to. Their envelopes don't change.",
+            "Delete",
+            onCancel = { deleting = null },
+            onConfirm = { onDelete(c.id, moveTo); deleting = null },
+            destructive = true, enabled = moveTo != null,
+        ) {
+            Picker("Move them to", categories.filter { it.id != c.id }.map { it.id to it.name }, moveTo, { moveTo = it })
+        }
     }
 }

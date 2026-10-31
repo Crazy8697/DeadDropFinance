@@ -242,34 +242,40 @@ private fun Connected(model: AppModel, server: ServerModel, shell: Shell) {
 fun ServerDialog(model: AppModel, server: ServerModel, shell: Shell, d: Dialog) {
     val close = { model.dialog = null }
     when (d) {
-        is Dialog.ConfirmLogin -> Modal("Replace this computer's budget?", 470.dp, close, "dialog.confirmLogin", footer = {
-            Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Back up and log in", { close(); shell.run { server.login(d.username, d.pass, d.name, d.stay) } }, tag = "dialog.confirm")
-        }) {
-            T("If the server has a budget, it replaces the one on this computer. A backup of this computer's budget is saved first, to Downloads\\DeadDropFinance, encrypted with this computer's recovery key.", 13.sp)
-        }
+        is Dialog.ConfirmLogin -> net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Replace this computer's budget?",
+            "If the server has a budget, it replaces the one on this computer. A backup of this computer's budget is saved first, to Downloads\\DeadDropFinance, encrypted with this computer's recovery key.",
+            "Back up and log in",
+            onCancel = close, onConfirm = { close(); shell.run { server.login(d.username, d.pass, d.name, d.stay) } },
+            destructive = true, tag = "dialog.confirmLogin", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        )
         is Dialog.ChangePassword -> ChangePasswordDialog(server, shell, close)
-        is Dialog.TakeOver -> Modal("Take over editing?", 470.dp, close, "dialog.takeOver", footer = {
-            Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Take over", { close(); shell.run { server.takeOver() } }, tag = "dialog.confirm")
-        }) {
-            T("${d.holder} is editing the budget. Taking over moves the edit lock to this computer.", 13.sp)
+        is Dialog.TakeOver -> net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Take over editing?",
+            "${d.holder} is editing the budget. Taking over moves the edit lock to this computer.",
+            "Take over",
+            onCancel = close, onConfirm = { close(); shell.run { server.takeOver() } },
+            tag = "dialog.takeOver", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        ) {
             T("${d.holder} turns read only. Changes it hasn't sent yet wait there and are sent once it can edit again (the last change wins).", 12.sp, C.Dim)
         }
-        is Dialog.RemoveDevice -> Modal("Remove ${d.name}?", 470.dp, close, "dialog.removeDevice", footer = {
-            Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Remove", { close(); shell.run { server.revoke(d.id) } }, tag = "dialog.confirm")
-        }) {
-            T("Its key is deleted on the server, so it can't sync again until it logs in. Its own budget stays on it.", 13.sp)
-        }
-        is Dialog.Logout -> Modal("Log out of the server?", 470.dp, close, "dialog.logout", footer = {
-            Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Log out", { close(); shell.run { server.logout() } }, tag = "dialog.confirm")
-        }) {
+        is Dialog.RemoveDevice -> net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Remove ${d.name}?", "Its key is deleted on the server, so it can't sync again until it logs in. Its own budget stays on it.", "Remove",
+            onCancel = close, onConfirm = { close(); shell.run { server.revoke(d.id) } },
+            destructive = true, tag = "dialog.removeDevice", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        )
+        is Dialog.Logout -> {
             val q = server.status.queued
-            T(if (q > 0) "$q ${if (q == 1) "change hasn't" else "changes haven't"} reached the server. They're sent first if it can be reached; otherwise they stay only on this computer."
-              else "This computer stops syncing. Its budget stays here.", 13.sp)
+            net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+                "Log out of the server?",
+                if (q > 0) "$q ${if (q == 1) "change hasn't" else "changes haven't"} reached the server. They're sent first if it can be reached; otherwise they stay only on this computer."
+                else "This computer stops syncing. Its budget stays here.",
+                "Log out",
+                onCancel = close, onConfirm = { close(); shell.run { server.logout() } },
+                destructive = true, tag = "dialog.logout", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+            ) {
             T("It lets go of the edit lock and removes this computer from the server's devices.", 12.sp, C.Dim)
+            }
         }
         is Dialog.AddPhone -> AddPhoneDialog(server, shell, close)
         else -> {}

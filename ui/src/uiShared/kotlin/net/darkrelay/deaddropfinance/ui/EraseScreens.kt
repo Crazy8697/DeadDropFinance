@@ -27,7 +27,7 @@ const val ERASE_WORD = "ERASE"
 @Composable
 fun EraseScreen(onBack: () -> Unit, working: Boolean, onErase: () -> Unit) {
     var typed by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Erase everything", onBack)
         Text("This deletes everything Dead Drop Finance keeps on this ${LocalDeviceWords.current.device}, for good:")
         Gap()
@@ -67,7 +67,7 @@ const val PURGE_WORD = "PURGE"
 @Composable
 fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
     var typed by remember { mutableStateOf("") }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Purge data", onBack)
         Text("This deletes everything Dead Drop Finance keeps on this ${LocalDeviceWords.current.device}, for good:")
         Gap()
@@ -105,8 +105,8 @@ fun PurgeScreen(onBack: () -> Unit, working: Boolean, onPurge: () -> Unit) {
  */
 @Composable
 fun ErasedScreen(left: List<String>, onStartOver: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+    ScrollColumn(
+        Modifier.fillMaxSize(), inner = Modifier.padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Text(if (left.isEmpty()) "Everything is erased" else "Erase finished, but something is left", style = MaterialTheme.typography.headlineSmall)

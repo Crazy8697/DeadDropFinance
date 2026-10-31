@@ -56,7 +56,7 @@ fun EnvelopesScreen(
 ) {
     val list = budget.fillOrder
     val archived = budget.envelopes.filter { it.archived }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Envelopes", onBack = null) {
             if (onScan != null) TextButton(onClick = onScan, modifier = Modifier.testTag("envelopes.scan")) { Text("Scan receipt") }
             TextButton(onClick = onMove) { Text("Move money") }
@@ -141,7 +141,7 @@ fun EnvelopeDetailScreen(
     onMoveRow: (String) -> Unit = {},
 ) {
     val bal = budget.envelopeBalance(envelope.id)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(envelope.name, onBack) { if (!envelope.isSystem || envelope.mode == EnvelopeMode.CASH) TextButton(onClick = onEdit) { Text("Edit") } }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
@@ -245,7 +245,7 @@ fun EnvelopeEditScreen(existing: EnvelopeEntity?, error: String?, onBack: () -> 
     var reminder by remember { mutableStateOf(existing?.reminder ?: false) }
     var reminderDays by remember { mutableIntStateOf(existing?.reminderDays ?: 2) }
     val system = existing?.isSystem == true
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New envelope" else "Edit envelope", onBack)
         TextFieldRow("Name", name, { name = it })
         if (!system) {
@@ -357,7 +357,7 @@ fun MoveMoneyScreen(
     var amount by remember { mutableStateOf(if (editing != null) Money.plain(editing.amount) else if (backToReady && budget.readyToAssign < 0) Money.plain(-budget.readyToAssign) else "") }
     var date by remember { mutableStateOf(editing?.date?.toString() ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (editing != null) "Edit move" else "Move money", onBack)
         if (editing == null && backToReady && budget.readyToAssign < 0) {
             Text("Ready to assign is ${Money.format(budget.readyToAssign)}: more is in envelopes than you have. Move that much back.", color = DdfColors.Warning)
@@ -392,7 +392,7 @@ fun AssignScreen(
     onAssignAmount: (String, Long) -> Unit,
     shortfalls: List<Payday.Shortfall>?,
 ) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Assign", onBack)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {

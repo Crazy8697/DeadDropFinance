@@ -48,7 +48,7 @@ fun WizardFrame(
         val pages = WizardPage.entries.filter { it != WizardPage.LOCK || LocalDeviceWords.current.appLock }
         Text("Setup, step ${pages.indexOf(page) + 1} of ${pages.size}", color = DdfColors.Muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 12.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 8.dp))
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+        ScrollColumn(Modifier.weight(1f).fillMaxWidth()) {
             content()
             Gap(16)
         }

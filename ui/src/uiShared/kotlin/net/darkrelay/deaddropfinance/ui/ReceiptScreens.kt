@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -319,7 +318,7 @@ fun ReceiptPhotos(pages: List<ImageBitmap?>, big: Boolean = true) {
         )
     }
     if (pages.size > 1) {
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp)) {
+        ScrollRow(Modifier.padding(top = 4.dp)) {
             pages.drop(1).forEach { p ->
                 if (p != null) Image(p, contentDescription = "More of the receipt", contentScale = ContentScale.Fit, modifier = Modifier.height(90.dp).width(60.dp).padding(end = 4.dp))
             }
@@ -333,7 +332,7 @@ fun ReceiptPhotos(pages: List<ImageBitmap?>, big: Boolean = true) {
 /** Where a receipt comes from: the camera, or an image or PDF on the phone (on the program, 0.14.0: an image or PDF file). */
 @Composable
 fun ScanScreen(forPayee: String?, working: Boolean, error: String?, onBack: () -> Unit, onCamera: () -> Unit, onFile: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Scan a receipt", onBack)
         if (forPayee != null) Text("For $forPayee", color = DdfColors.Muted)
         val camera = LocalDeviceWords.current.camera
@@ -382,7 +381,7 @@ fun ReceiptEditScreen(
     val work = form.taxWork()
     val totals = form.totals(work)
     val misread = form.misread(totals)
-    Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), scroll, Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (isNew) "Check the receipt" else "Edit receipt", onBack) {
             if (onClear != null) TextButton(onClick = { confirmClear = true }, modifier = Modifier.testTag("receipt.clear")) { Text("Clear") }
         }
@@ -429,19 +428,13 @@ fun ReceiptEditScreen(
         Gap(24)
     }
     if (confirmClear) {
-        AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            // 0.15.5: on a saved receipt, Clear throws out the edits not saved yet; the saved receipt stays as it is
-            title = { Text(if (isNew) "Clear this receipt?" else "Clear your changes?") },
-            text = {
-                Text(
-                    if (isNew) "Nothing has been saved. The photos, what was read and your changes are thrown out."
-                    else "Only the changes not saved yet are thrown out. The saved receipt stays as it is.",
-                )
-            },
-            // Cancel is the default: the filled button
-            confirmButton = { Button(onClick = { confirmClear = false }, modifier = Modifier.testTag("clear.cancel")) { Text("Cancel") } },
-            dismissButton = { TextButton(onClick = { confirmClear = false; onClear?.invoke() }, modifier = Modifier.testTag("clear.confirm")) { Text("Clear", color = DdfColors.Error) } },
+        ConfirmDialog(
+            if (isNew) "Clear this receipt?" else "Clear your changes?",
+            if (isNew) "Nothing has been saved. The photos, what was read and your changes are thrown out."
+            else "Only the changes not saved yet are thrown out. The saved receipt stays as it is.",
+            "Clear",
+            onCancel = { confirmClear = false }, onConfirm = { confirmClear = false; onClear?.invoke() },
+            destructive = true, cancelTag = "clear.cancel", actionTag = "clear.confirm",
         )
     }
 }
@@ -561,7 +554,7 @@ fun ReceiptDetailScreen(
 ) {
     val envelopes = budget.envelopes.associateBy { it.id }
     var confirmDelete by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(r.store.ifBlank { "Receipt" }, onBack) { TextButton(onClick = onEdit) { Text("Edit") } }
         ReceiptPhotos(pages)
         if (r.pages == 0) Text("No photo kept for this receipt (0.9.0 deleted photos after a split). The items and prices are here.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -613,12 +606,9 @@ fun ReceiptDetailScreen(
         Gap(24)
     }
     if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this receipt?") },
-            text = { Text("The photo and the items are deleted for good. The transaction stays as it is.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Delete this receipt?", "The photo and the items are deleted for good. The transaction stays as it is.", "Delete",
+            onCancel = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDelete() }, destructive = true,
         )
     }
 }
@@ -626,7 +616,7 @@ fun ReceiptDetailScreen(
 /** Several transactions could be this receipt's: pick one, or leave it waiting. */
 @Composable
 fun ReceiptMatchScreen(r: ReceiptEntity, candidates: List<ReceiptMatch.Candidate>, onBack: () -> Unit, onPick: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Which transaction?", onBack)
         Text("${r.store.ifBlank { "Receipt" }}, ${r.total?.let { Money.format(it) } ?: "no total"}${r.date?.let { ", $it" } ?: ""}", color = DdfColors.Muted)
         if (candidates.isEmpty()) EmptyState("No transaction matches yet. The receipt waits in Receipts and is matched when its charge comes in.")
@@ -658,7 +648,7 @@ fun ItemSplitScreen(
 ) {
     val pick = remember { mutableStateMapOf<String, String?>().apply { putAll(initial) } }
     val options: List<Pair<String?, String>> = budget.fillOrder.map { it.id to it.name }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Split by items", onBack)
         Text("${r.store}, ${Money.format(tx.amount)}. " + (if (kotlin.math.abs(tx.amount) > (r.total ?: 0)) "Tax and the tip are" else "Tax is") + " shared out by what each envelope's items cost with their tax.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -693,7 +683,7 @@ fun ItemSplitScreen(
 @Composable
 fun ReceiptsScreen(receipts: List<ReceiptEntity>, budget: Budget, onBack: () -> Unit, onReceipt: (String) -> Unit, onScan: () -> Unit) {
     val txs = budget.transactions.associateBy { it.id }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Receipts", onBack) { TextButton(onClick = onScan) { Text("Scan") } }
         val waiting = receipts.filter { it.transactionId == null || txs[it.transactionId] == null }
         SectionTitle("Waiting for a charge")
@@ -731,7 +721,7 @@ fun ReturnItemsScreen(
 ) {
     val picks = remember { mutableStateMapOf<String, Long>().apply { putAll(preselect) } }
     val envelopes = budget.envelopes.associateBy { it.id }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("What came back?", onBack)
         Text("Refund ${Money.format(credit.amount)} on ${credit.date}, from ${purchase.payee.ifBlank { "the purchase" }} on ${purchase.date}.", color = DdfColors.Muted)
         if (preselect.isNotEmpty()) Text("Ticked from the return receipt.", color = DdfColors.Cyan, style = MaterialTheme.typography.bodySmall)

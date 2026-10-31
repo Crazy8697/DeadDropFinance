@@ -12,6 +12,10 @@ interface TextReader : AutoCloseable {
     /**
      * 0.15.5: the page read as scattered text, each piece of text found where it lies (the program's Tesseract), for what
      * a read as one block can drop, as an amount set apart on its own at the bottom right. None by default.
+     *
+     * 0.15.6: this is the platform's whole part of the second read: the raw pass, nothing more. When to ask for it, the
+     * page it gets (uncleaned, enlarged) and what's taken from it are the shared reader's ([ReceiptPages.read],
+     * [ReceiptPages.withAmountsFound]). The program supplies it (Tess4J); the phone doesn't, and gets the total worked out.
      */
     fun readSparse(g: ImageCleanup.Gray): List<ReceiptParser.Line> = emptyList()
 }

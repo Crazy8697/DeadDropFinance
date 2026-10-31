@@ -100,7 +100,7 @@ private fun Box(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 fun ReportsScreen(d: ReportData, monthIndex: Int, onMonth: ((Int) -> Unit)?, onBack: (() -> Unit)?, onOpen: (Kind) -> Unit) {
     val m = d.month(monthIndex)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).testTag("reports")) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp).testTag("reports")) {
         ScreenTitle("Reports", onBack)
         MonthRow(d, monthIndex, onMonth)
         Gap()
@@ -216,7 +216,7 @@ fun ReportScreen(
 ) {
     val m = d.month(monthIndex)
     val b = d.budget
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).testTag("reportView.${k.name}")) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp).testTag("reportView.${k.name}")) {
         ScreenTitle(k.title, onBack)
         when (k) {
             Kind.SPENDING_BY_ENVELOPE, Kind.SPENDING_BY_CATEGORY -> {
@@ -448,9 +448,9 @@ fun ReportScreen(
 fun MerchantScreen(d: ReportData, key: String, monthIndex: Int, onBack: () -> Unit, onItem: (String) -> Unit) {
     val all = Reports.merchants(d.budget, d.receipts, d.items, null).firstOrNull { it.key == key }
     val month = Reports.merchants(d.budget, d.receipts, d.items, d.month(monthIndex)).firstOrNull { it.key == key }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).testTag("merchantPage")) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp).testTag("merchantPage")) {
         ScreenTitle(all?.name ?: "Merchant", onBack)
-        if (all == null) { EmptyState("Nothing from this payee any more."); return@Column }
+        if (all == null) { EmptyState("Nothing from this payee any more."); return@ScrollColumn }
         Box {
             KeyValue("Spent, all time") { MoneyText(all.total, bold = true) }
             KeyValue("Trips") { Text("${all.trips}") }
@@ -486,9 +486,9 @@ private fun qty(milli: Long): String = if (milli % 1000 == 0L) "${milli / 1000}"
 fun PriceItemScreen(d: ReportData, key: String, onBack: () -> Unit) {
     val h = Reports.priceHistory(d.budget, d.receipts, d.items, key)
     val name = Reports.priceItems(d.budget, d.receipts, d.items).firstOrNull { it.key == key }?.name ?: key
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).testTag("pricePage")) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp).testTag("pricePage")) {
         ScreenTitle(name, onBack)
-        if (h.isEmpty()) { EmptyState("No prices for this item."); return@Column }
+        if (h.isEmpty()) { EmptyState("No prices for this item."); return@ScrollColumn }
         LineChart(listOf(DdfColors.Cyan to h.map { it.unitPrice }), h.map { day(it.date) }, 160)
         Box {
             KeyValue("Lowest") { MoneyText(h.minOf { it.unitPrice }) }

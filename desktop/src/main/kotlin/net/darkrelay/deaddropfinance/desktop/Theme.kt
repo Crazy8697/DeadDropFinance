@@ -91,7 +91,10 @@ object C {
     val Input = Color(0xFF0C1116)
     val Group = Color(0xFF0E1419)
     val BarTrack = Color(0xFF1B242C)
-    val Scrim = Color(0xB8030609)
+    val Scrim = net.darkrelay.deaddropfinance.ui.ProgramScrim
+    /** The scrollbars' thumb (0.15.6): the card border's color at rest, lighter under the mouse. */
+    val ScrollThumb = Line
+    val ScrollThumbHover = Color(0xFF3A4B58)
 }
 
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)

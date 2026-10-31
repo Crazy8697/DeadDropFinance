@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -49,12 +48,7 @@ data class UpdateInstallState(
 /** Asked before Download and install on mobile data (0.15.2): "Download" goes on, "Cancel" stops. */
 @Composable
 fun MobileDataDialog(bytes: Long?, onDownload: () -> Unit, onCancel: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onCancel,
-        text = { Text(net.darkrelay.deaddropfinance.UpdateStart.message(bytes)) },
-        confirmButton = { TextButton(onClick = onDownload) { Text("Download") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
-    )
+    ConfirmDialog(null, net.darkrelay.deaddropfinance.UpdateStart.message(bytes), "Download", onCancel = onCancel, onConfirm = onDownload)
 }
 
 /** The update bar: never a popup. Download and install (0.15.1) fetches, verifies and installs the release itself. */
@@ -156,7 +150,7 @@ fun HomeScreen(
     dashboard: (@Composable () -> Unit)? = null,
 ) {
     val sections = homeSections(budget, forecast != null, checklist != null)
-    LazyColumn(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    ScrollLazyColumn(Modifier.fillMaxWidth(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
         if (top != null) item { top() }
         for (s in sections) when (s) {
             HomeSection.SAFE_TO_SPEND -> item { SafeToSpendCard(budget, onSafeToSpend) }

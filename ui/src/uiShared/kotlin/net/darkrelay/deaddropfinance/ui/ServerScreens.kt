@@ -9,7 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -129,14 +128,11 @@ fun ReadOnlyBanner(status: SyncStatus, onTakeOver: () -> Unit) {
         TextButton(onClick = { confirming = true }) { Text("Take over editing", color = DdfColors.Background) }
     }
     if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text("Take over editing?") },
-            text = {
-                Text("$holder is editing the budget. Taking over moves the edit lock to this phone: $holder turns read only, and changes it hasn't sent yet wait there until it can edit again (the last change wins).")
-            },
-            confirmButton = { TextButton(onClick = { confirming = false; onTakeOver() }) { Text("Take over") } },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Take over editing?",
+            "$holder is editing the budget. Taking over moves the edit lock to this phone: $holder turns read only, and changes it hasn't sent yet wait there until it can edit again (the last change wins).",
+            "Take over",
+            onCancel = { confirming = false }, onConfirm = { confirming = false; onTakeOver() },
         )
     }
 }
@@ -181,7 +177,7 @@ fun ServerScreen(
     stayLoggedIn: Boolean = true,
 ) {
     val busy = ui.working != null
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Server", onBack)
         if (ui.working != null) Text(ui.working, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
         if (ui.message != null) Text(ui.message, color = DdfColors.Cyan, modifier = Modifier.padding(vertical = 8.dp))
@@ -224,12 +220,11 @@ private fun Scanned(ui: ServerUi, qr: PairingQr.Info, busy: Boolean, onPair: (St
         TextButton(onClick = onCancel, enabled = !busy) { Text("Cancel") }
     }
     if (confirmReplace) {
-        AlertDialog(
-            onDismissRequest = { confirmReplace = false },
-            title = { Text("Replace this phone's budget?") },
-            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.") },
-            confirmButton = { TextButton(onClick = { confirmReplace = false; onPair(deviceName) }) { Text("Back up and pair", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Replace this phone's budget?",
+            "If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.",
+            "Back up and pair",
+            onCancel = { confirmReplace = false }, onConfirm = { confirmReplace = false; onPair(deviceName) }, destructive = true,
         )
     }
 }
@@ -330,12 +325,11 @@ private fun Connect(
         enabled = !busy, modifier = Modifier.padding(top = 8.dp),
     ) { Text(if (ui.createMode) "Create account" else "Log in") }
     if (confirmReplace) {
-        AlertDialog(
-            onDismissRequest = { confirmReplace = false },
-            title = { Text("Replace this phone's budget?") },
-            text = { Text("If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.") },
-            confirmButton = { TextButton(onClick = { confirmReplace = false; onLogin(username, password, deviceName, stay) }) { Text("Back up and log in", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmReplace = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Replace this phone's budget?",
+            "If the server has a budget, it replaces the one on this phone. A backup of this phone's budget is saved first, to Downloads/DeadDropFinance, encrypted with this phone's recovery key.",
+            "Back up and log in",
+            onCancel = { confirmReplace = false }, onConfirm = { confirmReplace = false; onLogin(username, password, deviceName, stay) }, destructive = true,
         )
     }
 }
@@ -392,26 +386,18 @@ private fun Connected(
         color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
     OutlinedButton(onClick = { loggingOut = true }, enabled = !busy, modifier = Modifier.padding(top = 8.dp)) { Text("Log out", color = DdfColors.Error) }
     revoking?.let { d ->
-        AlertDialog(
-            onDismissRequest = { revoking = null },
-            title = { Text("Remove ${d.name}?") },
-            text = { Text("Its key is deleted on the server, so it can't sync again until it logs in.") },
-            confirmButton = { TextButton(onClick = { revoking = null; onRevoke(d) }) { Text("Remove", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { revoking = null }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Remove ${d.name}?", "Its key is deleted on the server, so it can't sync again until it logs in.", "Remove",
+            onCancel = { revoking = null }, onConfirm = { revoking = null; onRevoke(d) }, destructive = true,
         )
     }
     if (loggingOut) {
-        AlertDialog(
-            onDismissRequest = { loggingOut = false },
-            title = { Text("Log out of the server?") },
-            text = {
-                Text(
-                    if (status.queued > 0) "${status.queued} ${if (status.queued == 1) "change" else "changes"} haven't reached the server. They're sent first if it can be reached; otherwise they stay only on this phone."
-                    else "This phone stops syncing. Its budget stays here.",
-                )
-            },
-            confirmButton = { TextButton(onClick = { loggingOut = false; onLogout() }) { Text("Log out", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { loggingOut = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Log out of the server?",
+            if (status.queued > 0) "${status.queued} ${if (status.queued == 1) "change" else "changes"} haven't reached the server. They're sent first if it can be reached; otherwise they stay only on this phone."
+            else "This phone stops syncing. Its budget stays here.",
+            "Log out",
+            onCancel = { loggingOut = false }, onConfirm = { loggingOut = false; onLogout() }, destructive = true,
         )
     }
 }

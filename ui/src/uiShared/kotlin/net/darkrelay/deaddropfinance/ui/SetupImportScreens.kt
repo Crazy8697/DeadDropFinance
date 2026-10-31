@@ -33,7 +33,7 @@ data class SetupImportState(
  */
 @Composable
 fun SetupImportScreen(s: SetupImportState, onBack: () -> Unit, onPick: () -> Unit, onExportExample: () -> Unit, onImport: () -> Unit, onCancel: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Import setup", onBack)
         Text(
             "Envelopes, bills, the next payday, rules, subscriptions and settings from a JSON file. Never transactions. " +

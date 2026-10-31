@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +38,7 @@ import net.darkrelay.deaddropfinance.domain.Sorting
 fun RulesScreen(rules: List<RuleEntity>, budget: Budget, onBack: () -> Unit, onRule: (String) -> Unit, onAdd: () -> Unit, onMove: (String, Boolean) -> Unit) {
     val envName = { id: String -> budget.envelopes.firstOrNull { it.id == id }?.name }
     val acctName = { id: String -> budget.accounts.firstOrNull { it.id == id }?.name }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Rules", onBack) { TextButton(onClick = onAdd) { Text("Add") } }
         Text(
             "Rules suggest where new transactions go, by payee. They're tried top to bottom and the first match wins. A rule never changes " +
@@ -119,7 +118,7 @@ fun RuleEditScreen(
         categoryId = categoryId.takeIf { does != "transfer" },
     )
     val categoryChoices: List<Pair<String?, String>> = budget.categories.map { it.id to it.name }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New rule" else "Edit rule", onBack)
         TextFieldRow("Payee has", text, { text = it })
         val clean = Payees.words(text)
@@ -214,12 +213,9 @@ fun RuleEditScreen(
         Gap(24)
     }
     if (confirmDelete && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this rule?") },
-            text = { Text("New transactions from this payee won't get its suggestion any more. Nothing already sorted changes.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Delete this rule?", "New transactions from this payee won't get its suggestion any more. Nothing already sorted changes.", "Delete",
+            onCancel = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDelete() }, destructive = true,
         )
     }
 }

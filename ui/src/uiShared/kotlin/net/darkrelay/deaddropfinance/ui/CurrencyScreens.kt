@@ -63,7 +63,7 @@ fun CurrencyPicker(current: String, onPick: (String) -> Unit, onDismiss: () -> U
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, autoCorrectEnabled = false),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                LazyColumn(Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
+                ScrollLazyColumn(Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
                     itemsIndexed(list, key = { _, c -> c.code }) { i, c ->
                         if (query.isBlank() && i == Currencies.commonOffered.size) {
                             Text("All currencies", color = DdfColors.Muted, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 6.dp))

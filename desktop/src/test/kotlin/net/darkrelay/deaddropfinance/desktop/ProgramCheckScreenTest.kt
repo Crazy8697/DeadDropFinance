@@ -2,7 +2,9 @@ package net.darkrelay.deaddropfinance.desktop
 
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -35,7 +37,7 @@ class ProgramCheckScreenTest {
 
     @After fun close() { models.forEach { it.engine?.close() }; DdfColors.palette = PhonePalette }
 
-    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5") }?.let { File(it).also { d -> d.mkdirs() } }
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5", "0.15.6") }?.let { File(it).also { d -> d.mkdirs() } }
 
     private fun run(w: Int, h: Int) = runDesktopComposeUiTest(w, h) {
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }
@@ -63,6 +65,9 @@ class ProgramCheckScreenTest {
         waitForIdle()
         assertTrue(onAllNodesWithText("store wasn't on the photo", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         shot("program-check-top")
+        // 0.15.6: the screen is taller than the window: its scrollbar shows on the right, and the fields end left of it
+        val bar = onNodeWithTag("scrollbar.vertical", useUnmergedTree = true).getBoundsInRoot()
+        assertTrue(onNodeWithTag("receipt.store", useUnmergedTree = true).getBoundsInRoot().right <= bar.left)
         onNodeWithTag("item.card.3", useUnmergedTree = true).performScrollTo()
         waitForIdle()
         shot("program-check-cards")
@@ -73,6 +78,9 @@ class ProgramCheckScreenTest {
         waitForIdle()
         assertTrue(onAllNodesWithText("Clear this receipt?", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         shot("program-clear-confirm")
+        // 0.15.6: the program's confirm, Cancel on the left and focused, Clear on the right
+        onNodeWithTag("clear.cancel", useUnmergedTree = true).assertIsFocused()
+        assertTrue(onNodeWithTag("clear.cancel", useUnmergedTree = true).getBoundsInRoot().right <= onNodeWithTag("clear.confirm", useUnmergedTree = true).getBoundsInRoot().left)
         onNodeWithTag("clear.cancel", useUnmergedTree = true).performClick()
         waitForIdle()
         assertTrue(onAllNodesWithTag("item.card.0", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(), "Cancel keeps it")

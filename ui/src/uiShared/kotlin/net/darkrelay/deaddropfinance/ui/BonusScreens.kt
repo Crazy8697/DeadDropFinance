@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -42,7 +41,7 @@ fun BonusIncomeScreen(
     var receivedAs by remember { mutableStateOf(existing?.payee?.takeIf { it in Bonus.LABELS } ?: Bonus.LABELS.first()) }
     var note by remember { mutableStateOf(existing?.memo ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "Bonus income" else "Edit bonus income", onBack)
         Text(
             "Money that didn't come through the bank. It goes to Ready to Assign and isn't tied to any account. It isn't a payday.",
@@ -66,12 +65,9 @@ fun BonusIncomeScreen(
         Gap(24)
     }
     if (confirmDelete && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete this bonus income?") },
-            text = { Text("The amount comes back off Ready to Assign.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Delete this bonus income?", "The amount comes back off Ready to Assign.", "Delete",
+            onCancel = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDelete() }, destructive = true,
         )
     }
 }

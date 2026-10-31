@@ -48,7 +48,7 @@ import net.darkrelay.deaddropfinance.domain.Budget
 
 @Composable
 internal fun Body(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) { content() }
+    net.darkrelay.deaddropfinance.ui.ScrollColumn(Modifier.fillMaxSize(), inner = Modifier.padding(18.dp)) { content() }
 }
 
 /** Cards in a row that share the width evenly (the mockup's auto-fit grid). */

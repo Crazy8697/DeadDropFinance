@@ -75,7 +75,7 @@ fun BackupScreen(
         ConfirmServerReplace(s, onCancelServerReplace, onConfirmServerReplace, onTakeOver)
         return
     }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Backup and restore", onBack)
         Text(
             "One encrypted file with everything: your budget, receipt photos and settings. It opens only with the recovery key.",
@@ -135,7 +135,7 @@ fun BackupScreen(
 @Composable
 private fun ConfirmServerReplace(s: BackupState, onCancel: () -> Unit, onConfirm: () -> Unit, onTakeOver: () -> Unit) {
     val busy = s.working != null
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Replace the server's budget?", onCancel)
         Text(
             "This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. " +

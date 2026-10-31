@@ -68,7 +68,7 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell
                 StatCard("Target", target?.let { money(it) } ?: "No target", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
             }
         }
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 16.dp)) {
+        net.darkrelay.deaddropfinance.ui.ScrollColumn(Modifier.weight(1f).fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
             RowHead("Activity")
             val txs = b.transactions.associateBy { it.id }
             val accounts = b.accounts.associateBy { it.id }
@@ -138,8 +138,8 @@ fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @C
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}.testTag(tag),
         ) {
             T(title, 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().bottomLine().padding(horizontal = 20.dp, vertical = 16.dp))
-            Column(
-                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
+            net.darkrelay.deaddropfinance.ui.ScrollColumn(
+                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp), inner = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(13.dp),
             ) { body() }
             Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 20.dp, vertical = 13.dp), horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End)) { footer() }
@@ -534,7 +534,7 @@ fun CurrencyDialog(model: AppModel, shell: Shell) {
     Modal("Currency", 470.dp, close, "dialog.currency", footer = { Btn("Close", close, ghost = true, tag = "dialog.cancel") }) {
         T("Amounts show and are typed in this currency on every device of the account. No amount changes, and there are no exchange rates.", 12.sp, C.Dim)
         Field("Search by code or name", query, { query = it }, placeholder = "EUR, euro, pound", tag = "currency.search")
-        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+        net.darkrelay.deaddropfinance.ui.ScrollColumn(Modifier.heightIn(max = 320.dp)) {
             for ((i, c) in list.withIndex()) {
                 if (query.isBlank() && i == net.darkrelay.deaddropfinance.domain.Currencies.commonOffered.size) Label("ALL CURRENCIES")
                 val chosen = c.code == model.currency
@@ -592,15 +592,18 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
         }
     } else if (server != null) {
         // 0.12.2: logged in, a restore replaces the server's budget too, and every other device's: its own confirm, Cancel the default
-        Modal("Replace the server's budget?", 470.dp, close, "dialog.confirmRestore", footer = {
-            Btn("Cancel", close, tag = "dialog.cancel")
-            Btn("Replace server budget", {
+        net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Replace the server's budget?",
+            "This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. The server keeps a backup of the current budget first.",
+            "Replace server budget",
+            onCancel = close,
+            onConfirm = {
                 val s = parsed()
                 if (s != null) shell.run { model.restore(d.file, s); model.dialog = null }
-            }, ghost = true, enabled = server.status.readOnlyBy == null, tag = "dialog.confirm")
-        }) {
-            T("This replaces the budget on your server. Every device on this account will get this backup instead of what it has now. The server keeps a backup of the current budget first.",
-                13.5.sp, modifier = Modifier.testTag("restore.serverWarning"))
+            },
+            destructive = true, enabled = server.status.readOnlyBy == null, textTag = "restore.serverWarning",
+            tag = "dialog.confirmRestore", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        ) {
             T("Backup: ${d.file.name}", 12.sp, C.Dim)
             server.status.readOnlyBy?.let { holder ->
                 T("$holder is editing the budget right now. Take over editing to restore.", 12.5.sp, C.Bad, modifier = Modifier.testTag("restore.lockedBy"))
@@ -608,14 +611,17 @@ fun RestoreDialog(model: AppModel, shell: Shell, d: Dialog.Restore) {
             }
         }
     } else {
-        Modal("Replace this budget?", 470.dp, close, "dialog.confirmRestore", footer = {
-            Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-            Btn("Replace it", {
+        net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Replace this budget?",
+            "Everything in this computer's budget is replaced with the backup in ${d.file.name}.",
+            "Replace it",
+            onCancel = close,
+            onConfirm = {
                 val s = parsed()
                 if (s != null) shell.run { model.restore(d.file, s); model.dialog = null }
-            }, tag = "dialog.confirm")
-        }) {
-            T("Everything in this computer's budget is replaced with the backup in ${d.file.name}.", 13.5.sp)
+            },
+            destructive = true, tag = "dialog.confirmRestore", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        ) {
             if (saved != null) T("It opens with the recovery key saved on this computer, so there's nothing to type.", 12.sp, C.Dim, modifier = Modifier.testTag("restore.savedKey"))
             T("A copy of the current budget is kept until the restore has been checked. A wrong key or password, or a damaged file, changes nothing.", 12.sp, C.Dim)
         }

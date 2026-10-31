@@ -49,6 +49,49 @@ class ReceiptPagesTest {
         assertEquals("total may be misread", p.notes["total"])
     }
 
+    /** 0.15.6: the second read is the shared reader's: it asks for it only when the balance due or the total tax came back empty. */
+    @Test fun theSecondReadIsAskedForOnlyWhenTheBalanceOrTheTotalTaxCameBackEmpty() {
+        fun asked(vararg text: String): Boolean {
+            var asked = false
+            ReceiptPages.withAmountsFound(text.map { Line(it, 90) }) { asked = true; emptyList() }
+            return asked
+        }
+        assertTrue(asked("SAMPLE BREAD 3.00 A", "TOTAL TAX 0.00", "BALANCE DUE"), "the balance came back empty")
+        assertTrue(asked("SAMPLE BREAD 3.00 A", "TOTAL TAX", "BALANCE DUE 3.00"), "the total tax came back empty")
+        assertTrue(!asked("SAMPLE BREAD 3.00 A", "TOTAL TAX 0.00", "BALANCE DUE 3.00"), "both read")
+        assertTrue(!asked("SAMPLE BREAD 3.00 A", "TOTAL TAX", "0.00", "BALANCE DUE", "3.00"), "each amount on the line after its words")
+        assertTrue(!asked("SAMPLE BREAD 3.00 A", "SAMPLE MILK 2.00 A"), "no balance or tax words at all")
+    }
+
+    /** The platform's raw pass (the program's Tess4J), asked through the reader: the uncleaned page, enlarged to the read size. */
+    @Test fun thePlatformsRawPassGetsTheUncleanedPageEnlarged() {
+        val seen = mutableListOf<Pair<Int, Int>>()
+        val firstRead = read
+        val reader = object : TextReader {
+            override fun read(g: ImageCleanup.Gray) = firstRead
+            override fun readSparse(g: ImageCleanup.Gray): List<Line> { seen += g.width to g.height; return scattered }
+            override fun close() {}
+        }
+        val page = ImageCleanup.Gray(300, 600, IntArray(300 * 600) { 255 })
+        val lines = ReceiptPages.read(page, reader) {}
+        assertEquals(listOf(1200 to 2400), seen, "asked once, the page enlarged to ${ReceiptPages.OCR_MAX} on its long side")
+        assertEquals(13_70L, ReceiptParser.parseLines(lines).total)
+    }
+
+    /** A platform with no raw pass (the phone): nothing is found, and the total is worked out from the lines, as before. */
+    @Test fun aPlatformWithNoRawPassFallsBackToTheWorkedOutTotal() {
+        val firstRead = read
+        val reader = object : TextReader {
+            override fun read(g: ImageCleanup.Gray) = firstRead
+            override fun close() {}
+        }
+        val lines = ReceiptPages.read(ImageCleanup.Gray(300, 600, IntArray(300 * 600) { 255 }), reader) {}
+        assertEquals(read, lines, "nothing put in")
+        val p = ReceiptParser.parseLines(lines)
+        assertEquals(ReceiptParser.parseLines(read).total, p.total)
+        assertTrue(p.total != null && "total" in p.notes, "worked out, and says so: ${p.notes}")
+    }
+
     @Test fun aSmallPageIsEnlargedByAWholeNumber() {
         val g = ImageCleanup.Gray(2, 2, intArrayOf(0, 255, 255, 0))
         val big = ImageCleanup.scaleUp(g, 3)

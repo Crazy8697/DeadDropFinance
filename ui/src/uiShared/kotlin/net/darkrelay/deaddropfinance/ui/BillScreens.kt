@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,7 +69,7 @@ fun BillsScreen(
     editingPayday: Boolean = false,
 ) {
     val next = prediction.effectiveNext(today)
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Bills", onBack = null) { TextButton(onClick = onAdd) { Text("Add") } }
         PaydayLine(prediction, today, onPayday, editingPayday)
         if (next != null) {
@@ -190,7 +189,7 @@ fun BillDetailScreen(
     val cycles = Bills.cycles(bill, budget.billPayments, today.plusMonths(maxOf(1, months))).takeLast(6).reversed()
     val cash = budget.accounts.filter { it.type == AccountType.CASH && !it.archived }
     val env = budget.envelopes.firstOrNull { it.id == bill.envelopeId }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(bill.name, onBack) { TextButton(onClick = onEdit) { Text("Edit") } }
         Text(
             "${Money.format(bill.amountDue)}${if (bill.varies) " (changes: the latest charge is expected)" else ""}, ${Bills.every(bill)}" +
@@ -264,7 +263,7 @@ fun BillEditScreen(
     var anyAmount by remember { mutableStateOf(existing?.anyAmount ?: false) }
     var varies by remember { mutableStateOf(existing?.varies ?: false) }
     var confirmDelete by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(if (existing == null) "New bill" else "Edit bill", onBack)
         TextFieldRow("Name", name, { name = it })
         AmountField("Amount", amount, { amount = it })
@@ -296,11 +295,9 @@ fun BillEditScreen(
         Gap(24)
     }
     if (confirmDelete && onDelete != null) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false }, title = { Text("Delete this bill?") },
-            text = { Text("The bill and its payment records go. The transactions themselves stay.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; onDelete() }) { Text("Delete", color = DdfColors.Error) } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        ConfirmDialog(
+            "Delete this bill?", "The bill and its payment records go. The transactions themselves stay.", "Delete",
+            onCancel = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDelete() }, destructive = true,
         )
     }
 }
@@ -345,7 +342,7 @@ fun PaydayChecklistCard(items: List<Bills.Cycle>, onTick: (Bills.Cycle, Boolean)
 @Composable
 fun SubscriptionsScreen(series: List<Recurring.Series>, onBack: () -> Unit, onSeries: (String) -> Unit) {
     val live = series.filter { !it.dismissed }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Subscriptions", onBack)
         Row { Text("${live.size} repeating", Modifier.weight(1f), color = DdfColors.Muted); Text("${Money.format(Recurring.monthlyTotal(live))}/mo equivalent", color = DdfColors.Muted) }
         if (live.isEmpty()) EmptyState("No repeating charges found yet. They show up once a charge has repeated at a steady interval.")
@@ -391,7 +388,7 @@ fun SubscriptionDetailScreen(
     var name by remember { mutableStateOf(s.name) }
     var env by remember { mutableStateOf<String?>(null) }
     var merge by remember { mutableStateOf<String?>(null) }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(s.name, onBack)
         Row { Text("${s.interval.label}, now ${Money.format(s.amount)}", Modifier.weight(1f)); if (s.isNew && !s.dismissed) Pill("New") }
         s.priceChange?.let { Text("Changed by ${Money.format(it)} since the charge before (${Money.format(s.previousAmount ?: 0)}).", color = DdfColors.Warning) }
@@ -476,7 +473,7 @@ fun ForecastCard(f: Forecast.Result, onOpen: () -> Unit) {
 fun ForecastScreen(f: Forecast.Result, onBack: () -> Unit) {
     var usual by remember { mutableStateOf(f.usual != null) }
     val line = if (usual && f.usual != null) f.usual!! else f.plan
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Balance forecast", onBack)
         Text("Today to the day before payday (${dayText(f.payday)}), budget accounts only.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         ForecastChart(f, 160)

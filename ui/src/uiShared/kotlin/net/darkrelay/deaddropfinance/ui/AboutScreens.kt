@@ -52,7 +52,7 @@ val PROGRAM_CREDITS = listOf(
 /** About: the icon, name, version, license, credits, Licenses, the documents, darkrelay.net and support. */
 @Composable
 fun AboutScreen(version: String, icon: androidx.compose.ui.graphics.painter.Painter?, onBack: () -> Unit, onOpen: (String) -> Unit, onLicenses: () -> Unit, onDoc: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("About", onBack)
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             if (icon != null) Image(icon, contentDescription = "Dead Drop Finance icon", modifier = Modifier.size(96.dp))
@@ -80,7 +80,7 @@ fun AboutScreen(version: String, icon: androidx.compose.ui.graphics.painter.Pain
 /** Licenses: the documents and every license text the app carries. */
 @Composable
 fun LicensesScreen(files: List<String>, onBack: () -> Unit, onOpen: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Licenses", onBack)
         val titled = APP_DOCS.filter { (name, _) -> name in files }
         titled.forEach { (name, title) -> ListRow({ onOpen(name) }) { Column { Text(title); Text(name, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } } }
@@ -93,7 +93,7 @@ fun LicensesScreen(files: List<String>, onBack: () -> Unit, onOpen: (String) -> 
 /** One carried document, as plain text. */
 @Composable
 fun DocumentScreen(title: String, text: String?, onBack: () -> Unit) {
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle(title, onBack)
         if (text == null) EmptyState("This document couldn't be read.")
         else SelectionContainer { Text(text, style = MaterialTheme.typography.bodySmall, fontFamily = if (title.endsWith(".txt")) FontFamily.Monospace else null) }

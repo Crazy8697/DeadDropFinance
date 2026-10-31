@@ -92,7 +92,11 @@ class Shell(
 
 @Composable
 fun DesktopApp(model: AppModel, shell: Shell) {
+    // 0.15.6: every confirm (the program's and the app screens' it shows) is drawn last, over the whole window
+    val confirms = remember { net.darkrelay.deaddropfinance.ui.ConfirmHost() }
+    remember { net.darkrelay.deaddropfinance.ui.ProgramType.family = Segoe }
     MaterialTheme(colorScheme = darkColorScheme(primary = C.Cyan, background = C.Bg, surface = C.Panel)) {
+      androidx.compose.runtime.CompositionLocalProvider(net.darkrelay.deaddropfinance.ui.LocalConfirmHost provides confirms, net.darkrelay.deaddropfinance.ui.LocalScrollbars provides ProgramScrollbars) {
         Column(Modifier.fillMaxSize().background(C.Bg)) {
             MenuStrip(model, shell)
             UpdateStrip(shell)
@@ -140,6 +144,8 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                 else -> model.budget?.let { b -> DialogHost(model, shell, b, d) }
             }
         }
+        net.darkrelay.deaddropfinance.ui.ConfirmLayer(confirms)
+      }
     }
 }
 
@@ -351,7 +357,7 @@ private fun MessageLine(text: String, error: Boolean, onClose: () -> Unit) {
 
 @Composable
 private fun UnavailableScreen(reason: String) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+    net.darkrelay.deaddropfinance.ui.ScrollColumn(Modifier.fillMaxSize(), rememberScrollState(), Modifier.padding(18.dp)) {
         Frame(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp).testTag("unavailable")) {
                 T("Your budget can't be opened", 14.sp, C.Bad, FontWeight.SemiBold)

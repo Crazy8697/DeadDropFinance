@@ -103,10 +103,11 @@ fun BonusDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Bonus) {
     var deleting by remember { mutableStateOf(false) }
     val close = { model.dialog = null }
     if (deleting && existing != null) {
-        Modal("Delete this bonus income?", 420.dp, { deleting = false }, "dialog.deleteBonus", footer = {
-            Btn("Cancel", { deleting = false }, ghost = true, tag = "dialog.cancel")
-            Btn("Delete", { shell.run { if (model.deleteTransaction(existing.id)) model.dialog = null } }, tag = "dialog.confirm")
-        }) { T("The amount comes back off Ready to assign.", 13.5.sp) }
+        net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Delete this bonus income?", "The amount comes back off Ready to assign.", "Delete",
+            onCancel = { deleting = false }, onConfirm = { shell.run { if (model.deleteTransaction(existing.id)) model.dialog = null } },
+            destructive = true, tag = "dialog.deleteBonus", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        )
         return
     }
     Modal(if (existing == null) "Bonus income" else "Edit bonus income", 470.dp, close, "dialog.bonus", footer = {
@@ -137,12 +138,13 @@ fun BudgetStartDialog(model: AppModel, shell: Shell, b: Budget) {
     val close = { model.dialog = null }
     val c = confirm
     if (c != null) {
-        Modal("Start the budget on ${c.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy", java.util.Locale.US))}?", 470.dp, { confirm = null }, "dialog.confirmStart", footer = {
-            Btn("Cancel", { confirm = null }, ghost = true, tag = "dialog.cancel")
-            Btn("Change it", { shell.run { if (model.setBudgetStart(c)) model.dialog = null } }, tag = "dialog.confirm")
-        }) {
-            T("Envelope balances and Ready to assign will be recalculated from this date. Transactions before it stay in your account balances and in Categories. No transaction is changed or deleted.", 13.5.sp)
-        }
+        net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "Start the budget on ${c.format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy", java.util.Locale.US))}?",
+            "Envelope balances and Ready to assign will be recalculated from this date. Transactions before it stay in your account balances and in Categories. No transaction is changed or deleted.",
+            "Change it",
+            onCancel = { confirm = null }, onConfirm = { shell.run { if (model.setBudgetStart(c)) model.dialog = null } },
+            tag = "dialog.confirmStart", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+        )
         return
     }
     Modal("Budget start date", 420.dp, close, "dialog.budgetStart", footer = {
@@ -162,19 +164,18 @@ fun BudgetStartDialog(model: AppModel, shell: Shell, b: Budget) {
 fun ArchiveAccountConfirm(model: AppModel, shell: Shell, b: Budget, accountId: String, onDone: () -> Unit, onCancel: () -> Unit) {
     val a = b.accounts.firstOrNull { it.id == accountId } ?: return
     val amount = money(b.accountBalance(a.id))
-    Modal(if (a.archived) "Unarchive ${a.name}?" else "Archive ${a.name}?", 470.dp, onCancel, "dialog.archiveAccount", footer = {
-        Btn("Cancel", onCancel, ghost = true, tag = "dialog.cancel")
-        Btn(if (a.archived) "Unarchive" else "Archive", { shell.run { if (model.setAccountArchived(a.id, !a.archived)) onDone() } }, tag = "dialog.confirm")
-    }) {
-        T(
-            when {
-                a.archived && a.trackOnly -> "It comes back to the account list. It stays track only, so its balance still doesn't count in Ready to assign."
-                a.archived -> "Its balance ($amount) goes back into Ready to assign, and the account is back in the budget."
-                a.trackOnly -> "It leaves the account list. Its transactions stay as history."
-                else -> "This takes its balance ($amount) out of Ready to assign, as if the account was never in the budget. Its transactions stay as history."
-            }, 13.5.sp,
-        )
-    }
+    net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+        if (a.archived) "Unarchive ${a.name}?" else "Archive ${a.name}?",
+        when {
+            a.archived && a.trackOnly -> "It comes back to the account list. It stays track only, so its balance still doesn't count in Ready to assign."
+            a.archived -> "Its balance ($amount) goes back into Ready to assign, and the account is back in the budget."
+            a.trackOnly -> "It leaves the account list. Its transactions stay as history."
+            else -> "This takes its balance ($amount) out of Ready to assign, as if the account was never in the budget. Its transactions stay as history."
+        },
+        if (a.archived) "Unarchive" else "Archive",
+        onCancel = onCancel, onConfirm = { shell.run { if (model.setAccountArchived(a.id, !a.archived)) onDone() } },
+        tag = "dialog.archiveAccount", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+    )
 }
 
 /** Delete an account for good, naming how many transactions go with it, as on the phone. */
@@ -184,14 +185,12 @@ fun DeleteAccountConfirm(model: AppModel, shell: Shell, b: Budget, accountId: St
     var count by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(accountId) { count = model.deleteAccountCount(accountId) }
     val n = count ?: return
-    Modal("Delete ${a.name}?", 470.dp, onCancel, "dialog.deleteAccount", footer = {
-        Btn("Cancel", onCancel, ghost = true, tag = "dialog.cancel")
-        Btn("Delete for good", { shell.run { if (model.deleteAccount(a.id)) onDone() } }, tag = "dialog.confirm")
-    }) {
-        T(
-            "This deletes the account and its " + (if (n == 1) "1 transaction" else "$n transactions") +
-                " for good. Envelope balances and Ready to assign change to match. A transfer with another account stays there as an entry to sort. This can't be undone.",
-            13.5.sp,
-        )
-    }
+    net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+        "Delete ${a.name}?",
+        "This deletes the account and its " + (if (n == 1) "1 transaction" else "$n transactions") +
+            " for good. Envelope balances and Ready to assign change to match. A transfer with another account stays there as an entry to sort. This can't be undone.",
+        "Delete for good",
+        onCancel = onCancel, onConfirm = { shell.run { if (model.deleteAccount(a.id)) onDone() } },
+        destructive = true, tag = "dialog.deleteAccount", cancelTag = "dialog.cancel", actionTag = "dialog.confirm",
+    )
 }
