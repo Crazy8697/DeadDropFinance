@@ -173,6 +173,10 @@ interface Platform {
     val receiptFiles: net.darkrelay.deaddropfinance.data.ReceiptFiles
     /** Removes photos whose receipt is gone. */
     fun sweepReceiptFiles(keep: Set<String>)
+    /** 1.9.5: the receipt being checked, kept (encrypted) until it's saved or cleared; null when there's none. */
+    fun loadScanDraft(): String? = null
+    /** 1.9.5: keeps the receipt being checked ([json]), or clears it (null). */
+    fun saveScanDraft(json: String?) {}
     /** The documents and license texts the app carries (assets/licenses), by file name. */
     fun docs(): List<String>
     /** One carried document's text, or null. */
@@ -290,11 +294,23 @@ fun AppRoot(
     val receipts by remember(store) { store.dao.receipts() }.collectAsState(initial = emptyList())
     val receiptItems by remember(store) { store.dao.receiptItems() }.collectAsState(initial = emptyList())
     val itemReturns by remember(store) { store.dao.itemReturns() }.collectAsState(initial = emptyList())
-    // the receipt being scanned: its id, what it's for, each photo's text, and the form
-    var scanId by remember { mutableStateOf<String?>(null) }
-    var scanFor by remember { mutableStateOf<String?>(null) }
-    val scanPages = remember { mutableStateListOf<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>() }
-    var scanForm by remember { mutableStateOf<ReceiptForm?>(null) }
+    // the receipt being scanned: its id, what it's for, each photo's text, and the form; 1.9.5: as it was left, when it
+    // was being checked before another screen or a restart
+    val restored = remember { runCatching { platform.loadScanDraft() }.getOrNull()?.let { ScanDraft.fromJson(it) } }
+    var scanId by remember { mutableStateOf(restored?.scanId) }
+    var scanFor by remember { mutableStateOf(restored?.scanFor) }
+    val scanPages = remember { mutableStateListOf<List<net.darkrelay.deaddropfinance.domain.ReceiptParser.Line>>().apply { restored?.pages?.let { addAll(it) } } }
+    var scanForm by remember { mutableStateOf(restored?.form) }
+    // 1.9.5: every change to it is kept, until it's saved or cleared; a write never lands after the clear (one lock,
+    // and only while it's still the receipt being checked)
+    val draftLock = remember { Any() }
+    fun clearDraft() = synchronized(draftLock) { runCatching { platform.saveScanDraft(null) } }
+    LaunchedEffect(scanForm, scanId) {
+        val f = scanForm ?: return@LaunchedEffect
+        val id = scanId ?: return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { ScanDraft(id, scanFor, scanPages.toList(), f).toJson() }
+            .collect { j -> withContext(Dispatchers.IO) { synchronized(draftLock) { if (scanForm === f && scanId == id) runCatching { platform.saveScanDraft(j) } } } }
+    }
     var scanning by remember { mutableStateOf(false) }
     val rules by remember(store) { store.dao.rules() }.collectAsState(initial = emptyList())
     var offer by remember { mutableStateOf<Sorting.Learned.Offer?>(null) }
@@ -497,7 +513,12 @@ fun AppRoot(
     }
     // 0.14.1: Scan opened by itself (the program's Receipts): a new scan, as Scan from the phone's Receipts starts one
     LaunchedEffect(host) {
-        (host?.start as? Nav.Scan)?.let { s -> if (scanId == null) { scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = s.forTx; scanPages.clear(); scanForm = null } }
+        (host?.start as? Nav.Scan)?.let { s ->
+            val checking = scanId
+            // 1.9.5: a receipt still being checked: back to it
+            if (checking != null && scanForm != null) { stack.clear(); stack.add(Nav.ReceiptEdit(checking, isNew = true)) }
+            else if (scanId == null) { scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = s.forTx; scanPages.clear(); scanForm = null }
+        }
     }
     // 0.14.0: the setup wizard opened by itself, from the program's Settings
     LaunchedEffect(host) { if (host?.start == Nav.SetupWizard && wizard == null) openWizard() }
@@ -505,7 +526,10 @@ fun AppRoot(
     LaunchedEffect(host) { host?.requests?.collect { n -> error = null; message = null; stack.clear(); stack.add(n) } }
     LaunchedEffect(Unit) {
         // photos left behind by a receipt that's gone (or a scan never saved)
-        withContext(Dispatchers.IO) { platform.sweepReceiptFiles(store.dao.receiptsNow().map { it.id }.toSet()) }
+        val saved = withContext(Dispatchers.IO) { store.dao.receiptsNow().map { it.id }.toSet() }
+        // a draft of a receipt that was saved after all is no draft
+        scanId?.let { id -> if (id in saved) { scanId = null; scanForm = null; scanPages.clear(); withContext(Dispatchers.IO) { clearDraft() } } }
+        withContext(Dispatchers.IO) { platform.sweepReceiptFiles(saved + setOfNotNull(scanId)) }
     }
     PlatformBackHandler(enabled = stack.size > 1) { back() }
     PlatformBackHandler(enabled = stack.size == 1 && wizard != null && wizard != WizardPage.WELCOME) {
@@ -535,6 +559,9 @@ fun AppRoot(
     }
     /** Starts a new scan (for a transaction, or to match later). */
     fun startScan(forTx: String?) {
+        // 1.9.5: a receipt still being checked is picked up where it was left (Clear starts over)
+        val checking = scanId
+        if (checking != null && scanForm != null) { go(Nav.ReceiptEdit(checking, isNew = true)); return }
         scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = forTx; scanPages.clear(); scanForm = null; scanning = false
         go(Nav.Scan(forTx))
     }
@@ -557,7 +584,11 @@ fun AppRoot(
         }
     }
     /** A scan left without saving: its photos go. */
-    fun dropScan() { scanId?.let { id -> if (receipts.none { it.id == id }) platform.receiptFiles.delete(id) }; scanId = null; scanForm = null; scanPages.clear() }
+    fun dropScan() {
+        scanId?.let { id -> if (receipts.none { it.id == id }) platform.receiptFiles.delete(id) }
+        scanId = null; scanForm = null; scanPages.clear()
+        clearDraft()
+    }
     /** A return's purchase has a receipt: pick items; otherwise the whole-purchase return. */
     fun returnOf(creditId: String, purchaseId: String) {
         if (receipts.any { it.transactionId == purchaseId && it.kind == net.darkrelay.deaddropfinance.data.ReceiptKind.PURCHASE }) go(Nav.ReturnItems(creditId, purchaseId))
@@ -866,7 +897,9 @@ fun AppRoot(
                 if (form == null) Gone(::back) else ReceiptEditScreen(
                     form, pages, top.isNew, scanning, error,
                     envelopes = b.fillOrder.filter { !it.isSystem },
-                    onBack = { if (top.isNew) dropScan(); back() },
+                    // 1.9.5: Back keeps the receipt being checked (Clear throws it out)
+                    onBack = ::back,
+                    onClear = if (top.isNew) { { dropScan(); back() } } else null,
                     onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
                     onSave = {
                         run(scope) {
@@ -874,6 +907,7 @@ fun AppRoot(
                             if (!top.isNew) { back(); return@run }
                             val forTx = scanFor
                             scanId = null; scanForm = null; scanPages.clear()
+                            clearDraft()
                             // matched before the form closes, so the next screen replaces it in one step (0.14.1: when the
                             // program opened Scan by itself, the form is the only screen, and an empty stack closes it)
                             val decision = if (forTx == null) receiptsOps.match(id) else null

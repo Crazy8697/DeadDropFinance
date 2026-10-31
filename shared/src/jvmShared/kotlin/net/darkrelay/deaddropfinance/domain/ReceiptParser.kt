@@ -28,6 +28,10 @@ object ReceiptParser {
     data class Item(
         val text: String, val name: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long,
         val taxLetter: String = "", val section: String = "",
+        /** 1.9.5: the unit of a weighed or counted quantity ("lb", "kg", "oz", "ea"); empty for a plain count. */
+        val unitWord: String = "",
+        /** 1.9.5: what the reader isn't sure of on this item, by field ("name", "qty", "price", "taxed"), with why. */
+        val unsure: Map<String, String> = emptyMap(),
     )
 
     /**
@@ -51,6 +55,8 @@ object ReceiptParser {
         val text: String,
         /** Each tax line read at the bottom (a "TOTAL TAX" line is [tax], not one of these). */
         val taxLines: List<TaxLine> = emptyList(),
+        /** 1.9.5: why a receipt field is unsure, by field ("store", "date", "total", "tax"), for the form to show. */
+        val notes: Map<String, String> = emptyMap(),
     )
 
     /** Below this, a line's reading is doubtful. */
@@ -147,10 +153,17 @@ object ReceiptParser {
         .replace(Regex("""(?<=\d)[lI](?=[\d.,])|(?<=[\d.,])[lI](?=\d)""")) { "1" }
 
     /** A price at the end of [raw]: the words before it, the cents (negative when marked so) and the flags after it. */
-    private data class Price(val before: String, val cents: Long, val flags: List<String>)
+    private data class Price(val before: String, val cents: Long, val flags: List<String>, val guessed: Boolean = false)
 
     private fun priceOf(raw: String): Price? {
-        val s = fixDigits(raw.trim())
+        var s = fixDigits(raw.trim())
+        // as text recognition reads an item's end: a mark after its letter read as a digit or letters ("2.99 A 2",
+        // "3.64 Acs"), or the price's point dropped ("219 Ax"): only right after a price, only with a letter
+        val asRead = s
+        if (price.find(s) == null) {
+            Regex("""(\d[.,]\d{2}\s+[A-Z])\s*\S{1,3}$""").find(s)?.let { s = s.substring(0, it.range.first) + it.groupValues[1] }
+                ?: Regex("""(?<=\s)(\d{1,2})(\d{2})(\s+[A-Z][a-z*×#+]{0,3})$""").find(s)?.let { s = s.substring(0, it.range.first) + "${it.groupValues[1]}.${it.groupValues[2]}${it.groupValues[3]}" }
+        }
         val m = price.find(s) ?: return null
         val whole = m.groupValues[2].replace(",", "").toLong()
         val cents = whole * 100 + m.groupValues[3].toLong()
@@ -158,7 +171,7 @@ object ReceiptParser {
         val before = s.substring(0, m.range.first).trim().trimEnd('$').trim()
         // "A *", "A*", and as text recognition reads them, "Ax", "A x": a capital letter, then marks
         val flags = Regex("""[A-Z]{1,2}(?![A-Z])|[a-z]+|[*#+%^~×]""").findAll(m.groupValues[5]).map { it.value }.toList()
-        return Price(before, if (negative) -cents else cents, flags)
+        return Price(before, if (negative) -cents else cents, flags, guessed = s != asRead)
     }
 
     /** The tax letter among a price's flags: the first one or two capital letters that isn't a unit word or W/M. */
@@ -169,18 +182,27 @@ object ReceiptParser {
         if (u.any { it.isDigit() }) return null
         // marks the text recognition adds around it (quotes, commas) don't count
         val clean = u.replace(Regex("""[^A-Z/&+\s-]"""), " ").replace(Regex("""\s+"""), " ").trim()
-        val words = clean.split(Regex("""[\s/&,+-]+""")).filter { it.isNotBlank() && it != "AND" }
+        // a stray word of one or two letters after it ("EROZEN/DATRY bs") is a misread mark, not part of the header
+        val all = clean.split(Regex("""[\s/&,+-]+""")).filter { it.isNotBlank() && it != "AND" }
+        val words = all.filterIndexed { i, w -> !(i > 0 && w.length <= 2 && w !in sectionWords) }
         if (words.isEmpty() || words.size > 4) return null
         val fixed = words.map { w -> sectionWords.firstOrNull { it == w } ?: sectionWords.firstOrNull { w.length >= 5 && it.length == w.length && it.zip(w).count { (a, b) -> a != b } == 1 } }
         if (fixed.any { it == null }) return null
         // a word read with one letter wrong ("EROZEN") is taken as the section word it nearly is
         var out = clean
+        all.filter { it !in words }.forEach { out = out.replace(Regex("""\s+$it\b"""), "") }
         words.zip(fixed).forEach { (w, f) -> if (w != f) out = out.replace(w, f!!) }
         return out.trim()
     }
 
     /** A capital letter, then any marks, at the very end of a line whose price couldn't be read ("a.64 Ax"). */
-    private val trailingLetter = Regex("""\s([A-Z])(?:\s*[*xX×#+]+)?\s*$""")
+    private val trailingLetter = Regex("""\s([A-Z])(?:\s*[*xX×#+a-z]{1,3})?\s*$""")
+
+    /** A weight line whose "@" wasn't read: "1.26 lb 2.89/lb 3.64 A". */
+    private val weightNoAt = Regex("""^\s*(\d{1,3}[.,]\d{1,3})\s*(LB|LBS|KG|OZ)\s*[@©=\s]*\$?(\d{1,5}[.,]\d{2})\s*/\s*(?:LB|LBS|KG|OZ)\b(.*)$""", RegexOption.IGNORE_CASE)
+
+    /** Money on a tax row, as text recognition reads it: "45.46", "45:46", "63.5" (a digit lost), "4546" (the point lost). */
+    private val taxMoney = Regex("""(?<![\d.,:])(\d{1,6})[.,:](\d{1,2})(?![\d%])|(?<![\d.,:])(\d{3,5})(?![\d.,:%])""")
 
     /** Glued or misread "@": "20 11.49 22.98" is 2 @ 11.49 when 2 x 11.49 is the line total. */
     private val qtyLineGlued = Regex("""^\s*(\d{1,3}[0-9OoeEaA©®@]?)\s+\$?(\d{1,5}[.,]\d{2})\s+(.+)$""")
@@ -188,12 +210,12 @@ object ReceiptParser {
     private val money = Regex("""(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d{1,6})[.,](\d{2})(?![\d%])""")
     private val ratePct = Regex("""(\d{1,2}(?:[.,]\d{1,4})?)\s*%""")
     // a group row: the rate, then "Tx 2" or "TAX 2" ("7.00 Tx 2 45.46 3.18")
-    private val groupRow = Regex("""(?<![\d.,:])(\d{1,2}[.,:]\d{1,4})\s+(?:TX|TAX)\s*([0-9TLI|])(?![A-Z0-9])""")
+    private val groupRow = Regex("""(?<![\d.,:-])(\d{1,2}[.,:-]\d{1,4})\s+(?:TX|TAX)\s*([0-9TLI|])(?![A-Z0-9])""")
     private val taxWords = Regex("""\b(SALES|TAX|TAXES|TX|VAT|GST|HST|PST|RATE|CODE|TYPE|ON|PAID)\b""")
     private val letterToken = Regex("""(?<![A-Z0-9])([A-Z]|\*)(?![A-Z0-9])""")
 
     private fun milli(s: String): Long {
-        val parts = s.replace(',', '.').replace(':', '.').split('.')
+        val parts = s.replace(',', '.').replace(':', '.').replace('-', '.').split('.')
         val whole = parts[0].toLong() * 1000
         val frac = parts.getOrNull(1)?.padEnd(3, '0')?.take(3)?.toLong() ?: 0L
         return whole + frac
@@ -213,12 +235,13 @@ object ReceiptParser {
         val pct = ratePct.find(u)
         val rate = pct?.let { milli(it.groupValues[1]) } ?: group?.let { milli(it.groupValues[1]) }
         val rateRange = pct?.groups?.get(1)?.range ?: group?.groups?.get(1)?.range
-        val nums = money.findAll(u).filter { m -> rateRange == null || m.range.last < rateRange.first || m.range.first > rateRange.last }
-            .map { cents("${it.groupValues[1].replace(",", "")}.${it.groupValues[2]}") }.toList()
+        val groupIdRange = group?.groups?.get(2)?.range
+        val nums = taxMoney.findAll(u).filter { m -> (rateRange == null || m.range.last < rateRange.first || m.range.first > rateRange.last) && (groupIdRange == null || m.range.first > groupIdRange.last || m.range.last < groupIdRange.first) }
+            .map { m -> if (m.groupValues[3].isNotEmpty()) m.groupValues[3].toLong() else m.groupValues[1].toLong() * 100 + m.groupValues[2].padEnd(2, '0').toLong() }.toList()
         if (nums.isEmpty()) return null
         var rest = u
         listOfNotNull(pct?.value, group?.value).forEach { rest = rest.replace(it, " ") }
-        rest = rest.replace(money, " ").replace(taxWords, " ")
+        rest = rest.replace(taxMoney, " ").replace(taxWords, " ")
         // a group row ("Tx 2") names a group, not a letter: what's left on it is misread marks
         val letter = if (group != null) null else letterToken.findAll(rest).map { it.groupValues[1] }.filter { it !in notTaxFlags }.toList().singleOrNull()
         return when {
@@ -247,9 +270,13 @@ object ReceiptParser {
             val p = priceOf(l.text)
             if (p == null) {
                 // a tax row whose end the text recognition garbled ("7.00 Tx 2 45,46 muy!") is still a tax row
-                if (isTaxRow && money.containsMatchIn(fixDigits(u))) { taxRows += i; firstSummary = minOf(firstSummary, i) }
-                // "23 BALANCE DUE" with its amount read onto the next line
+                if (isTaxRow && taxMoney.containsMatchIn(fixDigits(u))) { taxRows += i; firstSummary = minOf(firstSummary, i) }
+                // "23 BALANCE DUE" or "TOTAL TAX" with its amount read onto the next line
                 val next = lines.getOrNull(i + 1)?.let { priceOf(it.text) }?.takeIf { it.before.count { c -> c.isLetter() } < 2 }
+                if (taxTotalWord.containsMatchIn(u) && next != null) {
+                    if (taxTotal == null) taxTotal = next.cents to lines[i + 1]
+                    firstSummary = minOf(firstSummary, i)
+                }
                 if (dueWord.containsMatchIn(u) && !taxWord.containsMatchIn(u) && next != null) {
                     if (total == null) total = next.cents to i + 1
                     firstSummary = minOf(firstSummary, i)
@@ -308,12 +335,14 @@ object ReceiptParser {
             d = d.replace(Regex("""(\s+(?:[A-Z]|[*#+]|[Ww]{2}|[Mm]{2}))+$"""), "").trim()
             return d to before
         }
-        fun add(desc: String, qty: Long, unit: Long?, amount: Long, letter: String, line: Line) {
+        fun add(desc: String, qty: Long, unit: Long?, amount: Long, letter: String, line: Line, unitWord: String = "", unsure: Map<String, String> = emptyMap()) {
             val (d, before) = descOf(desc)
             val l = letter.ifEmpty { if (before.isNotEmpty()) "?$before" else "" }
             val up = unit ?: if (amount > 0 && qty > 0) amount * 1000 / qty else null
-            items += Item(d, cleanName(d), qty, up, amount, l, section)
-            if (line.confidence < LOW_CONFIDENCE) low += "items"
+            val why = unsure.toMutableMap()
+            if (line.confidence < LOW_CONFIDENCE) { why.putIfAbsent("name", "name may be misread"); why.putIfAbsent("price", "price may be misread") }
+            items += Item(d, cleanName(d), qty, up, amount, l, section, unitWord, why)
+            if (why.isNotEmpty()) low += "items"
         }
         val start = storeIndex + 1
         for (i in start until firstSummary) {
@@ -344,8 +373,11 @@ object ReceiptParser {
             }
 
             // a quantity or weight line, with or without its line total
-            val fixed = fixDigits(l.text.trim()).replace(Regex("""/\s*[Il1|]b\b"""), "/lb")
-            val q = qtyLine.matchEntire(fixed)
+            // "lb" as text recognition reads it: "1b", "Ib"
+            // and stray marks read around the "@" ("1.26 1b@", a long dash, "2.89/Ib")
+            val fixed = fixDigits(l.text.trim()).replace(Regex("""/\s*[Il1|]b\b"""), "/lb").replace(Regex("""(?<=\d)\s*[1Il|]b\b"""), " lb")
+                .replace(Regex("""@\s*[\u2014\u2013=~_:;,.\-]+\s*(?=\$?\d)"""), "@ ")
+            val q = qtyLine.matchEntire(fixed) ?: weightNoAt.matchEntire(fixed)
             val qm = q ?: qtyLineMisread.matchEntire(fixed)?.takeIf { m ->
                 val tot = priceOf(m.groupValues[3])
                 tot != null && kotlin.math.abs(m.groupValues[1].toLong() * cents(m.groupValues[2]) - tot.cents) <= 1
@@ -367,14 +399,19 @@ object ReceiptParser {
                 val restText = glued?.third ?: if (q != null) qm!!.groupValues[4] else qm!!.groupValues[3]
                 val tot = priceOf(restText)?.takeIf { it.before.count { c -> c.isLetter() } < 2 }
                 val worked = (unit * qty + 500) / 1000
+                val unitWord = if (q != null) q.groupValues[2].lowercase().let { if (it == "lbs") "lb" else it } else ""
                 val pd = pendingDesc
                 if (pd != null) {
                     val amount = tot?.cents ?: worked
-                    if (tot != null && kotlin.math.abs(tot.cents - worked) > 1) low += "items"
+                    val why = mutableMapOf<String, String>()
+                    if (tot != null && kotlin.math.abs(tot.cents - worked) > 1) { why["qty"] = "quantity times price doesn't match the line total"; why["price"] = "quantity times price doesn't match the line total" }
+                    if (glued != null || q == null) why["qty"] = "quantity read from a smudged line"
+                    if (tot?.guessed == true) why["price"] = "price may be misread"
                     // a line total too garbled to read ("a.64 Ax") may still end in its letter
                     val letter = tot?.let { letterOf(it.flags) } ?: trailingLetter.find(restText)?.groupValues?.get(1)?.takeIf { it !in notTaxFlags } ?: ""
-                    add(pd.text.trim(), qty, unit, amount, letter, l)
-                    if (tot == null && letter.isNotEmpty()) low += "items"
+                    if (tot == null && restText.isNotBlank()) why["price"] = "line total couldn't be read; worked out from the quantity"
+                    if (tot == null && letter.isNotEmpty()) why["taxed"] = "tax mark may be misread"
+                    add(pd.text.trim(), qty, unit, amount, letter, l, unitWord, why)
                     waiting = if (tot == null) items.lastIndex else null
                     pendingDesc = null
                 } else if (items.isNotEmpty()) {
@@ -411,12 +448,27 @@ object ReceiptParser {
                 unit = cents(m.groupValues[3])
                 desc = desc.removeRange(m.range).trim()
             }
+            // a weight or quantity line read too badly to take apart ("1.26 1b@", a long dash, "2.89/Ib 3.64 A") is never an item's name:
+            // it's the quantity of the description above it
+            val looseQty = Regex("""^(\d{1,3}[.,]\d{1,3}|\d{1,3})\s*(?:([1Il|]b|lbs?|kg|oz)\b|@)""", RegexOption.IGNORE_CASE).find(desc)
+            if (looseQty != null && pendingDesc != null) {
+                val unitWord = looseQty.groupValues[2].lowercase().let { if (it.isEmpty()) "" else if (it in setOf("kg", "oz")) it else "lb" }
+                val q = milli(looseQty.groupValues[1])
+                val up = Regex("""(\d{1,5}[.,]\d{2})\s*/""").find(desc)?.let { cents(it.groupValues[1]) }
+                val why = mutableMapOf("qty" to "quantity read from a smudged line")
+                if (up != null && kotlin.math.abs((up * q + 500) / 1000 - amount) > 1) why["price"] = "quantity times price doesn't match the line total"
+                add(pendingDesc!!.text.trim(), q, up, amount, letter, l, unitWord, why)
+                pendingDesc = null
+                continue
+            }
             if (desc.count { it.isLetter() } < 2 && pendingDesc != null) desc = pendingDesc!!.text.trim()
             if (desc.count { it.isLetter() } < 2) { pendingDesc = null; continue }
             qtyX.find(desc)?.let { m -> qty = m.groupValues[1].toLong() * 1000; desc = desc.removeRange(m.range).trim() }
             qtyWord.find(desc)?.let { m -> qty = m.groupValues[1].toLong() * 1000; desc = desc.removeRange(m.range).trim() }
-            unit?.let { up -> if (kotlin.math.abs((up * qty + 500) / 1000 - kotlin.math.abs(amount)) > 1) low += "items" }
-            add(desc, qty, unit, amount, letter, l)
+            val why = mutableMapOf<String, String>()
+            unit?.let { up -> if (kotlin.math.abs((up * qty + 500) / 1000 - kotlin.math.abs(amount)) > 1) { why["qty"] = "quantity times price doesn't match the line total"; why["price"] = why.getValue("qty") } }
+            if (p.guessed) why["price"] = "price may be misread"
+            add(desc, qty, unit, amount, letter, l, "", why)
             pendingDesc = null
         }
 
@@ -441,11 +493,16 @@ object ReceiptParser {
         val itemsSum = lettered.sumOf { it.amount }.let { kotlin.math.abs(it) }
         val sub = subtotal?.let { kotlin.math.abs(it) }
         val tipCents = tip?.let { kotlin.math.abs(it) }
+        val notes = mutableMapOf<String, String>()
+        if (store.isBlank()) notes["store"] = "store wasn't on the photo" else if ("store" in low) notes["store"] = "store may be misread"
+        if (date == null) notes["date"] = "date wasn't on the photo" else if ("date" in low) notes["date"] = "date may be misread"
+        if ("tax" in low) notes["tax"] = "tax may be misread"
         if (totalCents == null) {
             // no total line read: work it out, but ask
             totalCents = (sub ?: itemsSum.takeIf { it > 0 })?.let { it + (tax ?: 0) + (tipCents ?: 0) }
             low += "total"
-        }
+            notes["total"] = "total wasn't read; worked out from the items"
+        } else if (totalLine != null && lines[totalLine].confidence < LOW_CONFIDENCE) notes["total"] = "total may be misread"
         // does it add up? (only real items count: savings, tax, total and payment lines never are items)
         if (lettered.isEmpty()) low += "items"
         else if (sub != null && kotlin.math.abs(itemsSum - sub) > 1) low += "items"
@@ -453,7 +510,7 @@ object ReceiptParser {
             low += "items"; low += "total"
         }
         val outItems = if (isReturn) lettered.map { it.copy(amount = kotlin.math.abs(it.amount), unitPrice = it.unitPrice?.let { u -> kotlin.math.abs(u) }) } else lettered
-        return Parsed(store, date, totalCents, sub, tax, tipCents, outItems, if (isReturn) ReceiptKind.RETURN else ReceiptKind.PURCHASE, low, text, taxLines)
+        return Parsed(store, date, totalCents, sub, tax, tipCents, outItems, if (isReturn) ReceiptKind.RETURN else ReceiptKind.PURCHASE, low, text, taxLines, notes)
     }
 
     /** The item's name for matching and price history: lower case words, no codes, numbers or signs. */

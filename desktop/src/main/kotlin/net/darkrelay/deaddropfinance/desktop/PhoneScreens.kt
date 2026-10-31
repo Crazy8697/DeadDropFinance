@@ -191,6 +191,10 @@ class ProgramPlatform(private val model: AppModel, private val shell: Shell, pri
     override val receiptFiles: ReceiptFiles get() = receiptImages
     override fun sweepReceiptFiles(keep: Set<String>) { runCatching { receiptImages.sweep(keep) } }
 
+    // 1.9.5 (0.15.4): the receipt being checked, encrypted beside the receipt photos until it is saved or cleared
+    override fun loadScanDraft(): String? = receiptImages.readDraft()
+    override fun saveScanDraft(json: String?) = receiptImages.writeDraft(json)
+
     // About's Licenses: the notices the installed program carries
     override fun docs(): List<String> = shell.docs()
     override fun readDoc(name: String): String? {

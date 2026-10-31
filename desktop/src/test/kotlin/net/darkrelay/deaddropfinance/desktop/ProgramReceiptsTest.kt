@@ -37,7 +37,7 @@ class ProgramReceiptsTest : ProgramScreensBase() {
     /** Fills the receipt form: store, total, and one item per (name, price). Nothing was read, so they're marked to check. */
     private fun fill(store: String, total: String, items: List<Pair<String, String>>) {
         typeMarked("Store", store)
-        typeMarked("Total", total)
+        typeMarked("Total paid", total)
         items.forEachIndexed { i, (name, price) ->
             clickText("Add an item", exact = true)
             val names = compose.onAllNodes(fieldMatcher("Item"), useUnmergedTree = false)
@@ -105,7 +105,7 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
         typeMarked("Store", "Corner Market")
-        typeMarked("Total", "42.00")
+        typeMarked("Total paid", "42.00")
         typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
         clickText("Save receipt", exact = true)
         compose.waitUntil(5_000) { receipts().size == 1 }
@@ -120,7 +120,7 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
         typeMarked("Store", "Corner Market")
-        typeMarked("Total", "42.00")
+        typeMarked("Total paid", "42.00")
         typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
         clickText("Save receipt", exact = true)
         until("Matched to Corner Market on")

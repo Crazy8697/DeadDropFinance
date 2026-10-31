@@ -29,6 +29,8 @@ object ReceiptTax {
         val hasLetters: Boolean,
         /** True when each item's price with tax was worked out (letters, or the user's marks on a receipt without them). */
         val perItem: Boolean = hasLetters,
+        /** 1.9.5: whether each item carries tax (the form's Taxed toggle); null while it's a question not yet answered. */
+        val taxed: List<Boolean?> = withTax.map { false },
     ) {
         val resolved get() = needsChoice.isEmpty()
     }
@@ -45,11 +47,11 @@ object ReceiptTax {
         val totalTax = tax ?: lines.sumOf { it.amount }
         val letters = items.map { it.letter }.filter { it.isNotEmpty() }.toSet()
         val shelf = items.map { it.amount }
-        if (totalTax <= 0) return Result(shelf, emptySet(), 0, 0, letters.isNotEmpty())
+        if (totalTax <= 0) return Result(shelf, emptySet(), 0, 0, letters.isNotEmpty(), taxed = items.map { it.taxed ?: false })
         if (letters.isEmpty()) {
             // tax, and nothing says which items carry it: ask (all items or some, by price)
             if (items.isEmpty()) return Result(shelf, emptySet(), 0, totalTax, false)
-            if (items.any { it.taxed == null }) return Result(shelf, setOf(""), 0, totalTax, false)
+            if (items.any { it.taxed == null }) return Result(shelf, setOf(""), 0, totalTax, false, taxed = items.map { it.taxed })
             val chosen = items.indices.filter { items[it].taxed == true }
             return build(items, emptyMap(), chosen, totalTax, emptySet()).copy(hasLetters = false, perItem = true)
         }
@@ -98,6 +100,19 @@ object ReceiptTax {
         return build(items, given, chosen, pool, emptySet())
     }
 
+    /**
+     * 1.9.5: the user's Taxed toggles decide: the receipt's [tax] is shared between the items marked taxed ([taxed]), by
+     * price, to the cent; every other item stays at its shelf price.
+     */
+    fun byMarks(amounts: List<Long>, taxed: List<Boolean>, tax: Long): Result {
+        val idx = amounts.indices.filter { taxed[it] }
+        val out = amounts.toMutableList()
+        val t = tax.coerceAtLeast(0)
+        if (idx.isNotEmpty()) largestRemainder(t, idx.map { amounts[it].coerceAtLeast(0) }).forEachIndexed { k, v -> out[idx[k]] += v }
+        val carried = if (idx.isEmpty()) 0 else t
+        return Result(out, emptySet(), carried, t - carried, false, perItem = true, taxed = taxed)
+    }
+
     private fun build(items: List<In>, byLetter: Map<String, Long>, chosen: List<Int>, pool: Long, question: Set<String>): Result {
         val out = items.map { it.amount }.toMutableList()
         var carried = 0L
@@ -111,7 +126,16 @@ object ReceiptTax {
             chosen.forEachIndexed { k, i -> out[i] += shares[k]; carried += shares[k] }
         }
         val all = byLetter.values.sum() + pool
-        return Result(out, question, carried, (all - carried).coerceAtLeast(0), true)
+        val flags = items.indices.map { i ->
+            val it = items[i]
+            when {
+                it.letter in question -> it.taxed
+                i in chosen -> true
+                it.letter.isNotEmpty() && (byLetter[it.letter] ?: 0) > 0 -> true
+                else -> false
+            }
+        }
+        return Result(out, question, carried, (all - carried).coerceAtLeast(0), true, taxed = flags)
     }
 
     /** The leftover letters whose items at [rateMilli] come to [pool], when exactly one set does; else null. */

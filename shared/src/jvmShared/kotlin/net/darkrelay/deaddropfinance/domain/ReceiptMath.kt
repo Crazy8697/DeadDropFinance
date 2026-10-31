@@ -121,24 +121,26 @@ object ItemSplit {
 
     data class Share(val envelopeId: String, val items: Long, val tax: Long, val total: Long)
 
-    /** Item sums by envelope, in item order. Positive cents. */
+    /** Item sums by envelope, in item order: 1.9.5, each item at its price with tax. Positive cents. */
     private fun weights(items: List<ReceiptItemEntity>, pick: Map<String, String?>): LinkedHashMap<String, Long> {
         val w = LinkedHashMap<String, Long>()
         for (i in items.sortedBy { it.line }) {
             val e = pick[i.id] ?: throw BudgetRuleException("Choose an envelope for every item.")
-            w[e] = (w[e] ?: 0L) + i.amount
+            w[e] = (w[e] ?: 0L) + i.paid
         }
         if (w.isEmpty()) throw BudgetRuleException("This receipt has no items to split.")
         if (w.values.any { it <= 0 }) throw BudgetRuleException("A discount can't be on an envelope by itself. Put it with the item it came off.")
         return w
     }
 
-    /** What each envelope gets, for the preview: its items, its share of the tax, and its share of the charge. */
-    fun shares(txAmount: Long, items: List<ReceiptItemEntity>, tax: Long, pick: Map<String, String?>): List<Share> {
+    /**
+     * What each envelope gets, for the preview: its items at their price with tax, and its share of the charge (1.9.5:
+     * no lump of tax of its own; [Share.tax] is what the charge adds beyond the items, a tip or a fuel hold, or 0).
+     */
+    fun shares(txAmount: Long, items: List<ReceiptItemEntity>, @Suppress("UNUSED_PARAMETER") tax: Long, pick: Map<String, String?>): List<Share> {
         val w = weights(items, pick)
-        val taxParts = Rules.allocate(tax, w.values.toList())
         val totalParts = Rules.allocate(abs(txAmount), w.values.toList())
-        return w.keys.mapIndexed { i, e -> Share(e, w[e]!!, taxParts[i], totalParts[i]) }
+        return w.keys.mapIndexed { i, e -> Share(e, w[e]!!, totalParts[i] - w[e]!!, totalParts[i]) }
     }
 
     /**
@@ -170,11 +172,14 @@ object ItemReturns {
     fun remainingMilli(item: ReceiptItemEntity, returns: List<ItemReturnEntity>, except: String? = null) =
         maxOf(0L, item.quantityMilli - returnedMilli(item.id, returns, except))
 
-    /** What [qtyMilli] of an item is worth with its share of the receipt's tax (spread over all items by price). */
+    /**
+     * What [qtyMilli] of an item is worth with its tax: 1.9.5, its price with tax; a receipt saved before 1.9.3 has
+     * none, so its tax is spread over all items by price, as before.
+     */
     fun value(item: ReceiptItemEntity, qtyMilli: Long, items: List<ReceiptItemEntity>, tax: Long): Long {
         if (item.quantityMilli <= 0) return 0
         val sum = items.filter { it.amount > 0 }.sumOf { it.amount }
-        val withTax = item.amount + if (sum > 0 && item.amount > 0) item.amount * tax / sum else 0
+        val withTax = item.priceWithTax ?: (item.amount + if (sum > 0 && item.amount > 0) item.amount * tax / sum else 0)
         return withTax * qtyMilli / item.quantityMilli
     }
 

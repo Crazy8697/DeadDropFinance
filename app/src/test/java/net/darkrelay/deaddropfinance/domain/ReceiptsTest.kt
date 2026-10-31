@@ -199,6 +199,33 @@ class ReceiptsTest {
 
     // ---- split by items ------------------------------------------------------------------------------------------
 
+    /** 1.9.5: Split by items and item returns go by each item's price with tax: tax lands where it was paid, no lump of it. */
+    @Test fun splitByItemsAndReturnsUseThePriceWithTax() = world {
+        val t = bank("SAMPLE MART", -21_00, d)
+        val id = receipt(
+            "Sample Mart", 21_00, d, tax = 1_00,
+            items = listOf(
+                DraftItem("SAMPLE BREAD", amount = 10_00, taxLetter = "A", priceWithTax = 10_00),
+                DraftItem("SAMPLE SOAP", amount = 10_00, taxLetter = "B", priceWithTax = 11_00),
+            ),
+        )
+        r.attach(id, t)
+        val items = store.dao.itemsOf(id)
+        val pick = mapOf(items[0].id to food, items[1].id to home)
+        // the soap's tax is the soap's: food 10.00, home 11.00 (not 10.50 each, as a tax spread over both would be)
+        assertEquals(listOf(food to 10_00L, home to 11_00L), ItemSplit.shares(-21_00, items, 1_00, pick).map { it.envelopeId to it.items })
+        assertEquals(listOf(0L, 0L), ItemSplit.shares(-21_00, items, 1_00, pick).map { it.tax })
+        r.splitByItems(id, pick)
+        val ls = lines(t)
+        assertEquals(mapOf(food to -10_00L, home to -11_00L), ls.associate { it.envelopeId to it.amount })
+        assertEquals("to the cent", -21_00L, ls.sumOf { it.amount })
+        // returning the soap: worth its price with tax, back to its envelope
+        assertEquals(11_00L, ItemReturns.value(items[1], 1000, items, 1_00))
+        val back = bank("SAMPLE MART REFUND", 11_00, d.plusDays(2))
+        r.returnItems(back, t, mapOf(items[1].id to 1000))
+        assertEquals(mapOf(home to 11_00L), lines(back).associate { it.envelopeId to it.amount })
+    }
+
     @Test fun splitByItemsSpreadsTaxAndTipInProportion() = world {
         val t = bank("SAMPLE SUPERSTORE", -66_00, d)
         val id = receipt(

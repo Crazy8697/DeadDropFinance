@@ -33,11 +33,31 @@ class ItemEnvelopesTest {
     }
 
     @Test fun otherwiseNothingIsChosen() {
-        assertNull(ItemEnvelopes.guess("SAMPLE NEW THING", "HOME", emptyList(), envelopes))
+        assertNull(ItemEnvelopes.guess("SAMPLE NEW THING", "ELECTRONICS", emptyList(), envelopes))
         assertNull(ItemEnvelopes.guess("SAMPLE NEW THING", "", emptyList(), envelopes))
         // no groceries envelope: nothing for a food section either
         assertNull(ItemEnvelopes.guess("SAMPLE NEW THING", "PRODUCE", emptyList(), listOf(env("h", "Household"))))
         // a past pick in an archived envelope isn't used
         assertEquals("g", ItemEnvelopes.guess("SAMPLE MILK", "DAIRY", listOf(past("SAMPLE MILK", "x", 9)), envelopes))
+    }
+
+    /** 1.9.5: any section, for anyone's envelope names: a shared word first, then the built-in map; the past pick still wins. */
+    @Test fun sectionsFindAnEnvelopeByAWordTheyShareOrByTheBuiltInMap() {
+        val mine = listOf(
+            env("food", "Food", order = 1), env("house", "Household stuff", order = 2), env("home", "Home", order = 3),
+            env("dog", "Dog", order = 4), env("meat", "Meat and fish", order = 5), env("fun", "Fun money", order = 6),
+        )
+        // a word they share: MEAT goes to "Meat and fish", not to the food envelope the map would pick
+        assertEquals("meat", ItemEnvelopes.guess("SAMPLE STEAK", "MEAT", emptyList(), mine))
+        assertEquals("home", ItemEnvelopes.guess("SAMPLE LAMP", "HOME", emptyList(), mine))
+        // the built-in map: HOUSEHOLD, HBA, PAPER, CLEANING toward household (or home); PET toward pet, dog or cat; GROCERY toward food
+        for (s in listOf("HBA", "PAPER", "CLEANING")) assertEquals("house", ItemEnvelopes.guess("SAMPLE THING", s, emptyList(), mine), s)
+        assertEquals("dog", ItemEnvelopes.guess("SAMPLE KIBBLE", "PET", emptyList(), mine))
+        assertEquals("food", ItemEnvelopes.guess("SAMPLE BREAD", "GROCERY", emptyList(), mine))
+        assertEquals("fun", ItemEnvelopes.guess("SAMPLE BALL", "SPORTS", emptyList(), mine))
+        // no match, no default
+        assertNull(ItemEnvelopes.guess("SAMPLE PHONE", "ELECTRONICS", emptyList(), mine))
+        // the user's past pick for the item wins over all of it
+        assertEquals("fun", ItemEnvelopes.guess("SAMPLE KIBBLE", "PET", listOf(past("SAMPLE KIBBLE", "fun", 3)), mine))
     }
 }

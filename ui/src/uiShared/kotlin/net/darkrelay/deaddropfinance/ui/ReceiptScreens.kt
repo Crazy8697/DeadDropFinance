@@ -1,6 +1,11 @@
 package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -54,11 +59,29 @@ import net.darkrelay.deaddropfinance.domain.Receipts
 /** One item row on the form, as text the user can fix. */
 data class ItemRow(
     val text: String, val qty: String, val amount: String, val unitPrice: Long? = null, val id: String? = null,
-    /** 1.9.3: the item's tax letter, and the user's answer (taxed or not) when the letters couldn't be matched. */
+    /**
+     * 1.9.3: the item's tax letter (1.9.5: never shown; the reader uses it to work out which items are taxed), and the
+     * user's Taxed toggle (null: as the letters say, or not answered yet).
+     */
     val letter: String = "", val taxed: Boolean? = null,
     /** 1.9.4: the envelope this item goes to (null: none chosen), and the receipt section it was under. */
     val envelopeId: String? = null, val section: String = "",
+    /**
+     * 1.9.5: the unit of a weighed quantity ("lb"), what the reader isn't sure of by field ("name", "qty", "price",
+     * "taxed", "envelope") with why (each cleared when that field is edited), and the user's Checked mark (only a mark).
+     */
+    val unit: String = "", val unsure: Map<String, String> = emptyMap(), val checked: Boolean = false,
 )
+
+/** The totals breakdown (1.9.5), as the receipt shows it: untaxed items, taxed items, tax, total paid. */
+data class ReceiptTotals(
+    val untaxed: Long, val taxed: Long, val tax: Long, val total: Long?,
+    /** The taxable amounts the receipt printed, when it printed them: untaxed (at 0%) and taxed. */
+    val printedUntaxed: Long?, val printedTaxed: Long?,
+) {
+    /** Total paid less what the items and tax come to: positive when the items come to less than the total. */
+    val gap: Long? get() = total?.let { it - (untaxed + taxed + tax) }
+}
 
 /** The receipt form while the user checks what was read. */
 class ReceiptForm(
@@ -66,24 +89,104 @@ class ReceiptForm(
     items: List<ItemRow> = emptyList(), val low: Set<String> = emptySet(), val kind: ReceiptKind = ReceiptKind.PURCHASE, val rawText: String = "",
     /** The tax lines read at the bottom of the receipt, to match to the items' letters. */
     val taxLines: List<ReceiptParser.TaxLine> = emptyList(),
+    /** 1.9.5: why a receipt field is unsure ("store", "date", "tax", "total"); each cleared when that field is edited. */
+    notes: Map<String, String> = emptyMap(),
 ) {
     var store by mutableStateOf(store)
     var date by mutableStateOf(date)
     var total by mutableStateOf(total)
     var tax by mutableStateOf(tax)
+    var notes by mutableStateOf(notes)
     val items = mutableStateListOf<ItemRow>().apply { addAll(items) }
 
     private fun amt(s: String) = if (s.isBlank()) null else Money.parse(s)?.let { kotlin.math.abs(it) }
 
     private val live get() = items.filter { it.text.isNotBlank() || it.amount.isNotBlank() }
 
-    /** Each item's tax worked out from its letter and the tax lines (1.9.3): prices with tax, and the letters to ask about. */
-    fun taxWork(): ReceiptTax.Result =
-        ReceiptTax.work(live.map { ReceiptTax.In(it.letter.trim().uppercase(), Money.parse(it.amount) ?: 0, it.taxed) }, taxLines, amt(tax))
+    /** Where the item at [index] is among the items that count (blank rows don't), or null. */
+    fun liveIndex(index: Int): Int? {
+        val r = items.getOrNull(index) ?: return null
+        if (r.text.isBlank() && r.amount.isBlank()) return null
+        return items.take(index).count { it.text.isNotBlank() || it.amount.isNotBlank() }
+    }
+
+    /** A receipt field edited: the reader's doubt about it goes. */
+    fun edited(field: String) { if (field in notes) notes = notes - field }
+
+    /** An item's field edited ([field] "name", "qty", "price", "taxed", "envelope"): the reader's doubt about it goes. */
+    fun editItem(index: Int, field: String, change: (ItemRow) -> ItemRow) {
+        val r = items[index]
+        items[index] = change(r).let { if (field in it.unsure) it.copy(unsure = it.unsure - field) else it }
+    }
 
     /**
-     * 1.9.4: an envelope for each item that has none yet: the one last picked for the same item name, else the groceries
-     * envelope for an item under a food section, else none. The user can change any of them before saving.
+     * Each item's tax (1.9.3): from its letter and the tax lines, prices with tax, and what to ask. 1.9.5: a Taxed toggle
+     * the user set against what the letters say decides instead: the receipt's tax is shared between the items marked taxed.
+     */
+    fun taxWork(): ReceiptTax.Result {
+        val rows = live
+        val amounts = rows.map { Money.parse(it.amount) ?: 0 }
+        val base = ReceiptTax.work(rows.mapIndexed { i, it -> ReceiptTax.In(it.letter.trim().uppercase(), amounts[i], it.taxed) }, taxLines, amt(tax))
+        val overridden = rows.indices.any { i -> val t = rows[i].taxed; t != null && base.taxed.getOrNull(i) != null && t != base.taxed[i] }
+        if (!overridden) return base
+        return ReceiptTax.byMarks(amounts, rows.indices.map { i -> rows[i].taxed ?: base.taxed.getOrNull(i) ?: false }, amt(tax) ?: 0)
+    }
+
+    /** Whether the item at [index] is shown Taxed (true), Not taxed (false), or not answered yet (null). */
+    fun taxedOf(index: Int, work: ReceiptTax.Result): Boolean? =
+        items[index].taxed ?: liveIndex(index)?.let { work.taxed.getOrNull(it) }
+
+    /** The item's price with its tax (its price when it carries none). */
+    fun withTaxOf(index: Int, work: ReceiptTax.Result): Long {
+        val shelf = Money.parse(items[index].amount) ?: 0
+        val k = liveIndex(index) ?: return shelf
+        return if (work.perItem) work.withTax.getOrNull(k) ?: shelf else shelf
+    }
+
+    /** Untaxed items, taxed items, tax and total paid, worked out from the items; the receipt's taxable amounts to check them by. */
+    fun totals(work: ReceiptTax.Result): ReceiptTotals {
+        var untaxed = 0L
+        var taxed = 0L
+        items.indices.forEach { i ->
+            if (liveIndex(i) == null) return@forEach
+            val a = Money.parse(items[i].amount) ?: 0
+            if (taxedOf(i, work) == true) taxed += a else untaxed += a
+        }
+        val printed = taxLines.filter { it.taxable != null }
+        val printedUntaxed = printed.filter { it.amount == 0L }.takeIf { it.isNotEmpty() }?.sumOf { it.taxable!! }
+        val printedTaxed = printed.filter { it.amount > 0 }.takeIf { it.isNotEmpty() }?.sumOf { it.taxable!! }
+        return ReceiptTotals(untaxed, taxed, amt(tax) ?: 0, amt(total), printedUntaxed, printedTaxed)
+    }
+
+    /**
+     * When the items don't add up to the total paid: the items whose price, with one digit read differently, would close
+     * the gap exactly, each with the price that would. Nothing is changed by itself.
+     */
+    fun misread(totals: ReceiptTotals): Map<Int, Long> {
+        val gap = totals.gap ?: return emptyMap()
+        if (gap == 0L) return emptyMap()
+        val out = linkedMapOf<Int, Long>()
+        items.forEachIndexed { i, r ->
+            if (liveIndex(i) == null) return@forEachIndexed
+            val now = Money.parse(r.amount) ?: return@forEachIndexed
+            val want = now + gap
+            if (want <= 0) return@forEachIndexed
+            if (oneDigitApart(now, want)) out[i] = want
+        }
+        return out
+    }
+
+    /** True when [a] and [b] in cents differ in exactly one digit (a missing leading digit counts). */
+    private fun oneDigitApart(a: Long, b: Long): Boolean {
+        val x = a.toString(); val y = b.toString()
+        val n = maxOf(x.length, y.length)
+        val px = x.padStart(n, '0'); val py = y.padStart(n, '0')
+        return px.zip(py).count { (c, d) -> c != d } == 1
+    }
+
+    /**
+     * 1.9.4: an envelope for each item that has none yet: the one last picked for the same item name, else one for the
+     * receipt section it was under (1.9.5: by a word they share or the built-in map), else none. The user can change any.
      */
     fun guessEnvelopes(past: List<ReceiptItemEntity>, envelopes: List<net.darkrelay.deaddropfinance.data.EnvelopeEntity>) {
         items.forEachIndexed { i, r ->
@@ -108,11 +211,28 @@ class ReceiptForm(
         )
     }
 
+    /** 1.9.5: the form as the user has left it, every edit and mark, to keep it while they're away (JSON). */
+    fun toJson(): org.json.JSONObject = org.json.JSONObject().apply {
+        put("store", store); put("date", date); put("total", total); put("tax", tax)
+        put("low", org.json.JSONArray(low.toList())); put("kind", kind.name); put("rawText", rawText)
+        put("notes", org.json.JSONObject(notes))
+        put("taxLines", org.json.JSONArray(taxLines.map { t ->
+            org.json.JSONObject().put("amount", t.amount).put("letter", t.letter ?: org.json.JSONObject.NULL)
+                .put("rate", t.rateMilli ?: org.json.JSONObject.NULL).put("taxable", t.taxable ?: org.json.JSONObject.NULL)
+        }))
+        put("items", org.json.JSONArray(items.map { r ->
+            org.json.JSONObject().put("text", r.text).put("qty", r.qty).put("amount", r.amount).put("unitPrice", r.unitPrice ?: org.json.JSONObject.NULL)
+                .put("id", r.id ?: org.json.JSONObject.NULL).put("letter", r.letter).put("taxed", r.taxed ?: org.json.JSONObject.NULL)
+                .put("envelopeId", r.envelopeId ?: org.json.JSONObject.NULL).put("section", r.section).put("unit", r.unit)
+                .put("unsure", org.json.JSONObject(r.unsure)).put("checked", r.checked)
+        }))
+    }
+
     companion object {
         fun from(p: ReceiptParser.Parsed) = ReceiptForm(
             p.store, p.date?.toString() ?: "", p.total?.let { Money.plain(it) } ?: "", p.tax?.let { Money.plain(it) } ?: "",
-            p.items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, letter = it.taxLetter, section = it.section) }, p.lowConfidence, p.kind, p.text,
-            p.taxLines,
+            p.items.map { ItemRow(it.text, Receipts.qty(it.quantityMilli), Money.plain(it.amount), it.unitPrice, letter = it.taxLetter, section = it.section, unit = it.unitWord, unsure = it.unsure) },
+            p.lowConfidence, p.kind, p.text, p.taxLines, p.notes,
         )
 
         fun from(r: ReceiptEntity, items: List<ReceiptItemEntity>) = ReceiptForm(
@@ -123,6 +243,33 @@ class ReceiptForm(
             if (r.rawText.isBlank()) emptyList() else ReceiptParser.parseLines(r.rawText.lines().map { ReceiptParser.Line(it) }).taxLines,
         )
 
+        /** The form as [toJson] kept it. */
+        fun fromJson(o: org.json.JSONObject): ReceiptForm {
+            fun str(j: org.json.JSONObject, k: String) = if (j.isNull(k)) null else j.optString(k)
+            fun lng(j: org.json.JSONObject, k: String) = if (j.isNull(k) || !j.has(k)) null else j.getLong(k)
+            fun map(j: org.json.JSONObject?) = j?.keys()?.asSequence()?.associateWith { j.getString(it) } ?: emptyMap()
+            val lines = o.optJSONArray("taxLines")
+            val its = o.optJSONArray("items")
+            return ReceiptForm(
+                o.optString("store"), o.optString("date"), o.optString("total"), o.optString("tax"),
+                (0 until (its?.length() ?: 0)).map { k ->
+                    val j = its!!.getJSONObject(k)
+                    ItemRow(
+                        j.optString("text"), j.optString("qty"), j.optString("amount"), lng(j, "unitPrice"), str(j, "id"),
+                        j.optString("letter"), if (j.isNull("taxed") || !j.has("taxed")) null else j.getBoolean("taxed"),
+                        str(j, "envelopeId"), j.optString("section"), j.optString("unit"), map(j.optJSONObject("unsure")), j.optBoolean("checked"),
+                    )
+                },
+                (0 until (o.optJSONArray("low")?.length() ?: 0)).map { o.getJSONArray("low").getString(it) }.toSet(),
+                runCatching { ReceiptKind.valueOf(o.optString("kind")) }.getOrDefault(ReceiptKind.PURCHASE), o.optString("rawText"),
+                (0 until (lines?.length() ?: 0)).map { k ->
+                    val j = lines!!.getJSONObject(k)
+                    ReceiptParser.TaxLine(j.getLong("amount"), str(j, "letter"), lng(j, "rate"), lng(j, "taxable"))
+                },
+                map(o.optJSONObject("notes")),
+            )
+        }
+
         /** "2", "1.25": thousandths; anything unreadable is one. */
         fun qtyMilli(s: String): Long {
             val t = s.trim()
@@ -132,6 +279,28 @@ class ReceiptForm(
             val frac = parts.getOrNull(1)?.filter { it.isDigit() }?.padEnd(3, '0')?.take(3)?.toLongOrNull() ?: 0
             return (whole * 1000 + frac).takeIf { it > 0 } ?: 1000
         }
+    }
+}
+
+/**
+ * 1.9.5: a scan being checked, kept (encrypted, beside the receipt photos) until it's saved or cleared, so it's there
+ * after another screen or a restart: its id, the transaction it's for, what was read from each page, and the form.
+ */
+data class ScanDraft(val scanId: String, val scanFor: String?, val pages: List<List<ReceiptParser.Line>>, val form: ReceiptForm) {
+    fun toJson(): String = org.json.JSONObject().put("scanId", scanId).put("scanFor", scanFor ?: org.json.JSONObject.NULL)
+        .put("pages", org.json.JSONArray(pages.map { p -> org.json.JSONArray(p.map { org.json.JSONObject().put("t", it.text).put("c", it.confidence) }) }))
+        .put("form", form.toJson()).toString()
+
+    companion object {
+        fun fromJson(s: String): ScanDraft? = runCatching {
+            val o = org.json.JSONObject(s)
+            val pages = o.getJSONArray("pages")
+            ScanDraft(
+                o.getString("scanId"), if (o.isNull("scanFor")) null else o.getString("scanFor"),
+                (0 until pages.length()).map { k -> val p = pages.getJSONArray(k); (0 until p.length()).map { n -> val l = p.getJSONObject(n); ReceiptParser.Line(l.getString("t"), l.getInt("c")) } },
+                ReceiptForm.fromJson(o.getJSONObject("form")),
+            )
+        }.getOrNull()
     }
 }
 
@@ -190,18 +359,31 @@ fun ScanScreen(forPayee: String?, working: Boolean, error: String?, onBack: () -
     }
 }
 
-/** What was read, as a form to fix before saving. Fields the reading wasn't sure of say so. */
+/**
+ * What was read, as a form to fix before saving. 1.9.5: each item in its own card (name, quantity, price, price with
+ * tax, Taxed or Not taxed, envelope, Checked and Remove), then the totals as the receipt shows them: untaxed items,
+ * taxed items, tax, total paid. A field the reader wasn't sure of has a yellow border and says why, until it's edited (or
+ * its item is marked Checked). [onClear] (a new scan): Clear throws the whole scan out, after asking.
+ */
 @Composable
 fun ReceiptEditScreen(
     form: ReceiptForm, pages: List<ImageBitmap?>, isNew: Boolean, working: Boolean, error: String?,
     onBack: () -> Unit, onAddCamera: () -> Unit, onAddFile: () -> Unit, onSave: () -> Unit,
     /** 1.9.4: the envelopes an item can go to (its own dropdown); none hides the dropdowns. */
     envelopes: List<net.darkrelay.deaddropfinance.data.EnvelopeEntity> = emptyList(),
+    /** 1.9.5: Clear (a scan being checked): throws it out, photos and all; null hides it. */
+    onClear: (() -> Unit)? = null,
+    scroll: androidx.compose.foundation.ScrollState = rememberScrollState(),
 ) {
     val envelopeOptions: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "No envelope") + envelopes.map { it.id to it.name }
-    fun label(name: String, field: String) = if (field in form.low) "$name (check this)" else name
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-        ScreenTitle(if (isNew) "Check the receipt" else "Edit receipt", onBack)
+    var confirmClear by remember { mutableStateOf(false) }
+    val work = form.taxWork()
+    val totals = form.totals(work)
+    val misread = form.misread(totals)
+    Column(Modifier.fillMaxWidth().verticalScroll(scroll).padding(horizontal = 16.dp)) {
+        ScreenTitle(if (isNew) "Check the receipt" else "Edit receipt", onBack) {
+            if (onClear != null) TextButton(onClick = { confirmClear = true }, modifier = Modifier.testTag("receipt.clear")) { Text("Clear") }
+        }
         ReceiptPhotos(pages)
         if (isNew) {
             Row {
@@ -210,69 +392,33 @@ fun ReceiptEditScreen(
             }
             if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
-        if (form.low.isNotEmpty()) {
-            Text("Some of this wasn't clear on the photo. Check what's marked.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
+        val anyUnsure = form.notes.isNotEmpty() || form.items.any { !it.checked && it.unsure.isNotEmpty() } || misread.isNotEmpty() || totals.gap.let { it != null && it != 0L }
+        if (anyUnsure) {
+            Text("Fields in yellow weren't clear on the photo, or don't add up. Check them.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         }
         if (form.kind == ReceiptKind.RETURN) Pill("return receipt")
-        TextFieldRow(label("Store", "store"), form.store, { form.store = it })
-        DateField(label("Date", "date"), form.date, { form.date = it })
-        Row {
-            Box(Modifier.weight(1f)) { AmountField(label("Total", "total"), form.total, { form.total = it }) }
-            HGap()
-            Box(Modifier.weight(1f)) { AmountField(label("Tax", "tax"), form.tax, { form.tax = it }) }
-        }
-        SectionTitle(label("Items", "items"))
-        form.items.forEachIndexed { i, r ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(3f)) { TextFieldRow("Item", r.text, { form.items[i] = r.copy(text = it) }) }
-                HGap(4)
-                Box(Modifier.weight(1f)) { TextFieldRow("Qty", r.qty, { form.items[i] = r.copy(qty = it) }) }
-                HGap(4)
-                Box(Modifier.weight(1.6f)) { AmountField("Price", r.amount, { form.items[i] = r.copy(amount = it) }) }
-                TextButton(onClick = { form.items.removeAt(i) }) { Text("Remove") }
-            }
-            // 1.9.3: the item's tax letter, its own field; 1.9.4: beside it, the item's envelope
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.width(130.dp).testTag("item.letter.$i")) {
-                    TextFieldRow("Tax letter", r.letter, { form.items[i] = r.copy(letter = it.filter { c -> c.isLetter() || c == '*' }.uppercase().take(2), taxed = null) })
-                }
-                if (envelopes.isNotEmpty()) {
-                    HGap(4)
-                    Box(Modifier.weight(1f).testTag("item.envelope.$i")) { Picker("Envelope", envelopeOptions, r.envelopeId, { form.items[i] = r.copy(envelopeId = it) }) }
-                }
-            }
-        }
+        TextFieldRow("Store", form.store, { form.store = it; form.edited("store") }, Modifier.testTag("receipt.store"), warn = form.notes["store"])
+        DateField("Date", form.date, { form.date = it; form.edited("date") }, warn = form.notes["date"], modifier = Modifier.testTag("receipt.date"))
+        SectionTitle("Items")
+        form.items.forEachIndexed { i, r -> ItemCard(form, i, r, work, misread[i], envelopes.isNotEmpty(), envelopeOptions) }
         TextButton(onClick = { form.items.add(ItemRow("", "1", "")) }) { Text("Add an item") }
-        // 1.9.3: the tax letters. Matched to the tax lines, each item shows its price with tax; when they can't be, ask.
-        val work = form.taxWork()
-        val live = form.items.filter { it.text.isNotBlank() || it.amount.isNotBlank() }
-        if (work.perItem && work.resolved) {
-            live.forEachIndexed { k, r ->
-                if (work.withTax[k] != (Money.parse(r.amount) ?: 0)) {
-                    Text("${r.text}: ${Money.format(Money.parse(r.amount) ?: 0)} + tax${if (r.letter.isNotBlank()) " ${r.letter}" else ""} = ${Money.format(work.withTax[k])}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
         if (!work.resolved) TaxQuestion(form, work)
-        // does it add up?
-        val sum = form.items.sumOf { Money.parse(it.amount) ?: 0 }
-        val tax = Money.parse(form.tax)?.let { kotlin.math.abs(it) } ?: 0
-        val total = Money.parse(form.total)?.let { kotlin.math.abs(it) }
-        if (form.items.isNotEmpty() && total != null && work.perItem && work.resolved) {
-            val withTax = work.withTax.sum()
-            val left = work.unassigned
-            val diff = total - (kotlin.math.abs(withTax) + left)
+        // the totals, as the receipt shows them; each number says what it is
+        SectionTitle("Totals")
+        fun printedNote(read: Long?, worked: Long) = read?.takeIf { kotlin.math.abs(it - worked) > maxOf(1L, it / 200) }?.let { "the receipt says ${Money.format(it)}" }
+        ReadOnlyAmount("Untaxed items", totals.untaxed, Modifier.testTag("breakdown.untaxed"), warn = printedNote(totals.printedUntaxed, totals.untaxed))
+        ReadOnlyAmount("Taxed items", totals.taxed, Modifier.testTag("breakdown.taxed"), warn = printedNote(totals.printedTaxed, totals.taxed))
+        AmountField("Tax", form.tax, { form.tax = it; form.edited("tax") }, Modifier.testTag("breakdown.tax"), warn = form.notes["tax"])
+        val gap = totals.gap
+        val totalWarn = form.notes["total"] ?: gap?.takeIf { it != 0L }?.let { g ->
+            "the items come to ${Money.format(kotlin.math.abs(g))} " + (if (g < 0) "more" else "less") + " than the total paid" +
+                (if (g > 0 && misread.isEmpty()) " (a tip, or a missed line?)" else "")
+        }
+        AmountField("Total paid", form.total, { form.total = it; form.edited("total") }, Modifier.testTag("breakdown.total"), warn = totalWarn)
+        if (gap == 0L && "total" !in form.notes && totals.total != null) {
             Text(
-                "Items with tax ${Money.format(kotlin.math.abs(withTax))}" + (if (left > 0) " + tax not on any item ${Money.format(left)}" else "") +
-                    if (diff == 0L) " = the total." else "; the total says ${Money.format(total)} (${Money.format(diff)} " + (if (diff > 0) "more" else "less") + ", a tip or a missed line?).",
-                color = if (diff == 0L) DdfColors.Muted else DdfColors.Warning, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tax.addsUp"),
-            )
-        } else if (form.items.isNotEmpty() && total != null && work.resolved) {
-            val diff = total - (kotlin.math.abs(sum) + tax)
-            Text(
-                "Items ${Money.format(kotlin.math.abs(sum))} + tax ${Money.format(tax)} = ${Money.format(kotlin.math.abs(sum) + tax)}" +
-                    if (diff == 0L) ", the total." else "; the total says ${Money.format(total)} (${Money.format(diff)} " + (if (diff > 0) "more" else "less") + ", a tip or a missed line?).",
-                color = if (diff == 0L) DdfColors.Muted else DdfColors.Warning, style = MaterialTheme.typography.bodySmall,
+                "Untaxed items, taxed items and tax come to the total paid.",
+                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("tax.addsUp"),
             )
         }
         ErrorLine(error)
@@ -280,42 +426,120 @@ fun ReceiptEditScreen(
         Button(onClick = onSave, enabled = !working && work.resolved, modifier = Modifier.fillMaxWidth().testTag("receipt.save")) { Text("Save receipt") }
         Gap(24)
     }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Clear this receipt?") },
+            text = { Text("Nothing has been saved. The photos, what was read and your changes are thrown out.") },
+            // Cancel is the default: the filled button
+            confirmButton = { Button(onClick = { confirmClear = false }, modifier = Modifier.testTag("clear.cancel")) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false; onClear?.invoke() }, modifier = Modifier.testTag("clear.confirm")) { Text("Clear", color = DdfColors.Error) } },
+        )
+    }
+}
+
+/** One item, in its own card: what the reader wasn't sure of in yellow; Checked dims the card and quiets its yellow. */
+@Composable
+private fun ItemCard(
+    form: ReceiptForm, i: Int, r: ItemRow, work: ReceiptTax.Result, misreadTo: Long?, showEnvelope: Boolean, envelopeOptions: List<Pair<String?, String>>,
+) {
+    fun warn(field: String): String? = if (r.checked) null else r.unsure[field]
+        ?: if (field == "price" && misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else null
+    val taxedNow = form.taxedOf(i, work)
+    val taxWarn = warn("taxed") ?: if (!r.checked && taxedNow == null) "not sure whether it's taxed" else null
+    ItemCardFrame(Modifier.padding(bottom = 10.dp).alpha(if (r.checked) 0.6f else 1f).testTag("item.card.$i")) {
+        if (r.checked) Text("✓ Checked", color = DdfColors.Cyan, style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag("item.checkedMark.$i"))
+        TextFieldRow("Item", r.text, { v -> form.editItem(i, "name") { it.copy(text = v) } }, Modifier.testTag("item.name.$i"), warn = warn("name"))
+        Row(verticalAlignment = Alignment.Top) {
+            Box(Modifier.weight(0.8f)) { TextFieldRow("Qty", r.qty, { v -> form.editItem(i, "qty") { it.copy(qty = v) } }, Modifier.testTag("item.qty.$i"), warn = warn("qty")) }
+            HGap(6)
+            Box(Modifier.weight(1f)) { AmountField("Price", r.amount, { v -> form.editItem(i, "price") { it.copy(amount = v) } }, Modifier.testTag("item.price.$i"), warn = warn("price")) }
+            HGap(6)
+            Box(Modifier.weight(1f)) { ReadOnlyAmount("With tax", form.withTaxOf(i, work), Modifier.testTag("item.withTax.$i")) }
+        }
+        qtyLine(r)?.let { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("item.qtyLine.$i")) }
+        TaxedToggle(taxedNow, { v -> form.editItem(i, "taxed") { it.copy(taxed = v) } }, i, taxWarn)
+        if (showEnvelope) {
+            Box(Modifier.testTag("item.envelope.$i")) {
+                Picker("Envelope", envelopeOptions, r.envelopeId, { v -> form.editItem(i, "envelope") { it.copy(envelopeId = v) } }, warn = warn("envelope"))
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Column(horizontalAlignment = Alignment.End) {
+                TextButton(onClick = { form.items[i] = r.copy(checked = !r.checked) }, modifier = Modifier.testTag("item.checked.$i")) { Text(if (r.checked) "Not checked" else "Checked") }
+                TextButton(onClick = { form.items.removeAt(i) }, modifier = Modifier.testTag("item.remove.$i")) { Text("Remove") }
+            }
+        }
+    }
+}
+
+/** "2 @ $2.79 = $5.58", "1.26 lb @ $2.89/lb = $3.64": a quantity other than one, as the receipt shows it. */
+fun qtyLine(r: ItemRow): String? {
+    val q = ReceiptForm.qtyMilli(r.qty)
+    val amount = Money.parse(r.amount) ?: return null
+    if (q == 1000L && r.unit.isEmpty()) return null
+    val unit = r.unitPrice?.takeIf { (it * q + 500) / 1000 == amount || kotlin.math.abs((it * q + 500) / 1000 - amount) <= 1 } ?: if (q > 0) (amount * 1000 + q / 2) / q else return null
+    val qty = Receipts.qty(q)
+    return if (r.unit.isNotEmpty()) "$qty ${r.unit} @ ${Money.format(unit)}/${r.unit} = ${Money.format(amount)}" else "$qty @ ${Money.format(unit)} = ${Money.format(amount)}"
+}
+
+/** Taxed or Not taxed: two buttons, the chosen one filled; neither chosen while it's not answered. */
+@Composable
+private fun TaxedToggle(taxed: Boolean?, onChange: (Boolean) -> Unit, i: Int, warn: String?) {
+    Column(Modifier.padding(vertical = 4.dp)) {
+        val shape = RoundedCornerShape(8.dp)
+        Row(
+            Modifier.then(if (warn != null) Modifier.border(1.dp, DdfColors.Warning, shape) else Modifier).padding(2.dp).testTag("item.taxToggle.$i"),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for ((value, label) in listOf(true to "Taxed", false to "Not taxed")) {
+                val tag = if (value) "item.taxed.$i" else "item.untaxed.$i"
+                if (taxed == value) Button(onClick = { onChange(value) }, modifier = Modifier.padding(end = 6.dp).testTag(tag)) { Text(label) }
+                else OutlinedButton(onClick = { onChange(value) }, modifier = Modifier.padding(end = 6.dp).testTag(tag)) { Text(label) }
+            }
+        }
+        if (warn != null) Text(warn, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+/** A card for one item: the program's Settings card style in the program (0.15.4), the phone's card on the phone. */
+@Composable
+private fun ItemCardFrame(modifier: Modifier, content: @Composable () -> Unit) {
+    if (LocalProgramStyle.current) {
+        val shape = RoundedCornerShape(10.dp)
+        Box(modifier.fillMaxWidth().clip(shape).background(DdfColors.Surface).border(1.dp, DdfColors.Outline, shape)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) { content() }
+        }
+    } else {
+        Card(modifier.fillMaxWidth()) { Column(Modifier.fillMaxWidth().padding(12.dp)) { content() } }
+    }
 }
 
 /**
- * The letters couldn't be matched to the tax lines (1.9.3): nothing is guessed. For each letter, taxed or not, or mark
- * the items one by one; the receipt's tax is then shared between the items marked taxed, by price. Save waits for it.
+ * The receipt's tax couldn't be matched to its items (no tax letters, or letters no tax line settles): nothing is
+ * guessed. Each item's Taxed toggle is the answer (or all at once); the tax is then shared between the taxed items by
+ * price. Save waits for it.
  */
 @Composable
 private fun TaxQuestion(form: ReceiptForm, work: ReceiptTax.Result) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("tax.ask")) {
         Text("Which items are taxed?", style = MaterialTheme.typography.titleSmall, color = DdfColors.Warning)
         Text(
-            if (work.needsChoice == setOf("")) "The receipt shows tax (${form.tax}) but no tax letters on its items. Mark the taxed items; the tax is shared between them by price."
-            else "The receipt's tax (${form.tax.ifBlank { "none read" }}) couldn't be matched to the letters ${work.needsChoice.sorted().joinToString(", ")}. " +
-                "Say which are taxed; the tax is shared between them by price.",
+            "The receipt's tax (${form.tax.ifBlank { "none read" }}) couldn't be matched to its items. Mark each item in yellow Taxed or Not taxed; " +
+                "the tax is shared between the taxed items by price.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
         )
-        for (l in work.needsChoice.sorted()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (l.isEmpty()) "All items" else "Letter $l", Modifier.weight(1f))
-                TextButton(onClick = { setLetter(form, l, true) }, modifier = Modifier.testTag("tax.${l.ifEmpty { "all" }}.taxed")) { Text("Taxed") }
-                TextButton(onClick = { setLetter(form, l, false) }, modifier = Modifier.testTag("tax.${l.ifEmpty { "all" }}.untaxed")) { Text("Not taxed") }
-            }
-        }
-        form.items.forEachIndexed { i, r ->
-            if (r.letter.trim().uppercase() in work.needsChoice) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(r.taxed == true, { form.items[i] = r.copy(taxed = it) }, modifier = Modifier.testTag("tax.item.$i"))
-                    Text("${r.text}${if (r.letter.isNotBlank()) " (${r.letter})" else ""} ${r.amount}" + if (r.taxed == null) "  (not answered)" else "")
-                }
-            }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("All of them", Modifier.weight(1f))
+            TextButton(onClick = { setAll(form, work, true) }, modifier = Modifier.testTag("tax.all.taxed")) { Text("Taxed") }
+            TextButton(onClick = { setAll(form, work, false) }, modifier = Modifier.testTag("tax.all.untaxed")) { Text("Not taxed") }
         }
     }
 }
 
-private fun setLetter(form: ReceiptForm, letter: String, taxed: Boolean) {
-    form.items.forEachIndexed { i, r -> if (r.letter.trim().uppercase() == letter) form.items[i] = r.copy(taxed = taxed) }
+/** Every item the question is about, Taxed (or Not taxed). */
+private fun setAll(form: ReceiptForm, work: ReceiptTax.Result, taxed: Boolean) {
+    form.items.indices.forEach { i -> if (form.taxedOf(i, work) == null) form.editItem(i, "taxed") { it.copy(taxed = taxed) } }
 }
 
 // ---- one receipt ---------------------------------------------------------------------------------------------------
@@ -427,13 +651,13 @@ fun ItemSplitScreen(
     val options: List<Pair<String?, String>> = budget.fillOrder.map { it.id to it.name }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
         ScreenTitle("Split by items", onBack)
-        Text("${r.store}, ${Money.format(tx.amount)}. " + (if (kotlin.math.abs(tx.amount) > (r.total ?: 0)) "Tax and the tip are" else "Tax is") + " shared out by what each envelope's items cost.",
+        Text("${r.store}, ${Money.format(tx.amount)}. " + (if (kotlin.math.abs(tx.amount) > (r.total ?: 0)) "Tax and the tip are" else "Tax is") + " shared out by what each envelope's items cost with their tax.",
             color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         items.forEach { i ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(i.text)
-                    MoneyText(i.amount, small = true, color = if (i.amount < 0) DdfColors.Cyan else null)
+                    MoneyText(i.paid, small = true, color = if (i.amount < 0) DdfColors.Cyan else null)
                 }
                 Box(Modifier.weight(1f)) { Picker("Envelope", options, pick[i.id], { pick[i.id] = it }) }
             }
@@ -444,7 +668,7 @@ fun ItemSplitScreen(
             shares.forEach { s ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Text(budget.envelopes.firstOrNull { it.id == s.envelopeId }?.name ?: "?", Modifier.weight(1f))
-                    Text("items ${Money.format(s.items)}, tax ${Money.format(s.tax)}  ", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                    Text("items with tax ${Money.format(s.items)}" + (if (s.tax != 0L) ", plus ${Money.format(s.tax)} of the charge" else "") + "  ", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     MoneyText(-s.total)
                 }
             }

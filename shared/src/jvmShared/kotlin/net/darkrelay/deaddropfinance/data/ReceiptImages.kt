@@ -65,6 +65,18 @@ class ReceiptImages(private val dir: File, private val key: () -> ByteArray) : R
         base.substringAfterLast('-').toIntOrNull()?.let { base.substringBeforeLast('-') to it }
     }.sortedWith(compareBy({ it.first }, { it.second }))
 
+    /**
+     * 1.9.5: the scan being checked (its form and what was read, as text), encrypted under this same key in a folder of
+     * its own inside this one: never taken for a page or a backup's photo, kept by a sweep, gone with the folder on Erase
+     * or Purge. Null clears it.
+     */
+    fun writeDraft(text: String?) {
+        val d = staging(File(dir, "draft"))
+        if (text == null) { d.delete("scan"); File(dir, "draft").delete() } else d.write("scan", 0, text.toByteArray(Charsets.UTF_8))
+    }
+
+    fun readDraft(): String? = staging(File(dir, "draft")).read("scan", 0)?.toString(Charsets.UTF_8)
+
     /** A store for [other] files under this same key: a restore stages its photos there first. */
     fun staging(other: File) = ReceiptImages(other, key)
 

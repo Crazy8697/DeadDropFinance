@@ -68,7 +68,7 @@ class ReceiptEnvelopesAndScanTest {
         GROCERY
         SAMPLE BREAD 2.50 A
         SAMPLE PAPER TOWELS 6.00 B
-        HOME
+        SEASONAL
         SAMPLE CANDLE 4.00 B
         TAX B 5% 0.50
         TOTAL 13.00
@@ -76,7 +76,7 @@ class ReceiptEnvelopesAndScanTest {
 
     @Test fun eachItemHasItsOwnEnvelopeGuessedFromThePastThenTheSection() {
         val form = ReceiptForm.from(ReceiptParser.parseLines(text.lines().map { ReceiptParser.Line(it, 95) }))
-        // the towels went to Household last time; bread is under GROCERY; the candle (HOME) has no guess
+        // the towels went to Household last time; bread is under GROCERY; the candle (SEASONAL) has no envelope to go to
         val past = listOf(ReceiptItemEntity(receiptId = "old", text = "SAMPLE PAPER TOWELS", name = "sample paper towels", amount = 6_00, envelopeId = "h", createdAt = 1, updatedAt = 1))
         form.guessEnvelopes(past, listOf(groceries, household))
         assertEquals(listOf("g", "h", null), form.items.map { it.envelopeId })

@@ -216,9 +216,22 @@ class ReportsOnDeviceTest {
             photo.delete(); File(target.cacheDir, "fl-receipts").deleteRecursively()
             val parsed = net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(pages)
             assertTrue("every item line of the real receipt: ${parsed.items.size}", parsed.items.size == 21)
+            // 1.9.5: and what the check screen shows from it: the store left for the user, the tax, the total paid
+            assertTrue("store left for the user: '${parsed.store}'", parsed.store.isEmpty())
+            assertTrue("tax ${parsed.tax}", parsed.tax == 3_18L)
+            assertTrue("total ${parsed.total}", parsed.total == 112_20L)
             val realForm = net.darkrelay.deaddropfinance.ui.ReceiptForm.from(parsed).also { it.guessEnvelopes(emptyList(), budget.envelopes) }
-            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(realForm, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = budget.fillOrder) } }
+            realForm.items[1] = realForm.items[1].copy(checked = true)
+            val scroll = androidx.compose.foundation.ScrollState(0)
+            scenario.onActivity {
+                screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(realForm, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = budget.fillOrder, onClear = {}, scroll = scroll) }
+            }
             settle(); save(scenario, "phone-food-lion-receipt")
+            // further down: the cards; at the bottom: the totals as the receipt shows them
+            scenario.onActivity { scroll.dispatchRawDelta(1400f) }
+            settle(); save(scenario, "phone-food-lion-cards")
+            scenario.onActivity { scroll.dispatchRawDelta(scroll.maxValue.toFloat()) }
+            settle(); save(scenario, "phone-food-lion-totals")
             scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(matched.also { it.guessEnvelopes(emptyList(), budget.envelopes) }, emptyList(), true, false, null, {}, {}, {}, {}, envelopes = budget.fillOrder) } }
             settle(); save(scenario, "phone-receipt-envelope-dropdowns")
             scenario.onActivity {

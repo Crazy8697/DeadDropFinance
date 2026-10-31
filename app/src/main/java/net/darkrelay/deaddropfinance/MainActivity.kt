@@ -481,6 +481,10 @@ class MainActivity : ComponentActivity() {
             getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(clip)
         }
 
+        // 1.9.5: the receipt being checked, encrypted beside the receipt photos until it is saved or cleared
+        override fun loadScanDraft(): String? = app.receiptImages.readDraft()
+        override fun saveScanDraft(json: String?) = app.receiptImages.writeDraft(json)
+
         override fun sweepReceiptFiles(keep: Set<String>) {
             runCatching { app.receiptImages.sweep(keep) }
             runCatching { app.captureDir().listFiles()?.forEach { it.delete() } }

@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -77,8 +78,9 @@ class ProgramReceiptTaxTest {
         waitUntil(timeoutMillis = 10_000) { onAllNodesWithTag("tax.ask", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("receipt.save", useUnmergedTree = true).assertIsNotEnabled()
         shots?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(it, "receipt-tax-ask-${w}x$h.png")) }
-        onNodeWithTag("tax.T.taxed", useUnmergedTree = true).performClick()
-        onNodeWithTag("tax.F.untaxed", useUnmergedTree = true).performClick()
+        // 0.15.4: no letters shown; each item's Taxed toggle is the answer
+        onNodeWithTag("item.taxed.0", useUnmergedTree = true).performScrollTo().performClick()
+        onNodeWithTag("item.untaxed.1", useUnmergedTree = true).performScrollTo().performClick()
         waitForIdle()
         onNodeWithTag("receipt.save", useUnmergedTree = true).assertIsEnabled()
         assertEquals(0, onAllNodesWithTag("tax.ask", useUnmergedTree = true).fetchSemanticsNodes().size)
