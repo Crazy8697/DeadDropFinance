@@ -114,7 +114,8 @@ fun DesktopApp(model: AppModel, shell: Shell) {
                                 unavailable != null -> UnavailableScreen(unavailable)
                                 model.budget == null -> Box(Modifier.fillMaxSize().padding(18.dp)) { T("Opening your budget...", color = C.Dim) }
                                 // 0.14.0: Receipts, the phone's screens as a sidebar item; Bills and Categories in the program's layout
-                                model.screen == Screen.RECEIPTS -> PhoneScreens(model, shell, net.darkrelay.deaddropfinance.ui.Nav.Receipts, sidebar = true)
+                                // 0.14.1: Receipts in the program's layout too
+                                model.screen == Screen.RECEIPTS -> ProgramReceiptsScreen(model)
                                 model.screen == Screen.BILLS -> ProgramBillsScreen(model)
                                 model.screen == Screen.CATEGORIES -> ProgramCategoriesScreen(model)
                                 model.screen == Screen.BUDGET -> BudgetScreen(model, shell)
@@ -145,7 +146,7 @@ fun DesktopApp(model: AppModel, shell: Shell) {
 
 @Composable
 private fun MenuStrip(model: AppModel, shell: Shell) {
-    Row(Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF0D1217)).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(26.dp).background(C.MenuBar).bottomLine().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Menu("File") { close ->
             MenuItem("Back up...", enabled = model.budget != null) { close(); model.startBackup() }
             MenuItem("Restore...", enabled = model.budget != null) { close(); shell.pickBackupOpen()?.let { model.dialog = Dialog.Restore(it) } }
@@ -273,6 +274,8 @@ private fun TopBar(model: AppModel) {
         if (budgety && model.budget != null) MonthPicker(model)
         Spacer(Modifier.weight(1f))
         SyncPill(model.server) { model.go(Screen.SYNC) }
+        // 0.14.1: Scan, the phone's Scan screen (an image or a PDF, read on this computer)
+        if (model.screen == Screen.RECEIPTS && model.budget != null) Btn("Scan", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }, tag = "top.scan")
         if (budgety && model.budget != null) {
             Btn("Move money", { model.dialog = Dialog.MoveMoney() }, ghost = true, tag = "top.move")
             Btn("Add transaction", { model.dialog = Dialog.AddTransaction(model.activityTab.takeIf { model.screen == Screen.ACTIVITY }) }, tag = "top.add")

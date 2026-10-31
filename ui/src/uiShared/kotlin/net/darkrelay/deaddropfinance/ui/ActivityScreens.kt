@@ -17,7 +17,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -125,13 +124,14 @@ fun ActivityScreen(
     }
 }
 
-/** The tab row: All (with the To sort count), then each account's name. Scrolls when it's wider than the screen. */
+/**
+ * The tab row: All (with the To sort count), then each account's name. Scrolls when it's wider than the screen; in the
+ * program (0.14.1) the tabs share the window's width instead, as the rest of the program spreads across it.
+ */
 @Composable
 private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
     val index = tabs.accounts.indexOfFirst { it.id == tabs.selected } + 1
-    androidx.compose.material3.ScrollableTabRow(
-        selectedTabIndex = index, edgePadding = 16.dp, containerColor = DdfColors.Background, contentColor = DdfColors.Cyan,
-    ) {
+    val content: @Composable () -> Unit = {
         androidx.compose.material3.Tab(selected = index == 0, onClick = { tabs.onSelect(null) }, text = {
             Row(verticalAlignment = Alignment.CenterVertically) { Text("All"); if (toSort > 0) Pill("$toSort") }
         })
@@ -139,6 +139,15 @@ private fun ActivityTabRow(tabs: ActivityTabs, toSort: Int) {
             androidx.compose.material3.Tab(selected = index == i + 1, onClick = { tabs.onSelect(a.id) }, text = { Text(a.name, maxLines = 1) })
         }
     }
+    if (LocalProgramStyle.current) {
+        androidx.compose.material3.PrimaryTabRow(
+            selectedTabIndex = index, modifier = Modifier.fillMaxWidth().testTag("activityTabs"),
+            containerColor = DdfColors.Background, contentColor = DdfColors.Cyan, tabs = content,
+        )
+    } else androidx.compose.material3.ScrollableTabRow(
+        selectedTabIndex = index, edgePadding = 16.dp, containerColor = DdfColors.Background, contentColor = DdfColors.Cyan,
+        modifier = Modifier.testTag("activityTabs"), tabs = content,
+    )
 }
 
 /** One account's tab: its current balance, Add, Scan and Import CSV, and only its transactions, newest first. */

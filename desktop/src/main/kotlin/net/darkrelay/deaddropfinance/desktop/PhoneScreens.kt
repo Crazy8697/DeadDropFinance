@@ -57,9 +57,11 @@ fun PhoneScreens(model: AppModel, shell: Shell, start: Nav, onExit: () -> Unit =
     val settings = remember(ok) { ProgramAppSettings(shell.settings ?: Settings(ok.file.parentFile)) }
     // the program's own screens read the budget again after these screens change it
     LaunchedEffect(ok.store) { budgetFlow(ok.store).drop(1).collect { withContext(Dispatchers.IO) { model.refresh() } } }
+    // 0.14.1: the program's colors (the shared ProgramPalette), not the phone's, and its buttons for text actions
+    remember { net.darkrelay.deaddropfinance.ui.DdfColors.palette = net.darkrelay.deaddropfinance.ui.ProgramPalette }
     DdfTheme {
-        CompositionLocalProvider(LocalDeviceWords provides PROGRAM_WORDS) {
-            Box(Modifier.fillMaxSize().background(net.darkrelay.deaddropfinance.ui.DdfColors.Background).testTag("phone.${start.javaClass.simpleName}")) {
+        CompositionLocalProvider(LocalDeviceWords provides PROGRAM_WORDS, net.darkrelay.deaddropfinance.ui.LocalProgramStyle provides true) {
+            Box(Modifier.fillMaxSize().background(C.Bg).testTag("phone.${start.javaClass.simpleName}")) {
                 // 0.14.0: across the window, with the program's margins, not a phone's narrow column
                 Box(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
                     // keyed by where it opens: a new start is a new set of screens

@@ -24,12 +24,13 @@ class ScreenshotsTest {
         val made = SampleBudget.filled(tmp.newFolder("DeadDropFinance"))
         val m = made.model
         val shell = Shell(checkAtStartup = true, settings = Settings(tmp.newFolder("settings")))
-        fun shot(name: String, setup: () -> Unit) {
-            m.dialog = null
-            m.drawerEnvelope = null
-            m.message = null
+        fun shot(name: String, on: AppModel = m, setup: () -> Unit) {
+            on.dialog = null
+            on.drawerEnvelope = null
+            on.message = null
+            on.phoneNav = null
             setup()
-            val scene = ImageComposeScene(1400, 900, Density(1f)) { DesktopApp(m, shell) }
+            val scene = ImageComposeScene(1400, 900, Density(1f)) { DesktopApp(on, shell) }
             try {
                 scene.render(0)
                 // what's worked out off the UI thread (the payday plan) is in before the last frame
@@ -43,6 +44,24 @@ class ScreenshotsTest {
             }
         }
         val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.14.1") {
+            // 0.14.1: every sidebar screen, on the sample budget and on an empty one (where a wrong background shows), and the
+            // app's screens the program opens, all in the program's colors and buttons
+            val empty = SampleBudget.empty(tmp.newFolder("Empty"))
+            Screen.entries.forEachIndexed { i, s ->
+                shot("%02d-%s".format(i + 1, s.name.lowercase())) { m.go(s) }
+                shot("%02d-%s-empty".format(i + 1, s.name.lowercase()), empty) { empty.go(s) }
+            }
+
+            val hosted = listOf(
+                "scan" to net.darkrelay.deaddropfinance.ui.Nav.Scan(null), "rules" to net.darkrelay.deaddropfinance.ui.Nav.Rules, "subscriptions" to net.darkrelay.deaddropfinance.ui.Nav.Subscriptions, "manage-categories" to net.darkrelay.deaddropfinance.ui.Nav.ManageCategories,
+                "import-csv" to net.darkrelay.deaddropfinance.ui.Nav.Import, "import-setup" to net.darkrelay.deaddropfinance.ui.Nav.SetupImport, "about" to net.darkrelay.deaddropfinance.ui.Nav.About, "purge" to net.darkrelay.deaddropfinance.ui.Nav.Purge, "erase" to net.darkrelay.deaddropfinance.ui.Nav.Erase,
+                "to-sort" to net.darkrelay.deaddropfinance.ui.Nav.Activity, "fill-order" to net.darkrelay.deaddropfinance.ui.Nav.Envelopes, "forecast" to net.darkrelay.deaddropfinance.ui.Nav.Forecast, "safe-to-spend" to net.darkrelay.deaddropfinance.ui.Nav.SafeToSpend,
+                "add-bill" to net.darkrelay.deaddropfinance.ui.Nav.BillEdit(null), "envelope-details" to net.darkrelay.deaddropfinance.ui.Nav.Envelope(made.ids.getValue("Groceries")),
+            )
+            hosted.forEachIndexed { i, (name, nav) -> shot("%02d-opened-%s".format(30 + i, name)) { m.go(Screen.BUDGET); m.openPhone(nav) } }
+            empty.engine?.close()
+        }
         if (System.getProperty("ddf.screensRound") == "0.14.0") {
             // 0.14.0: one sidebar; Budget with what Home showed; Receipts; Bills and Categories in the program's layout; Settings
             shot("01-budget") { m.go(Screen.BUDGET) }
@@ -67,7 +86,8 @@ class ScreenshotsTest {
             shot("07-restore") { m.go(Screen.SETTINGS); m.dialog = Dialog.Restore(backupFile) }
             shot("08-restore-confirm") { m.go(Screen.SETTINGS); m.dialog = Dialog.Restore(backupFile, confirm = true) }
             shot("09-budget") { m.go(Screen.BUDGET) }
-        } else {
+        } else if (System.getProperty("ddf.screensRound").isNullOrBlank()) {
+            // every screen (no round named)
             shot("01-budget") { m.go(Screen.BUDGET) }
             shot("02-envelope-drawer") { m.go(Screen.BUDGET); m.drawerEnvelope = made.ids["Groceries"] }
             shot("03-activity-all") { m.go(Screen.ACTIVITY); m.activityTab = null }

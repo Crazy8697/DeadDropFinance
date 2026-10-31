@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -482,6 +481,10 @@ fun AppRoot(
             else -> tab(Nav.Activity)
         }
     }
+    // 0.14.1: Scan opened by itself (the program's Receipts): a new scan, as Scan from the phone's Receipts starts one
+    LaunchedEffect(host) {
+        (host?.start as? Nav.Scan)?.let { s -> if (scanId == null) { scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = s.forTx; scanPages.clear(); scanForm = null } }
+    }
     // 0.14.0: the setup wizard opened by itself, from the program's Settings
     LaunchedEffect(host) { if (host?.start == Nav.SetupWizard && wizard == null) openWizard() }
     // 0.13.0: a screen opened from elsewhere in the program
@@ -843,11 +846,14 @@ fun AppRoot(
                             if (!top.isNew) { back(); return@run }
                             val forTx = scanFor
                             scanId = null; scanForm = null; scanPages.clear()
+                            // matched before the form closes, so the next screen replaces it in one step (0.14.1: when the
+                            // program opened Scan by itself, the form is the only screen, and an empty stack closes it)
+                            val decision = if (forTx == null) receiptsOps.match(id) else null
                             stack.removeAt(stack.lastIndex)
                             if (forTx != null) {
                                 go(Nav.Receipt(id))
                                 message = "Saved to this transaction."
-                            } else when (val d = receiptsOps.match(id)) {
+                            } else when (val d = decision) {
                                 is net.darkrelay.deaddropfinance.domain.ReceiptMatch.Decision.One -> { go(Nav.Receipt(id)); message = "Matched to ${d.c.tx.payee.ifBlank { "a transaction" }} on ${d.c.tx.date}." }
                                 is net.darkrelay.deaddropfinance.domain.ReceiptMatch.Decision.Several -> go(Nav.ReceiptMatch(id))
                                 else -> { go(Nav.Receipt(id)); message = "Saved. It waits in Receipts and is matched when its charge comes in." }

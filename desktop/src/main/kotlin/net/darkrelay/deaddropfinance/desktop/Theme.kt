@@ -49,21 +49,33 @@ import androidx.compose.ui.unit.sp
 import net.darkrelay.deaddropfinance.domain.Money
 
 /** The DarkRelay look from the approved mockup (desktop/docs/desktop-mockup.html): its colors, one for one. */
+/**
+ * The program's colors. The window background, cards, their borders, text and accents are the shared ProgramPalette
+ * (ui Theme.kt, 0.14.1), the same values the app's screens use when the program shows them; the rest are the
+ * program's own shades of those. No screen sets a color of its own (ProgramColorsTest).
+ */
 object C {
-    val Bg = Color(0xFF0A0D10)
-    val Panel = Color(0xFF11161B)
+    private val P = net.darkrelay.deaddropfinance.ui.ProgramPalette
+    val Bg = P.background
+    val Panel = P.surface
     val Panel2 = Color(0xFF151C22)
-    val Line = Color(0xFF1F2A33)
-    val Line2 = Color(0xFF2A3843)
-    val Text = Color(0xFFDFE8EF)
-    val Dim = Color(0xFF8BA0B0)
+    val Line = P.outline
+    val Line2 = P.outlineHigh
+    val Text = P.text
+    val Dim = P.muted
     val Dim2 = Color(0xFF5F7382)
-    val Cyan = Color(0xFF19C2E6)
-    val Teal = Color(0xFF0E7490)
+    val Cyan = P.cyan
+    val Teal = P.teal
     val TealHi = Color(0xFF12899F)
     val Good = Color(0xFF2FBF71)
-    val Bad = Color(0xFFE2574C)
-    val Warn = Color(0xFFD9A441)
+    val Bad = P.error
+    val Warn = P.warning
+    /** The menu strip above everything, a shade darker than a card. */
+    val MenuBar = Color(0xFF0D1217)
+    /** Text on a teal button. */
+    val OnTeal = Color(0xFFEAF8FC)
+    /** A switch's track when it's off. */
+    val SwitchOff = Color(0xFF202C35)
     val Hover = Color(0xFF141C23)
     val NavHover = Color(0xFF17212A)
     val Input = Color(0xFF0C1116)
@@ -102,7 +114,7 @@ fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, ghost:
     val shape = RoundedCornerShape(if (small) 6.dp else 7.dp)
     val bg = when { ghost && hover -> C.Hover; ghost -> Color.Transparent; hover -> C.TealHi; else -> C.Teal }
     val border = when { ghost && hover -> C.Teal; ghost -> C.Line2; else -> C.TealHi }
-    val fg = when { ghost && hover -> C.Text; ghost -> C.Dim; else -> Color(0xFFEAF8FC) }
+    val fg = when { ghost && hover -> C.Text; ghost -> C.Dim; else -> C.OnTeal }
     Box(
         modifier.alpha(if (enabled) 1f else 0.4f).clip(shape).background(bg).border(1.dp, border, shape)
             .hoverable(src).let { if (enabled) it.clickable(interactionSource = src, indication = null, onClick = onClick) else it }
@@ -176,7 +188,7 @@ fun ProgressBar(fraction: Float, full: Boolean, over: Boolean, modifier: Modifie
 fun Switch(on: Boolean, onChange: (Boolean) -> Unit, tag: String? = null) {
     val shape = RoundedCornerShape(50)
     Box(
-        Modifier.width(38.dp).height(21.dp).clip(shape).background(if (on) C.Teal.copy(alpha = 0.5f) else Color(0xFF202C35))
+        Modifier.width(38.dp).height(21.dp).clip(shape).background(if (on) C.Teal.copy(alpha = 0.5f) else C.SwitchOff)
             .border(1.dp, if (on) C.Teal else C.Line2, shape).clickable { onChange(!on) }.let { if (tag != null) it.testTag(tag) else it },
     ) {
         Box(Modifier.offset(x = if (on) 19.dp else 2.dp, y = 2.dp).size(15.dp).clip(CircleShape).background(if (on) C.Cyan else C.Dim2))

@@ -1,5 +1,7 @@
 package net.darkrelay.deaddropfinance.ui
 
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +24,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -178,3 +179,27 @@ fun Pill(text: String) {
 }
 
 val Arrangement.spaced8 get() = spacedBy(8.dp)
+
+/**
+ * The screens' text actions (Add, Edit, Scan, Show more...): Material's TextButton on the phone; in the program
+ * (0.14.1, LocalProgramStyle) a button in the program's style, a bordered ghost button, so no action is a bare link.
+ */
+@Composable
+fun TextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    if (!LocalProgramStyle.current) {
+        androidx.compose.material3.TextButton(onClick = onClick, modifier = modifier, enabled = enabled, content = content)
+        return
+    }
+    val shape = RoundedCornerShape(6.dp)
+    Row(
+        modifier.padding(2.dp).alpha(if (enabled) 1f else 0.4f).clip(shape).border(1.dp, DdfColors.OutlineHigh, shape)
+            .clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides DdfColors.Muted,
+            androidx.compose.material3.LocalTextStyle provides MaterialTheme.typography.labelLarge,
+        ) { content() }
+    }
+}

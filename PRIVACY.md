@@ -1,6 +1,6 @@
 # Dead Drop Finance privacy policy
 
-Effective with version 1.7.2.
+Effective with version 1.8.2.
 
 Dead Drop Finance is an Android app from DarkRelay for envelope budgeting. It keeps your budget on your phone. This
 policy says what the app keeps, what it sends, and to whom.
