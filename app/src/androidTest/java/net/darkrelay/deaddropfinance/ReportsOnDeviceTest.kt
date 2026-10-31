@@ -166,9 +166,18 @@ class ReportsOnDeviceTest {
             fun home(cards: List<Kind>) = scenario.onActivity {
                 screen = {
                     net.darkrelay.deaddropfinance.ui.HomeScreen(
-                        budget, top = null, onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
+                        budget,
+                        // 1.9.3: the top row: sync status, Bonus income, Sync Now
+                        top = {
+                            net.darkrelay.deaddropfinance.ui.SyncStatusLine(
+                                net.darkrelay.deaddropfinance.serversync.SyncStatus(net.darkrelay.deaddropfinance.serversync.SyncStatus.State.SYNCED, lastSyncedAt = System.currentTimeMillis() - 120_000),
+                                onSyncNow = {},
+                                extra = { net.darkrelay.deaddropfinance.ui.TextButton(onClick = {}) { androidx.compose.material3.Text("Bonus income", color = net.darkrelay.deaddropfinance.ui.DdfColors.Cyan) } },
+                            )
+                        },
+                        onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
                         envelopes = budget.fillOrder, forecast = { net.darkrelay.deaddropfinance.ui.ForecastCard(data.forecast!!) {} },
-                        dashboard = { net.darkrelay.deaddropfinance.ui.HomeReportCards(cards, data, 0, onOpen = {}, onCustomize = {}) },
+                        dashboard = { net.darkrelay.deaddropfinance.ui.HomeReportCards(cards, data, 0, onOpen = {}) },
                     )
                 }
             }
@@ -178,6 +187,24 @@ class ReportsOnDeviceTest {
             var cards by mutableStateOf(listOf(Kind.SAVINGS_GOALS, Kind.SPENDING_BY_ENVELOPE))
             scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.HomeCustomizeScreen(cards, { cards = it }, {}) } }
             settle(); save(scenario, "phone-home-customize-screen")
+            // 1.9.3: More with Customize Home, and the receipt form with tax letters (matched, and asking)
+            scenario.onActivity {
+                screen = {
+                    net.darkrelay.deaddropfinance.ui.MoreScreen(
+                        net.darkrelay.deaddropfinance.ui.MoreState(false, true, 5, false, true, false, null, "1.9.3"),
+                        onAccounts = {}, onImport = {}, onLock = {}, onTimeout = {}, onHide = {}, onCheckAtStartup = {}, onCheckNow = {},
+                        onReceipts = {}, onReports = {}, onCustomizeHome = {},
+                    )
+                }
+            }
+            settle(); save(scenario, "phone-more-customize-home")
+            fun lines(t: List<String>) = t.map { net.darkrelay.deaddropfinance.domain.ReceiptParser.Line(it, 95) }
+            val matched = net.darkrelay.deaddropfinance.ui.ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parseLines(lines(listOf("SAMPLE MART", "08/14/2030", "LIME JUICE 1.99 A", "BREAD 2.50", "MILK 3.00 A", "SUBTOTAL 7.49", "TAX A 6.000% 0.47", "TOTAL 7.96"))))
+            val asking = net.darkrelay.deaddropfinance.ui.ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parseLines(lines(listOf("SAMPLE MART", "08/14/2030", "WIDGET 10.00 T", "APPLES 4.00 F", "SUBTOTAL 14.00", "TAX 0.60", "TOTAL 14.60"))))
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(matched, emptyList(), true, false, null, {}, {}, {}, {}) } }
+            settle(); save(scenario, "phone-receipt-tax-letters")
+            scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.ReceiptEditScreen(asking, emptyList(), true, false, null, {}, {}, {}, {}) } }
+            settle(); save(scenario, "phone-receipt-tax-ask")
         }
     }
 }

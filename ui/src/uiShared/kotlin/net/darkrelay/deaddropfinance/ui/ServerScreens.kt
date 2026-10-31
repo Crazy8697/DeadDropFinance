@@ -83,7 +83,7 @@ fun syncStatusText(s: SyncStatus): String = when (s.state) {
 
 /** The status line (Home and the Server screen): the state, when it last synced, and Sync Now. */
 @Composable
-fun SyncStatusLine(s: SyncStatus, onSyncNow: () -> Unit, modifier: Modifier = Modifier) {
+fun SyncStatusLine(s: SyncStatus, onSyncNow: () -> Unit, modifier: Modifier = Modifier, extra: (@Composable () -> Unit)? = null) {
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(
@@ -101,6 +101,7 @@ fun SyncStatusLine(s: SyncStatus, onSyncNow: () -> Unit, modifier: Modifier = Mo
             }
             if (detail.isNotEmpty()) Text(detail.joinToString(". "), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         }
+        extra?.invoke()
         if (s.state != SyncStatus.State.NOT_CONNECTED) TextButton(onClick = onSyncNow, enabled = s.state != SyncStatus.State.SYNCING) { Text("Sync Now") }
     }
 }

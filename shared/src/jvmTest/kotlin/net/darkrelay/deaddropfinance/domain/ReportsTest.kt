@@ -361,6 +361,28 @@ class ReportsTest {
         assertEquals(listOf("milk 2%"), list.map { it.key })
     }
 
+    @Test fun priceHistoryAndMerchantsUseThePriceWithTax() = runBlocking {
+        val made = filled(); val ids = made.ids
+        val receipts = listOf(
+            ReceiptEntity(id = "r1", transactionId = ids["shop1"], store = "Sample Market", date = p1.plusDays(2), createdAt = 1, updatedAt = 1),
+            ReceiptEntity(id = "r2", transactionId = ids["shop2"], store = "Sample Market", date = p2, createdAt = 1, updatedAt = 1),
+        )
+        val items = listOf(
+            // taxed: the shelf price is 3.00 each, 3.18 with tax (6%); the stored unit price is the shelf one
+            ReceiptItemEntity(id = "i1", receiptId = "r1", name = "Juice", quantityMilli = 2000, unitPrice = 3_00, amount = 6_00, taxLetter = "A", priceWithTax = 6_36, createdAt = 1, updatedAt = 1),
+            // untaxed on the same receipt: stays at the shelf price
+            ReceiptItemEntity(id = "i2", receiptId = "r1", name = "Bread", amount = 2_50, taxLetter = "", priceWithTax = 2_50, createdAt = 1, updatedAt = 1),
+            // an older receipt with no price with tax
+            ReceiptItemEntity(id = "i3", receiptId = "r2", name = "Juice", unitPrice = 3_10, amount = 3_10, createdAt = 1, updatedAt = 1),
+        )
+        val b = made.b()
+        val h = Reports.priceHistory(b, receipts, items, Reports.itemKey("Juice"))
+        assertEquals(listOf(p1.plusDays(2) to 3_18L, p2 to 3_10L), h.map { it.date to it.unitPrice })
+        assertEquals(2_50L, Reports.priceHistory(b, receipts, items, Reports.itemKey("Bread")).single().unitPrice)
+        val shop = Reports.merchants(b, receipts, items, null).first { it.items.any { x -> x.name == "Juice" } }
+        assertEquals(6_36L + 3_10L, shop.items.first { it.name == "Juice" }.spent, "what was spent on it includes the tax")
+    }
+
     @Test fun memosWithoutReceiptsAreNeverItems() = runBlocking {
         // a budget with memos on its purchases (one a comma list) and no scanned receipts
         val (a, _) = open()

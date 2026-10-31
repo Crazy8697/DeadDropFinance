@@ -42,6 +42,8 @@ class DesktopMigrationTest {
         val key = assertIs<DesktopKey.Result.Ok>(DesktopKey(File(dir, "budget.key")).load()).key
         CipherDriver { key.copyOf() }.open(File(dir, "budget.db").absolutePath).use { c ->
             c.execSQL("ALTER TABLE `envelope` DROP COLUMN `interest_rate`")
+            c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `tax_letter`")
+            c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `price_with_tax`")
             c.execSQL("PRAGMA user_version = 12")
         }
         counts
@@ -56,7 +58,7 @@ class DesktopMigrationTest {
         val counts = listOf("account", "envelope", "txn", "txn_line", "category", "change_log").associateWith { t -> o.store.raw { it.query("SELECT count(*) FROM `$t`").single()[0] as Long } }
         assertEquals(before, counts, "every row is kept")
         val version = o.store.raw { it.query("PRAGMA user_version").single()[0] as Long }
-        assertEquals(13L, version)
+        assertEquals(14L, version)
         val loan = o.store.dao.envelopesNow().first { it.name == "Sample Loan" }
         assertNull(loan.interestRate, "no rate until one is given")
         assertEquals(900_00L, loan.debtOwed)
@@ -66,5 +68,33 @@ class DesktopMigrationTest {
         assertEquals(1999L, o.store.dao.envelope(loan.id)!!.interestRate)
         assertTrue(o.store.dao.changes().any { it.entityId == loan.id && it.changedFields.contains("\"interest_rate\":1999") }, "and it goes to sync like the rest")
         o.store.db.close()
+    }
+
+    /** A schema 13 budget as 0.15.1 left it: a receipt item in it, the two tax columns gone, user_version 13. */
+    @Test fun aSchema13BudgetGetsTheTaxLetterAndPriceWithTaxAndKeepsItsReceipts() = runBlocking<Unit> {
+        val dir = tmp.newFolder("DeadDropFinance")
+        val o = ok(DesktopDatabase.open(dir, clock = { 1_000L }))
+        o.store.write {
+            val r = put(null, net.darkrelay.deaddropfinance.data.ReceiptEntity(store = "Sample Mart", total = 7_96, tax = 47, createdAt = now, updatedAt = now))
+            put(null, net.darkrelay.deaddropfinance.data.ReceiptItemEntity(receiptId = r.id, text = "MILK", name = "milk", amount = 3_00, createdAt = now, updatedAt = now))
+        }
+        o.store.db.close()
+        val key = assertIs<DesktopKey.Result.Ok>(DesktopKey(File(dir, "budget.key")).load()).key
+        CipherDriver { key.copyOf() }.open(File(dir, "budget.db").absolutePath).use { c ->
+            c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `tax_letter`")
+            c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `price_with_tax`")
+            c.execSQL("PRAGMA user_version = 13")
+        }
+        val n = ok(DesktopDatabase.open(dir, clock = { 2_000L }))
+        assertEquals(14L, n.store.raw { it.query("PRAGMA user_version").single()[0] as Long })
+        val item = n.store.dao.itemsOf(n.store.dao.receiptsNow().single().id).single()
+        assertEquals("MILK", item.text); assertEquals(3_00L, item.amount)
+        assertEquals("", item.taxLetter, "no letter until one is read")
+        assertNull(item.priceWithTax, "no price with tax: the shelf price is what it paid")
+        assertEquals(3_00L, item.paid)
+        // and it takes a letter and a price with tax
+        n.store.write { put(item, item.copy(taxLetter = "A", priceWithTax = 3_18, updatedAt = now)) }
+        assertEquals(3_18L, n.store.dao.itemsOf(item.receiptId).single().paid)
+        n.store.db.close()
     }
 }

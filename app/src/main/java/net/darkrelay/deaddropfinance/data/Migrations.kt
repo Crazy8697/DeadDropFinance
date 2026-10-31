@@ -153,5 +153,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13)
+    /** 13 to 14 (1.9.3): a receipt item's tax letter and price with tax; two added columns (the program runs the same SQL). */
+    val V13_V14 = object : Migration(13, 14) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SchemaChanges.V13_V14.forEach { db.execSQL(it) }
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13, V13_V14)
 }

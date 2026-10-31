@@ -15,5 +15,11 @@ object DesktopMigrations {
         }
     }
 
-    val ALL = arrayOf<Migration>(V12_V13)
+    val V13_V14 = object : Migration(13, 14) {
+        override fun migrate(connection: SQLiteConnection) {
+            SchemaChanges.V13_V14.forEach { connection.execSQL(it) }
+        }
+    }
+
+    val ALL = arrayOf<Migration>(V12_V13, V13_V14)
 }

@@ -143,8 +143,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A newly detected subscription is marked "New".
 
 ## Home dashboard (phone 1.9.1)
-- Home can show reports as cards: Customize Home (on Home, above the envelope list, under the other cards) adds any of the twelve reports, removes them and drags them into order. Each card is the report's tile from Reports (its line and small chart, on the budget month Reports last showed), and tapping it opens the report.
-- The choice is kept on this phone only: not synced, and not one of the settings a backup carries. A phone that never customized shows no report cards; Home is as it was, with only the Customize Home link above the envelope list.
+- Home can show reports as cards: Customize Home (in More, with the other settings) adds any of the twelve reports, removes them and drags them into order. Each card is the report's tile from Reports (its line and small chart, on the budget month Reports last showed), and tapping it opens the report.
+- The choice is kept on this phone only: not synced, and not one of the settings a backup carries. A phone that never customized shows no report cards and no link: Home is as it was.
 - The program has no Home, so no dashboard.
 
 ## Safe to Spend (Stage 11)
@@ -168,7 +168,11 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - Matching: a receipt is matched to its bank transaction by total, date (the charge may post up to 5 days later, or a day before) and store name. One clear match is attached by itself; several possible ones show a short list; with none, the receipt waits in Receipts and is matched when its charge syncs in or is imported. A transaction has one receipt.
 - Restaurants and gas stations: the charge may be up to 30% more than the receipt (a tip, or a pump's final amount), and the app says so.
 - Split by items: each item to an envelope (a rule whose words are in the item's name suggests one; a discount goes with the item above it), tax and any tip shared out by what each envelope's items cost, and the transaction split to match. The photos stay after the split (Stage 10; 0.9.0 deleted them, and those can't come back).
-- Tax is shared over all items by price: receipts don't reliably say which items were taxed.
+- Tax is shared over all items by price when a receipt has no tax letters: receipts don't reliably say which items were taxed.
+- Tax letters (1.9.3, program 0.15.2): the letter at the end of an item's line ("LIME JUICE 1.99 A", or a `*`) is its own field, never part of the item's name or its price (before 1.9.3 it was read past and dropped, and the receipt kept one lump of tax). The tax lines at the bottom are read with their letter and rate ("TAX A 6.000% 0.47", "A TAX 6% 0.47"), and matched: a line that names a letter is that letter's tax; a line that names none goes to the one letter left, or to the one set of letters whose items at that line's rate come to its amount. Nothing else is guessed.
+- Each taxed item gets its share of its letter's tax (by price, to the cent, so the shares add up to the tax exactly), and is stored with three things: the shelf price, the tax letter and the price with tax. Items with no letter, or whose letter is untaxed, stay at the shelf price. The form shows each item's price with tax and whether the items with tax add up to the receipt's total, and says so when they don't. Price history and the Merchant pages use the price with tax. A receipt with no letters is as it was.
+- When the letters can't be matched to the tax lines, the form says so and asks which items are taxed (a Taxed and Not taxed choice per letter, or each item's own box); the receipt's tax is then shared between the items marked taxed, by price. Save waits for the answer.
+- Receipts saved before keep working: they have a shelf price and no price with tax, and show that. Splitting by items and item returns still work from the shelf prices and the receipt's tax, as before.
 - Delete a transaction: its receipt goes back to Receipts (waiting for a charge), or is deleted too when the user ticks that. Delete account: receipts on its transactions go with them, photos included. Erase everything: photos, the recognition files and any camera capture are wiped too.
 - The encrypted backup (Stage 12) includes receipts: the rows and the photos.
 
@@ -225,7 +229,7 @@ How the app behaves. Each section names the stage that builds it. Everything run
 
 ## Bonus income (1.0.1)
 
-- A Bonus income button on Home opens a short form: Amount (required, above zero), Date (today unless changed),
+- A Bonus income button on Home (1.9.3: in the top row, beside the sync status and Sync Now, or alone there when the phone isn't connected to a server) opens a short form: Amount (required, above zero), Date (today unless changed),
   Received as (Cash, Gift card, Venmo or Other: only a label, never an account) and a Note for where it came from.
 - Saving adds the amount to Ready to Assign and to the overall balance. It is tied to no account and creates none.
   It is not a payday: no Rollover sweep, no auto-fill, no payday checklist.

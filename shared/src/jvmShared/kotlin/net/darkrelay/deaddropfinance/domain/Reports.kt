@@ -365,7 +365,7 @@ object Reports {
                 val its = byTx[t.id].orEmpty().flatMap { r -> itemsOf[r.id].orEmpty() }.filter { itemName(it).isNotBlank() && it.amount > 0 }
                 for (i in its) {
                     val k = itemKey(itemName(i))
-                    bought.merge(k, Bought(k, itemName(i), 1, i.quantityMilli, i.amount)) { a, n -> a.copy(times = a.times + 1, quantityMilli = a.quantityMilli + n.quantityMilli, spent = a.spent + n.spent) }
+                    bought.merge(k, Bought(k, itemName(i), 1, i.quantityMilli, i.paid)) { a, n -> a.copy(times = a.times + 1, quantityMilli = a.quantityMilli + n.quantityMilli, spent = a.spent + n.spent) }
                 }
             }
             val cats = ts.flatMap { t -> lines[t.id].orEmpty().filter { it.bucket == LineBucket.ENVELOPE || it.bucket == LineBucket.UNSORTED } }
@@ -400,7 +400,8 @@ object Reports {
             val t = r.transactionId?.let { tx[it] }
             val date = r.date ?: t?.date ?: continue
             val qty = if (i.quantityMilli > 0) i.quantityMilli else 1000
-            val unit = i.unitPrice ?: ((i.amount * 1000 + qty / 2) / qty)
+            // 1.9.3: what it really cost, tax included, when the receipt had tax letters
+            val unit = if (i.priceWithTax != null) (i.priceWithTax!! * 1000 + qty / 2) / qty else i.unitPrice ?: ((i.amount * 1000 + qty / 2) / qty)
             out += Seen(itemKey(name), name, Price(date, r.store.ifBlank { t?.payee.orEmpty() }, unit, qty))
         }
         return out

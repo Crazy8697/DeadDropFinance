@@ -11,7 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 
 /**
- * Opens the desktop program's own budget database: the phone's schema (AppDatabase, the same tables and version 13),
+ * Opens the desktop program's own budget database: the phone's schema (AppDatabase, the same tables and version 14),
  * in a file of its own, never the phone's, encrypted like the phone's (SQLCipher 4 format with a raw 32-byte key) with
  * the key protected by Windows DPAPI for the current user ([DesktopKey], budget.key beside it in the data folder).
  *

@@ -68,7 +68,7 @@ class HomeDashboardTest {
     private fun home(cards: List<Kind>?, envelopes: List<EnvelopeEntity> = emptyList()) = show {
         HomeScreen(
             budget, top = null, envelopes = envelopes, onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
-            dashboard = cards?.let { c -> { HomeReportCards(c, data, 0, onOpen = {}, onCustomize = {}) } },
+            dashboard = cards?.let { c -> { HomeReportCards(c, data, 0, onOpen = {}) } },
         )
     }
 
@@ -99,7 +99,9 @@ class HomeDashboardTest {
         home(HomeDashboard.read(emptyList()))
         assertEquals(0, compose.onAllNodesWithTag("report.NET_WORTH").fetchSemanticsNodes().size)
         Kind.entries.forEach { k -> assertEquals(0, compose.onAllNodesWithTag("report.${k.name}").fetchSemanticsNodes().size) }
-        compose.onNodeWithTag("home.customize").performScrollTo().assertExists()
+        // Customize Home isn't on Home any more: it's in More
+        assertEquals(0, compose.onAllNodesWithTag("home.customize").fetchSemanticsNodes().size)
+        compose.onNodeWithText("Customize Home").assertDoesNotExist()
     }
 
     @Test fun pickedReportsShowAsCardsInTheirOrder() {
@@ -110,23 +112,45 @@ class HomeDashboardTest {
     }
 
     @Config(application = Application::class, qualifiers = "w360dp-h20000dp-xhdpi")
-    @Test fun theCardsAndCustomizeSitBetweenSafeToSpendAndTheEnvelopeList() {
+    @Test fun theCardsSitBetweenSafeToSpendAndTheEnvelopeList() {
         val envs = listOf(EnvelopeEntity(id = "e", name = "Groceries", mode = EnvelopeMode.ADD_EVERY_PAYDAY, perPayday = 50_00, createdAt = 1, updatedAt = 1))
         for (cards in listOf(emptyList(), listOf(Kind.NET_WORTH), Kind.entries.toList())) {
             home(cards, envs)
             fun top(n: androidx.compose.ui.test.SemanticsNodeInteraction) = n.fetchSemanticsNode().boundsInRoot.top
             fun bottom(n: androidx.compose.ui.test.SemanticsNodeInteraction) = n.fetchSemanticsNode().boundsInRoot.bottom
             val safe = bottom(compose.onNodeWithText("Safe to spend"))
-            val custom = compose.onNodeWithTag("home.customize")
             val env = top(compose.onNodeWithText("Groceries"))
-            assertTrue("${cards.size} cards: below Safe to Spend", top(custom) > safe)
-            assertTrue("${cards.size} cards: above the envelope list", bottom(custom) <= env)
+            assertEquals("${cards.size} cards: no Customize Home link on Home", 0, compose.onAllNodesWithTag("home.customize").fetchSemanticsNodes().size)
             cards.forEach { k ->
                 val t = compose.onNodeWithTag("report.${k.name}")
                 assertTrue("${k.name}: below Safe to Spend", top(t) > safe)
                 assertTrue("${k.name}: above the envelope list", bottom(t) <= env)
             }
         }
+    }
+
+    @Test fun bonusIncomeIsInTheTopRowWithTheSyncStatusAndSyncNow() {
+        var bonus = 0; var sync = 0
+        val status = net.darkrelay.deaddropfinance.serversync.SyncStatus(state = net.darkrelay.deaddropfinance.serversync.SyncStatus.State.SYNCED, lastSyncedAt = 1)
+        show {
+            SyncStatusLine(status, onSyncNow = { sync++ }, extra = { TextButton(onClick = { bonus++ }) { androidx.compose.material3.Text("Bonus income") } })
+        }
+        val y = { t: String -> compose.onNodeWithText(t).fetchSemanticsNode().boundsInRoot.center.y }
+        assertTrue("one row", kotlin.math.abs(y("Bonus income") - y("Sync Now")) < 8f && kotlin.math.abs(y("Bonus income") - y("Synced")) < 40f)
+        compose.onNodeWithText("Bonus income").performClick(); compose.onNodeWithText("Sync Now").performClick()
+        assertEquals(1 to 1, bonus to sync)
+        // and Home's list has no Bonus income of its own
+        home(emptyList())
+        compose.onNodeWithText("Bonus income").assertDoesNotExist()
+    }
+
+    @Test fun customizeHomeIsInMore() {
+        var opened = 0
+        show { MoreScreen(MoreState(false, true, 5, false, true, false, null, "1.9.3"), onAccounts = {}, onImport = {}, onLock = {}, onTimeout = {}, onHide = {}, onCheckAtStartup = {}, onCheckNow = {}, onCustomizeHome = { opened++ }) }
+        compose.onNodeWithText("Customize Home").performScrollTo().performClick()
+        assertEquals(1, opened)
+        show { MoreScreen(MoreState(false, true, 5, false, true, false, null, "1.9.3"), onAccounts = {}, onImport = {}, onLock = {}, onTimeout = {}, onHide = {}, onCheckAtStartup = {}, onCheckNow = {}) }
+        compose.onNodeWithText("Customize Home").assertDoesNotExist()
     }
 
     @Test fun customizeAddsRemovesAndReordersByDragging() {

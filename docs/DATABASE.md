@@ -68,6 +68,12 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   `MigrationTest` checks it on the phone, and `DesktopMigrationTest` opens a 0.14.x (schema 12) budget in the program
   with every row kept. The program runs the same SQL (`SchemaChanges`) through its own migration (`DesktopMigrations`).
   Sync and restore write columns by name, so a device on 1.8.x ignores the rate and never clears it.
+- Version 14 (1.9.3, program 0.15.2): `tax_letter` (text, default empty) and `price_with_tax` (nullable, cents) on
+  `receipt_item`: the tax letter read at the end of an item's line, and the item's price with its share of the tax (the
+  shelf price stays in `amount`). Migration 13 to 14 only adds the two columns; `MigrationTest` checks it on the phone,
+  `DesktopMigrationTest` opens a 0.15.1 (schema 13) budget in the program with every receipt kept. The program runs the
+  same SQL (`SchemaChanges.V13_V14`). Sync and restore write columns by name, so a device on 1.9.2 or 0.15.1 ignores the
+  two and never clears them (`TaxLetterSyncTest`). Older receipts keep no price with tax: their shelf price is what they paid.
 - Add activity on envelopes (1.3.0) needed no schema change: it saves an ordinary transaction.
 - Payday by hand only (1.3.1) needed no schema change and no migration: paydays already run, their moves and the change
   log stay as they are; new deposits from a CSV or a notification simply no longer mark payday.

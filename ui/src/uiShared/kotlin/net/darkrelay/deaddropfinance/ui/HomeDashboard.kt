@@ -50,15 +50,12 @@ object HomeDashboard {
     }
 }
 
-/** The picked reports' cards on Home, then Customize. */
+/** The picked reports' cards on Home (1.9.3: Customize Home is in More, not here). */
 @Composable
-fun HomeReportCards(cards: List<Kind>, data: ReportData, monthIndex: Int, onOpen: (Kind) -> Unit, onCustomize: () -> Unit) {
+fun HomeReportCards(cards: List<Kind>, data: ReportData, monthIndex: Int, onOpen: (Kind) -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("home.reports")) {
         if (cards.isNotEmpty()) SectionTitle("Reports")
         cards.forEach { k -> ReportTile(k, data, data.month(monthIndex), Modifier.fillMaxWidth().padding(bottom = 8.dp)) { onOpen(k) } }
-        TextButton(onClick = onCustomize, modifier = Modifier.testTag("home.customize")) {
-            Text(if (cards.isEmpty()) "Customize Home: add reports" else "Customize Home", color = DdfColors.Cyan)
-        }
     }
 }
 

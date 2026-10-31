@@ -443,4 +443,32 @@ class MigrationTest {
             db.close()
         }
     }
+
+    /**
+     * 13 to 14 (1.9.3): a receipt item's tax letter and price with tax. A 1.9.2 budget with a receipt and an item
+     * migrates with every value kept; the item has no letter and no price with tax (its shelf price is what it paid).
+     */
+    @Test fun thirteenToFourteenAddsTheTaxColumnsAndKeepsEveryReceipt() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-13.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 13)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL("INSERT INTO receipt (id, store, total, tax, kind, pages, low_confidence, raw_text, created_at, updated_at, deleted) VALUES ('rc1', 'Sample Mart', 796, 47, 'PURCHASE', 1, '', '', 1, 1, 0)")
+        raw.execSQL("INSERT INTO receipt_item (id, receipt_id, line, text, name, quantity_milli, amount, created_at, updated_at, deleted) VALUES ('ri1', 'rc1', 0, 'MILK', 'milk', 1000, 300, 1, 1, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            assertEquals(796L, d.receipt("rc1")!!.total)
+            val i = d.itemsOf("rc1").single()
+            assertEquals("MILK", i.text); assertEquals(300L, i.amount)
+            assertEquals("", i.taxLetter)
+            assertNull(i.priceWithTax)
+            assertEquals(300L, i.paid)
+            d.upsertReceiptItem(i.copy(taxLetter = "A", priceWithTax = 318))
+            assertEquals(318L, d.itemsOf("rc1").single().paid)
+        } finally {
+            db.close()
+        }
+    }
 }

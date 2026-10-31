@@ -83,6 +83,26 @@ class ReceiptsTest {
         }
     }
 
+    @Test fun theTaxLetterAndThePriceWithTaxAreSavedAndReadBack() = world {
+        val id = receipt(
+            "Sample Mart", 7_96, d, tax = 47,
+            items = listOf(
+                DraftItem("LIME JUICE", amount = 1_99, taxLetter = "A", priceWithTax = 2_18),
+                DraftItem("BREAD", amount = 2_50, priceWithTax = 2_50),
+                DraftItem("MILK", amount = 3_00, taxLetter = "A", priceWithTax = 3_28),
+            ),
+        )
+        val items = store.dao.itemsOf(id)
+        assertEquals(listOf("A", "", "A"), items.map { it.taxLetter })
+        assertEquals("the shelf price is kept", listOf(1_99L, 2_50L, 3_00L), items.map { it.amount })
+        assertEquals(listOf(2_18L, 2_50L, 3_28L), items.map { it.paid })
+        assertEquals(listOf("lime juice", "bread", "milk"), items.map { it.name })
+        // an older receipt (no price with tax) is still its shelf price
+        val old = receipt("Old Shop", 5_00, d, items = listOf(DraftItem("TEA", amount = 5_00)))
+        assertNull(store.dao.itemsOf(old).single().priceWithTax)
+        assertEquals(5_00L, store.dao.itemsOf(old).single().paid)
+    }
+
     // ---- matching ------------------------------------------------------------------------------------------------
 
     @Test fun anExactMatchIsAttachedByItself() = world {

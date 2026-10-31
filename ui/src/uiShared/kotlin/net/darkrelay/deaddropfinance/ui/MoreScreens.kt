@@ -68,6 +68,8 @@ fun MoreScreen(
     onReceipts: (() -> Unit)? = null,
     /** Reports (1.9.0): the twelve reports. */
     onReports: (() -> Unit)? = null,
+    /** Customize Home (1.9.3): the phone's Home report cards; null hides the row (the program has no Home). */
+    onCustomizeHome: (() -> Unit)? = null,
     onBackup: (() -> Unit)? = null,
     onSetupImport: (() -> Unit)? = null,
     backupLine: String = "Encrypted, one file",
@@ -84,6 +86,9 @@ fun MoreScreen(
         }
         if (onReports != null) {
             ListRow(onReports) { Column { Text("Reports"); Text("Spending, income, trends, bills, net worth, debt, goals and prices", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
+        }
+        if (onCustomizeHome != null) {
+            ListRow(onCustomizeHome) { Column { Text("Customize Home"); Text("Reports to show as cards on Home", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }
         }
         if (onSetupImport != null) {
             ListRow(onSetupImport) { Column { Text("Import setup"); Text("Envelopes, bills, rules and settings from a JSON file", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) } }

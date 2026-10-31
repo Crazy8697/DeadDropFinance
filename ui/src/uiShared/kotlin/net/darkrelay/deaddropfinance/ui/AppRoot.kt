@@ -2,6 +2,8 @@ package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -590,14 +592,15 @@ fun AppRoot(
                 val showCard = setupMode(setupDone, cardDismissed, hasAccounts = true) == SetupMode.CARD
                 val r = release
                 val syncOn = syncStatus.state != net.darkrelay.deaddropfinance.serversync.SyncStatus.State.NOT_CONNECTED
-                val head: (@Composable () -> Unit)? = if (!showCard && r == null && !syncOn) null else {
-                    {
-                        Column {
-                            // the program has its own sync pill and Sync now (0.14.0)
-                            if (syncOn && host == null) SyncStatusLine(syncStatus, onSyncNow = { scope.launch { sync?.syncNow() } })
-                            if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { appSettings.setupCardDismissed = true; cardDismissed = true })
-                            if (r != null) updateBar(r)
-                        }
+                // 1.9.3: the top row is the sync status, Bonus income and Sync Now (Bonus income alone when not connected)
+                val bonus: @Composable () -> Unit = { TextButton(onClick = { go(Nav.Bonus(null)) }) { Text("Bonus income", color = DdfColors.Cyan) } }
+                val head: (@Composable () -> Unit) = {
+                    Column {
+                        // the program has its own sync pill and Sync now (0.14.0)
+                        if (syncOn && host == null) SyncStatusLine(syncStatus, onSyncNow = { scope.launch { sync?.syncNow() } }, extra = bonus)
+                        else Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { bonus() }
+                        if (showCard) FinishSetupCard(onOpen = { openWizard() }, onDismiss = { appSettings.setupCardDismissed = true; cardDismissed = true })
+                        if (r != null) updateBar(r)
                     }
                 }
                 val late = prediction.late && prediction.next != null
@@ -606,7 +609,6 @@ fun AppRoot(
                     onAssign = { go(Nav.Assign()) }, onToSort = { tab(Nav.Activity) }, onEnvelope = { go(Nav.Envelope(it)) },
                     onAllEnvelopes = { tab(Nav.Envelopes) }, onSafeToSpend = { go(Nav.SafeToSpend) },
                     onFixOverAssigned = { go(Nav.MoveMoney(null, backToReady = true)) },
-                    onBonus = { go(Nav.Bonus(null)) },
                     envelopes = net.darkrelay.deaddropfinance.ui.homeEnvelopes(b, today, nextPayday),
                     forecast = if (forecast == null && !late) null else {
                         {
@@ -630,7 +632,7 @@ fun AppRoot(
                         {
                             HomeReportCards(
                                 homeCards, ReportData(b, today, receipts, receiptItems, forecast), reportMonth,
-                                onOpen = { go(Nav.Report(it)) }, onCustomize = { go(Nav.HomeCustomize) },
+                                onOpen = { go(Nav.Report(it)) },
                             )
                         }
                     },
@@ -714,6 +716,7 @@ fun AppRoot(
                 onAbout = { go(Nav.About) },
                 onReceipts = { go(Nav.Receipts) },
                 onReports = { go(Nav.Reports) },
+                onCustomizeHome = if (host != null) null else { { go(Nav.HomeCustomize) } },
                 onSetupImport = { importSetup = SetupImportState(); go(Nav.SetupImport) },
                 onBackup = if (host != null) null else { { backupState = BackupState(lastBackup = lastBackupText()); restoreFile?.delete(); restoreFile = null; go(Nav.Backup) } },
                 backupLine = lastBackupText()?.let { "Last backup $it" } ?: "Encrypted, one file",

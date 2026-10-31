@@ -16,7 +16,14 @@ object ReceiptParser {
 
     data class Line(val text: String, val confidence: Int = 100)
 
-    data class Item(val text: String, val name: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long)
+    /** [taxLetter]: the flag at the end of the line ("A", "T", "*"), never part of [text] or [name]; empty when there is none. */
+    data class Item(val text: String, val name: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long, val taxLetter: String = "")
+
+    /**
+     * A tax line at the bottom: its [amount], the item letter it is for ([letter], null when it names none) and its rate
+     * in thousandths of a percent ([rateMilli], 6000 = 6%; null when it prints none).
+     */
+    data class TaxLine(val amount: Long, val letter: String? = null, val rateMilli: Long? = null)
 
     data class Parsed(
         val store: String,
@@ -30,13 +37,19 @@ object ReceiptParser {
         /** store, date, total, tax, items: what to check. */
         val lowConfidence: Set<String>,
         val text: String,
+        /** Each tax line read at the bottom (their amounts add up to [tax]). */
+        val taxLines: List<TaxLine> = emptyList(),
     )
 
     /** Below this, a line's reading is doubtful. */
     const val LOW_CONFIDENCE = 60
 
     // a price at the end of a line: optional minus or trailing minus, optional $, cents, an optional tax flag
-    private val price = Regex("""(-)?\$?\s?(\d{1,3}(?:,\d{3})+|\d{1,6})\s?[.,]\s?(\d{2})\s*(-)?(?:\s+[A-Z]{1,2}|\s*\*)?\s*$""")
+    private val price = Regex("""(-)?\$?\s?(\d{1,3}(?:,\d{3})+|\d{1,6})\s?[.,]\s?(\d{2})\s*(-)?(?:\s+([A-Z]{1,2})|\s*(\*))?\s*$""")
+    private val unitFlag = setOf("EA", "LB", "OZ", "KG", "CT", "PK", "PC")
+    private val ratePct = Regex("""(\d{1,2}(?:\.\d{1,4})?)\s*%""")
+    private val taxWords = Regex("""(SALES|TAX|VAT|GST|HST|PST|RATE|CODE|TYPE)""")
+    private val letterToken = Regex("""(?<![A-Z0-9])([A-Z]|\*)(?![A-Z0-9])""")
     private val qtyAt = Regex("""(\d{1,4}(?:\.\d{1,3})?)\s*(LB|LBS|KG|OZ|EA)?\s*@\s*\$?(\d{1,5}\.\d{2})(?:\s*/\s*(?:LB|KG|EA|OZ))?""", RegexOption.IGNORE_CASE)
     private val qtyX = Regex("""^(\d{1,3})\s*[xX]\s+""")
     private val qtyWord = Regex("""\bQTY\s*:?\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE)
@@ -99,6 +112,22 @@ object ReceiptParser {
         val negative = m.groupValues[1].isNotEmpty() || m.groupValues[4].isNotEmpty()
         val before = s.substring(0, m.range.first).trim().trimEnd('$').trim()
         return before to if (negative) -cents else cents
+    }
+
+    /** The flag after an item's price ("1.99 A", "1.99 *"), or empty. */
+    private fun flagAfterPrice(raw: String): String {
+        val m = price.find(fixDigits(raw.trim())) ?: return ""
+        val f = m.groupValues[5].ifEmpty { m.groupValues[6] }
+        return if (f in unitFlag) "" else f
+    }
+
+    /** A tax line's letter and rate from the words before its amount ("TAX A 6.000%", "A-TAX 6%", "TAX (B)"). */
+    private fun taxLineOf(before: String, cents: Long): TaxLine {
+        val u = before.uppercase()
+        val rate = ratePct.find(u)?.let { m -> milli(m.groupValues[1].let { if ('.' in it) it else "$it.0" }) }
+        val rest = u.replace(ratePct, " ").replace(taxWords, " ")
+        val letter = letterToken.findAll(rest).map { it.groupValues[1] }.toList().singleOrNull()
+        return TaxLine(kotlin.math.abs(cents), letter, rate)
     }
 
     fun parseLines(lines: List<Line>): Parsed {
@@ -183,6 +212,8 @@ object ReceiptParser {
             if (payWord.containsMatchIn(u) && !discountWord.containsMatchIn(u) || findDate(u) != null) { pendingDesc = null; continue }
             var desc = p.first
             var amount = p.second
+            var letter = flagAfterPrice(l.text)
+            if (letter.isEmpty()) Regex("""\s+([A-Z])$""").find(desc)?.let { letter = "?" + it.groupValues[1] }
             var qty = 1000L
             var unit: Long? = null
             qtyAt.find(desc)?.let { m ->
@@ -197,7 +228,7 @@ object ReceiptParser {
             desc = desc.replace(sku, " ").replace(Regex("""\s+[A-Z]$"""), "").replace(Regex("""\s+"""), " ").trim()
             if (discountWord.containsMatchIn(u) && amount > 0) amount = -amount
             if (unit == null && amount > 0 && qty > 0) unit = amount * 1000 / qty
-            items += Item(desc, cleanName(desc), qty, unit, amount)
+            items += Item(desc, cleanName(desc), qty, unit, amount, letter)
             if (l.confidence < LOW_CONFIDENCE) low += "items"
             pendingDesc = null
         }
@@ -221,8 +252,13 @@ object ReceiptParser {
         else if (totalCents != null && kotlin.math.abs((sub ?: itemsSum) + (tax ?: 0) + (tipCents ?: 0) - totalCents) > 1) {
             low += "items"; low += "total"
         }
+        val taxLines = taxes.map { taxLineOf(it.before, it.cents) }
+        // a letter before the price counts only when a tax line names it (it may be part of the name: "VITAMIN C")
+        val named = taxLines.mapNotNull { it.letter }.toSet()
+        val lettered = items.map { it.copy(taxLetter = if (it.taxLetter.startsWith("?")) it.taxLetter.drop(1).takeIf { f -> f in named } ?: "" else it.taxLetter) }
+        items.clear(); items.addAll(lettered)
         val outItems = if (isReturn) items.map { it.copy(amount = kotlin.math.abs(it.amount), unitPrice = it.unitPrice?.let { u -> kotlin.math.abs(u) }) } else items
-        return Parsed(store, date, totalCents, sub, tax, tipCents, outItems, if (isReturn) ReceiptKind.RETURN else ReceiptKind.PURCHASE, low, text)
+        return Parsed(store, date, totalCents, sub, tax, tipCents, outItems, if (isReturn) ReceiptKind.RETURN else ReceiptKind.PURCHASE, low, text, taxLines)
     }
 
     /** The item's name for matching and price history: lower case words, no codes, numbers or signs. */

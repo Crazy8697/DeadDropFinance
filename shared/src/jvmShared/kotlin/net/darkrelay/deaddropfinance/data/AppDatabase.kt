@@ -7,7 +7,7 @@ import androidx.room.TypeConverters
 import java.time.LocalDate
 
 /**
- * The budget database, schema version 13 (a Debt envelope's interest rate). Every version's schema is exported to app/schemas. From 0.6.0 on the
+ * The budget database, schema version 14 (a receipt item's tax letter and price with tax). Every version's schema is exported to app/schemas. From 0.6.0 on the
  * app may hold real data, so a version bump always comes with a real Migration and a migration test; a
  * destructive fallback is never configured (docs/DATABASE.md, enforced by DatabaseRulesTest).
  */
@@ -19,7 +19,7 @@ import java.time.LocalDate
         ReceiptEntity::class, ReceiptItemEntity::class, ItemReturnEntity::class,
         SubscriptionEntity::class, NotifAppEntity::class, ParkedBuyEntity::class, CategoryEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -38,6 +38,12 @@ abstract class AppDatabase : RoomDatabase() {
 object SchemaChanges {
     /** 12 to 13 (phone 1.9.0, program 0.15.0): a Debt envelope's yearly interest rate, in hundredths of a percent. */
     val V12_V13 = listOf("ALTER TABLE `envelope` ADD COLUMN `interest_rate` INTEGER")
+
+    /** 13 to 14 (phone 1.9.3, program 0.15.2): a receipt item's tax letter and its price with tax. */
+    val V13_V14 = listOf(
+        "ALTER TABLE `receipt_item` ADD COLUMN `tax_letter` TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE `receipt_item` ADD COLUMN `price_with_tax` INTEGER",
+    )
 }
 
 class Converters {

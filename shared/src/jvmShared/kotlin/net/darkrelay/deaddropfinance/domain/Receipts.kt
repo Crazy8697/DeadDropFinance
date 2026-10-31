@@ -23,7 +23,10 @@ class Receipts(
 ) {
     private val dao get() = store.dao
 
-    data class DraftItem(val text: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long, val id: String? = null)
+    data class DraftItem(val text: String, val quantityMilli: Long = 1000, val unitPrice: Long? = null, val amount: Long, val id: String? = null,
+        /** 1.9.3: the item's tax letter, and its price with tax (null when no tax was worked out for it). */
+        val taxLetter: String = "", val priceWithTax: Long? = null,
+    )
 
     data class Draft(
         val store: String,
@@ -58,7 +61,7 @@ class Receipts(
                 val o = di.id?.let { existing[it] }
                 val n = (o ?: ReceiptItemEntity(receiptId = id, amount = di.amount, createdAt = now, updatedAt = now)).copy(
                     line = i, text = di.text.trim(), name = ReceiptParser.cleanName(di.text), quantityMilli = di.quantityMilli,
-                    unitPrice = di.unitPrice, amount = di.amount, updatedAt = now,
+                    unitPrice = di.unitPrice, amount = di.amount, taxLetter = di.taxLetter, priceWithTax = di.priceWithTax, updatedAt = now,
                 )
                 put(o, n)
                 kept += n.id

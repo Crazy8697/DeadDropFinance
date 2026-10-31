@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 import java.time.LocalDate
 
 /*
- * Receipts (schema version 6). Budget data like the rest: synced rows with tombstones and change log rows. The photos
+ * Receipts (schema version 6; the item's tax letter and price with tax came in 14). Budget data like the rest: synced rows with tombstones and change log rows. The photos
  * themselves are files, encrypted on this phone (ReceiptImages), never in shared storage or the gallery; a receipt
  * row only says how many pages it has.
  */
@@ -61,13 +61,21 @@ data class ReceiptItemEntity(
     val amount: Long,
     /** Split by items: the envelope this item went to. */
     @ColumnInfo(name = "envelope_id") val envelopeId: String? = null,
+    /** 1.9.3: the tax letter at the end of the item's line ("A"), never part of [text]; empty when it had none. */
+    @ColumnInfo(name = "tax_letter", defaultValue = "''") val taxLetter: String = "",
+    /** 1.9.3: [amount] (the shelf price) plus the item's share of the tax; null on receipts saved before, which have only [amount]. */
+    @ColumnInfo(name = "price_with_tax") val priceWithTax: Long? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
 ) : Synced {
+    /** What the item really cost: the price with tax when there is one, else the shelf price. */
+    val paid: Long get() = priceWithTax ?: amount
+
     override fun fields() = mapOf(
         "receipt_id" to receiptId, "line" to line, "text" to text, "name" to name, "quantity_milli" to quantityMilli,
-        "unit_price" to unitPrice, "amount" to amount, "envelope_id" to envelopeId, "deleted" to deleted,
+        "unit_price" to unitPrice, "amount" to amount, "envelope_id" to envelopeId, "tax_letter" to taxLetter,
+        "price_with_tax" to priceWithTax, "deleted" to deleted,
     )
 }
 
