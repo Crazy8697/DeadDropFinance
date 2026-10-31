@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
@@ -86,11 +87,11 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell
                 if (r.moveId != null) model.openRow(r) else activity.firstOrNull { it.id == r.id }?.transactionId?.let(model::openTransaction)
             })
         }
-        Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // 0.14.2: the buttons wrap onto a second line rather than squeezing one (Details was cut in two)
+        FlowRow(Modifier.fillMaxWidth().topLine().padding(horizontal = 18.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Btn("Add activity", { model.dialog = Dialog.AddTransaction(envelopeId = e.id) }, tag = "drawer.add")
             Btn("Move money", { model.dialog = Dialog.MoveMoney(fromId = e.id) }, ghost = true, tag = "drawer.move")
             b.canCoverFromRollover(e)?.let { amt -> Btn("Cover ${money(amt)} from Rollover", { shell.run { model.coverFromRollover(e.id) } }, ghost = true, tag = "drawer.cover") }
-            Spacer(Modifier.weight(1f))
             if (e.mode != EnvelopeMode.ROLLOVER) Btn(if (e.archived) "Unarchive" else "Archive", { shell.run { model.setEnvelopeArchived(e.id, !e.archived) } }, ghost = true, tag = "drawer.archive")
             Btn("Edit", { model.dialog = Dialog.EnvelopeForm(e.id) }, ghost = true, enabled = !e.isSystem, tag = "drawer.edit")
             // 0.13.0: the phone's envelope screen: Goal and Debt fields, claimed categories, the suggested target
@@ -131,13 +132,14 @@ fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @C
         contentAlignment = Alignment.Center,
     ) {
         val shape = RoundedCornerShape(12.dp)
+        // 0.14.2: the dialog fits the window (its title and buttons always show; the fields take what's left and scroll)
         Column(
-            Modifier.width(width).shadow(30.dp, shape).clip(shape).background(C.Panel).border(1.dp, C.Line2, shape)
+            Modifier.padding(vertical = 24.dp).width(width).shadow(30.dp, shape).clip(shape).background(C.Panel).border(1.dp, C.Line2, shape)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}.testTag(tag),
         ) {
             T(title, 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().bottomLine().padding(horizontal = 20.dp, vertical = 16.dp))
             Column(
-                Modifier.fillMaxWidth().heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
+                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(13.dp),
             ) { body() }
             Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 20.dp, vertical = 13.dp), horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End)) { footer() }

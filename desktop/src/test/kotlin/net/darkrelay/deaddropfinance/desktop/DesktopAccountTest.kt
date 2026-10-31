@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -235,7 +236,8 @@ class DesktopAccountTest {
             compose.waitForIdle()
             tag("currency").assertExists()
             assertEquals("USD", m.currency, "a budget stays USD until one is chosen")
-            tag("currency.change").performClick()
+            // 0.14.2: Budget is in Settings' third row, scrolled to as a user would
+            tag("currency.change").performScrollTo().performClick()
             compose.waitForIdle()
             tag("currency.USD").assertExists()
             tag("currency.JPY").assertDoesNotExist()

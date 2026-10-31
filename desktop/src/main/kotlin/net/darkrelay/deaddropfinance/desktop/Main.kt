@@ -70,7 +70,7 @@ fun main(args: Array<String>) {
     Thread({ engine.complete(runBlocking { Engine.start(settings.dir) }) }, "engine-start").apply { isDaemon = true }.start()
     application {
         val windowState = rememberWindowState(
-            size = DpSize(1400.dp, 900.dp),
+            size = WindowSize.OPEN,
             position = if (smoke != null) WindowPosition(-32000.dp, -32000.dp) else WindowPosition.PlatformDefault,
         )
         var update by remember { mutableStateOf<UpdateState>(UpdateState.Hidden) }
@@ -153,6 +153,8 @@ fun main(args: Array<String>) {
         ) {
             // Windows' own title bar, dark like the program (0.9.0)
             LaunchedEffect(Unit) { TitleBar.dark(window) }
+            // never smaller than every screen is laid out for (0.14.2)
+            LaunchedEffect(Unit) { WindowSize.applyMinimum(window) }
             // Hide screen: the window out of screen captures while it's on
             LaunchedEffect(hideScreen) { HideScreen.apply(window, hideScreen) }
             // a second launch (0.12.3): this window comes back from the taskbar and to the front

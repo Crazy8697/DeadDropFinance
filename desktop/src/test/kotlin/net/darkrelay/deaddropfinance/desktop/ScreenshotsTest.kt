@@ -24,13 +24,13 @@ class ScreenshotsTest {
         val made = SampleBudget.filled(tmp.newFolder("DeadDropFinance"))
         val m = made.model
         val shell = Shell(checkAtStartup = true, settings = Settings(tmp.newFolder("settings")))
-        fun shot(name: String, on: AppModel = m, setup: () -> Unit) {
+        fun shot(name: String, on: AppModel = m, w: Int = 1400, h: Int = 900, setup: () -> Unit) {
             on.dialog = null
             on.drawerEnvelope = null
             on.message = null
             on.phoneNav = null
             setup()
-            val scene = ImageComposeScene(1400, 900, Density(1f)) { DesktopApp(on, shell) }
+            val scene = ImageComposeScene(w, h, Density(1f)) { DesktopApp(on, shell) }
             try {
                 scene.render(0)
                 // what's worked out off the UI thread (the payday plan) is in before the last frame
@@ -44,6 +44,31 @@ class ScreenshotsTest {
             }
         }
         val backupFile = File(tmp.root, "deaddrop-2030-10-29.ddfbak")
+        if (System.getProperty("ddf.screensRound") == "0.14.2") {
+            // 0.14.2: Settings at the size the window opens and at its minimum, and in full (a taller canvas, to show every
+            // row); every screen and the app's screens the program opens at the minimum, 1100 x 700
+            shot("01-settings-1400x900") { m.go(Screen.SETTINGS) }
+            shot("02-settings-1100x700", w = 1100, h = 700) { m.go(Screen.SETTINGS) }
+            shot("03-settings-full-1400", h = 1500) { m.go(Screen.SETTINGS) }
+            shot("04-settings-full-1100", w = 1100, h = 1500) { m.go(Screen.SETTINGS) }
+            val empty = SampleBudget.empty(tmp.newFolder("Empty142"))
+            Screen.entries.forEachIndexed { i, s ->
+                shot("%02d-%s-1100x700".format(10 + i, s.name.lowercase()), w = 1100, h = 700) { m.go(s) }
+                shot("%02d-%s-empty-1100x700".format(10 + i, s.name.lowercase()), empty, 1100, 700) { empty.go(s) }
+            }
+            val opened = listOf(
+                "scan" to net.darkrelay.deaddropfinance.ui.Nav.Scan(null), "rules" to net.darkrelay.deaddropfinance.ui.Nav.Rules,
+                "subscriptions" to net.darkrelay.deaddropfinance.ui.Nav.Subscriptions, "manage-categories" to net.darkrelay.deaddropfinance.ui.Nav.ManageCategories,
+                "import-csv" to net.darkrelay.deaddropfinance.ui.Nav.Import, "about" to net.darkrelay.deaddropfinance.ui.Nav.About,
+                "to-sort" to net.darkrelay.deaddropfinance.ui.Nav.Activity, "fill-order" to net.darkrelay.deaddropfinance.ui.Nav.Envelopes,
+                "forecast" to net.darkrelay.deaddropfinance.ui.Nav.Forecast, "add-bill" to net.darkrelay.deaddropfinance.ui.Nav.BillEdit(null),
+            )
+            opened.forEachIndexed { i, (name, nav) -> shot("%02d-opened-%s-1100x700".format(30 + i, name), w = 1100, h = 700) { m.go(Screen.BUDGET); m.openPhone(nav) } }
+            shot("45-drawer-1100x700", w = 1100, h = 700) { m.go(Screen.BUDGET); m.drawerEnvelope = made.ids["Groceries"] }
+            shot("46-add-transaction-1100x700", w = 1100, h = 700) { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"]) }
+            shot("47-split-1100x700", w = 1100, h = 700) { m.go(Screen.BUDGET); m.dialog = Dialog.AddTransaction(made.ids["Checking"], made.ids["Groceries"], split = true) }
+            empty.engine?.close()
+        }
         if (System.getProperty("ddf.screensRound") == "0.14.1") {
             // 0.14.1: every sidebar screen, on the sample budget and on an empty one (where a wrong background shows), and the
             // app's screens the program opens, all in the program's colors and buttons
