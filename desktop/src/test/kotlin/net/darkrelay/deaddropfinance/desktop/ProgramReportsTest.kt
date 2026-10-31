@@ -3,6 +3,7 @@ package net.darkrelay.deaddropfinance.desktop
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertTextEquals
@@ -78,7 +79,8 @@ class ProgramReportsTest {
     private fun every(w: Int, h: Int, m: AppModel, suffix: String = "", check: (Reports.Kind) -> String?) = runDesktopComposeUiTest(w, h) {
         m.go(Screen.REPORTS)
         setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()))) }
-        waitForIdle()
+        // the app's screens wait for the budget to come from the database, which waitForIdle doesn't cover
+        waitUntil(timeoutMillis = 10_000) { onAllNodesWithTag("reports", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("reports", useUnmergedTree = true).assertExists()
         shots?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(it, "reports-${w}x$h$suffix.png")) }
         for (k in Reports.Kind.entries) {
@@ -145,7 +147,7 @@ class ProgramReportsTest {
         val m = reportsBudget()
         m.go(Screen.REPORTS)
         setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()))) }
-        waitForIdle()
+        waitUntil(timeoutMillis = 10_000) { onAllNodesWithTag("report.SPENDING_BY_ENVELOPE").fetchSemanticsNodes().isNotEmpty() }
         onNodeWithTag("report.SPENDING_BY_ENVELOPE").performClick()
         waitForIdle()
         onNodeWithTag("share.Groceries", useUnmergedTree = true).assertExists()

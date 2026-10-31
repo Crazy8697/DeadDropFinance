@@ -143,8 +143,8 @@ How the app behaves. Each section names the stage that builds it. Everything run
 - A newly detected subscription is marked "New".
 
 ## Home dashboard (phone 1.9.1)
-- Home can show reports as cards: Customize Home (under Home's envelopes) adds any of the twelve reports, removes them and drags them into order. Each card is the report's tile from Reports (its line and small chart, on the budget month Reports last showed), and tapping it opens the report.
-- The choice is kept on this phone only: not synced, and not one of the settings a backup carries. A phone that never customized shows no report cards; Home is as it was, with Customize Home under it.
+- Home can show reports as cards: Customize Home (on Home, above the envelope list, under the other cards) adds any of the twelve reports, removes them and drags them into order. Each card is the report's tile from Reports (its line and small chart, on the budget month Reports last showed), and tapping it opens the report.
+- The choice is kept on this phone only: not synced, and not one of the settings a backup carries. A phone that never customized shows no report cards; Home is as it was, with only the Customize Home link above the envelope list.
 - The program has no Home, so no dashboard.
 
 ## Safe to Spend (Stage 11)

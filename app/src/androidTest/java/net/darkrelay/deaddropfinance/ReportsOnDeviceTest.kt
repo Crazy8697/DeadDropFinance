@@ -174,6 +174,7 @@ class ReportsOnDeviceTest {
             }
             home(emptyList()); settle(); save(scenario, "phone-home-default")
             home(listOf(Kind.SAVINGS_GOALS, Kind.SPENDING_BY_ENVELOPE)); settle(); save(scenario, "phone-home-customized")
+            home(Kind.entries.toList()); settle(); save(scenario, "phone-home-all-12")
             var cards by mutableStateOf(listOf(Kind.SAVINGS_GOALS, Kind.SPENDING_BY_ENVELOPE))
             scenario.onActivity { screen = { net.darkrelay.deaddropfinance.ui.HomeCustomizeScreen(cards, { cards = it }, {}) } }
             settle(); save(scenario, "phone-home-customize-screen")

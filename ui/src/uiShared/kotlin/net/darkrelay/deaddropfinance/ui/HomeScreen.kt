@@ -155,7 +155,7 @@ fun HomeScreen(
     envelopes: List<EnvelopeEntity> = budget.everydayEnvelopes,
     /** Bonus income: money outside the bank, added to Ready to Assign. */
     onBonus: () -> Unit = {},
-    /** 1.9.1: the reports picked for Home and Customize (HomeReportCards), under everything else; null shows none. */
+    /** 1.9.1: the reports picked for Home and Customize (HomeReportCards); 1.9.2: above the envelope list, under the other cards; null shows none. */
     dashboard: (@Composable () -> Unit)? = null,
 ) {
     val sections = homeSections(budget, forecast != null, checklist != null)
@@ -196,11 +196,11 @@ fun HomeScreen(
                 HomeLinkCard(TabIcons.Inbox, "$n transaction${if (n == 1) "" else "s"} to sort", null, onToSort)
             }
             HomeSection.ENVELOPES -> {
+                dashboard?.let { d -> item { d() } }
                 items(envelopes, key = { it.id }) { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
                 item { TextButton(onClick = onAllEnvelopes) { Text("All envelopes", color = DdfColors.Cyan) } }
             }
         }
-        dashboard?.let { d -> item { d() } }
         item { Gap(24) }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
@@ -18,6 +19,8 @@ import java.time.LocalDate
 import net.darkrelay.deaddropfinance.BuildConfig
 import net.darkrelay.deaddropfinance.data.AccountEntity
 import net.darkrelay.deaddropfinance.data.AccountType
+import net.darkrelay.deaddropfinance.data.EnvelopeEntity
+import net.darkrelay.deaddropfinance.data.EnvelopeMode
 import net.darkrelay.deaddropfinance.domain.Budget
 import net.darkrelay.deaddropfinance.domain.Reports.Kind
 import net.darkrelay.deaddropfinance.sync.SyncSettings
@@ -62,9 +65,9 @@ class HomeDashboardTest {
         compose.waitForIdle()
     }
 
-    private fun home(cards: List<Kind>?) = show {
+    private fun home(cards: List<Kind>?, envelopes: List<EnvelopeEntity> = emptyList()) = show {
         HomeScreen(
-            budget, top = null, onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
+            budget, top = null, envelopes = envelopes, onAssign = {}, onToSort = {}, onEnvelope = {}, onAllEnvelopes = {}, onSafeToSpend = {}, onFixOverAssigned = {},
             dashboard = cards?.let { c -> { HomeReportCards(c, data, 0, onOpen = {}, onCustomize = {}) } },
         )
     }
@@ -104,6 +107,26 @@ class HomeDashboardTest {
         val goals = compose.onNodeWithTag("report.SAVINGS_GOALS").performScrollTo().fetchSemanticsNode().boundsInRoot.top
         val worth = compose.onNodeWithTag("report.NET_WORTH").performScrollTo().fetchSemanticsNode().boundsInRoot.top
         assertTrue("Savings goals above Net worth", goals < worth)
+    }
+
+    @Config(application = Application::class, qualifiers = "w360dp-h20000dp-xhdpi")
+    @Test fun theCardsAndCustomizeSitBetweenSafeToSpendAndTheEnvelopeList() {
+        val envs = listOf(EnvelopeEntity(id = "e", name = "Groceries", mode = EnvelopeMode.ADD_EVERY_PAYDAY, perPayday = 50_00, createdAt = 1, updatedAt = 1))
+        for (cards in listOf(emptyList(), listOf(Kind.NET_WORTH), Kind.entries.toList())) {
+            home(cards, envs)
+            fun top(n: androidx.compose.ui.test.SemanticsNodeInteraction) = n.fetchSemanticsNode().boundsInRoot.top
+            fun bottom(n: androidx.compose.ui.test.SemanticsNodeInteraction) = n.fetchSemanticsNode().boundsInRoot.bottom
+            val safe = bottom(compose.onNodeWithText("Safe to spend"))
+            val custom = compose.onNodeWithTag("home.customize")
+            val env = top(compose.onNodeWithText("Groceries"))
+            assertTrue("${cards.size} cards: below Safe to Spend", top(custom) > safe)
+            assertTrue("${cards.size} cards: above the envelope list", bottom(custom) <= env)
+            cards.forEach { k ->
+                val t = compose.onNodeWithTag("report.${k.name}")
+                assertTrue("${k.name}: below Safe to Spend", top(t) > safe)
+                assertTrue("${k.name}: above the envelope list", bottom(t) <= env)
+            }
+        }
     }
 
     @Test fun customizeAddsRemovesAndReordersByDragging() {
