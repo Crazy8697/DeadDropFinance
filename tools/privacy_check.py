@@ -414,7 +414,11 @@ DESKTOP_VENDOR_STRINGS = [re.compile(r"(?i)\bN[e]xus[ _](?:One|S|4|5X?|6P?|7(?:_
                           re.compile(r"/[h]ome/panxuefeng/vm-infra/src/jna/[^\s\x00]*"),
                           # lazysodium-java's libsodium builds (desktop 0.10.0) keep the source paths of the machine they
                           # were built on (libsodium 1.0.20's own source files, under its builder's Downloads folder)
-                          re.compile(r"/[U]sers/gp/Downloads/libsodium-1\.0\.20/src/libsodium/[^\s\x00]*")]
+                          re.compile(r"/[U]sers/gp/Downloads/libsodium-1\.0\.20/src/libsodium/[^\s\x00]*"),
+                          # (desktop 0.14.0) Apache Commons IO's POM credits a contributor by name, and Tess4J's POM names its
+                          # publisher's Maven snapshot repository; both are the projects' own published POMs, matched exactly
+                          re.compile(r"<name>[A]dam Retter</name>"),
+                          re.compile(r"<id>[n]exus-snapshots</id>")]
 DESKTOP_SKIP = ("DeadDropFinance/runtime/legal/",)
 
 
