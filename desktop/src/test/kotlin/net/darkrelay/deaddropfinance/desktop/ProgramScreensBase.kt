@@ -106,7 +106,8 @@ abstract class ProgramScreensBase {
     var erases = 0
     fun dataDir(): File = (model.engine!!.opened as DesktopDatabase.Opened.Ok).file.parentFile
 
-    @After fun closeBudget() { if (::model.isInitialized) model.engine?.close() }
+    /** The screens go first, so no query of theirs is still running when the budget closes. */
+    @After fun closeBudget() { runCatching { compose.setContent {}; compose.waitForIdle() }; if (::model.isInitialized) model.engine?.close() }
 
     fun refresh() = runBlocking { model.refresh() }
     fun tag(t: String): SemanticsNodeInteraction = compose.onNodeWithTag(t, useUnmergedTree = true)

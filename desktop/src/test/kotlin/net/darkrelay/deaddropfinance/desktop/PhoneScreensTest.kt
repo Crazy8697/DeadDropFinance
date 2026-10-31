@@ -34,7 +34,7 @@ class PhoneScreensTest {
         compose.waitForIdle()
     }
 
-    @After fun close() { if (::made.isInitialized) m.engine?.close() }
+    @After fun close() { runCatching { compose.setContent {}; compose.waitForIdle() }; if (::made.isInitialized) m.engine?.close() }
 
     private fun tag(t: String): SemanticsNodeInteraction = compose.onNodeWithTag(t, useUnmergedTree = true)
     private fun click(t: String) { tag(t).performClick(); compose.waitForIdle() }
