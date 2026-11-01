@@ -2,7 +2,6 @@ package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,10 +23,11 @@ import net.darkrelay.deaddropfinance.backup.RecoveryKey
 fun RecoveryKeyDialog(key: ByteArray, onCopy: (String) -> Unit, onSaved: () -> Unit) {
     val text = remember(key.contentHashCode()) { RecoveryKey.format(key) }
     var copied by remember { mutableStateOf(false) }
-    AlertDialog(
-        onDismissRequest = {},
-        title = { Text("Your recovery key") },
-        text = {
+    FormDialog(
+        "Your recovery key", onDismiss = {},
+        actions = listOf(DialogAction("Copy", { onCopy(text); copied = true }), DialogAction("I saved it", onSaved, filled = true)),
+        tag = "dialog.recoveryKeyShown", dismissible = false,
+    ) {
             Column {
                 Text("Every backup is encrypted with this key. Save it somewhere safe, away from this phone: a password manager, or written down.",
                     color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -40,8 +40,5 @@ fun RecoveryKeyDialog(key: ByteArray, onCopy: (String) -> Unit, onSaved: () -> U
                 Text("This is the only time it is shown. Lose it and the backups made with it are gone: nobody can open them, not even the server.",
                     color = DdfColors.Error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
             }
-        },
-        confirmButton = { TextButton(onClick = onSaved) { Text("I saved it") } },
-        dismissButton = { TextButton(onClick = { onCopy(text); copied = true }) { Text("Copy") } },
-    )
+    }
 }

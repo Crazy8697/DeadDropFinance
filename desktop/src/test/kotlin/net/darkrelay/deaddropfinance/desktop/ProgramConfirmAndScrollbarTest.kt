@@ -130,7 +130,8 @@ class ProgramConfirmAndScrollbarTest {
         assertEquals(argb(ProgramPalette.teal), image().rgb(action.left + 4, action.center.y))
     }
 
-    @Test fun escCancelsAndEnterActs() {
+    /** 0.15.7: Esc cancels; Enter presses the focused button: Cancel when it opens, the action once it has the focus. */
+    @Test fun escCancelsAndEnterPressesTheFocusedButton() {
         runDesktopComposeUiTest(1100, 700) {
             var got = ""
             confirm("Nothing has been saved.", destructive = true) { got = it }
@@ -142,8 +143,19 @@ class ProgramConfirmAndScrollbarTest {
         runDesktopComposeUiTest(1100, 700) {
             var got = ""
             confirm("Nothing has been saved.", destructive = true) { got = it }
-            // Enter acts even with focus on Cancel
+            // focus starts on Cancel: Enter alone cancels
             onNodeWithTag("confirm.cancel", useUnmergedTree = true).performKeyInput { pressKey(Key.Enter) }
+            waitForIdle()
+            assertEquals("cancel", got)
+        }
+        runDesktopComposeUiTest(1100, 700) {
+            var got = ""
+            confirm("Nothing has been saved.", destructive = true) { got = it }
+            // Tab to the action, then Enter presses it
+            onNodeWithTag("confirm.cancel", useUnmergedTree = true).performKeyInput { pressKey(Key.Tab) }
+            waitForIdle()
+            onNodeWithTag("confirm.action", useUnmergedTree = true).assertIsFocused()
+            onNodeWithTag("confirm.action", useUnmergedTree = true).performKeyInput { pressKey(Key.Enter) }
             waitForIdle()
             assertEquals("action", got)
         }

@@ -325,6 +325,9 @@ fun AppRoot(
     var alertsAsked by remember { mutableStateOf(appSettings.alertsAsked) }
     val budget by remember(store) { budgetFlow(store) }.collectAsState(initial = null)
     val stack = remember { mutableStateListOf<Nav>(host?.start ?: Nav.Home) }
+    // 0.15.7: a change of screen is one change, seen all at once: never an empty stack in between, which reads as "the
+    // screen closed itself" (below) and sent the program back to its own screen (a scan opened by itself, read, then gone)
+    fun restack(change: MutableList<Nav>.() -> Unit) = androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot { stack.change() }
     var error by remember { mutableStateOf<String?>(null) }
     // a user action is running (run): another tap waits for it
     var working by remember { mutableStateOf(false) }
@@ -351,7 +354,7 @@ fun AppRoot(
 
     fun go(n: Nav) { error = null; message = null; stack.add(n) }
     fun back() { error = null; message = null; if (stack.size > 1) stack.removeAt(stack.lastIndex) else host?.onExit?.invoke() }
-    fun tab(n: Nav) { error = null; message = null; if (n == Nav.Activity) { activityTab = null; exportNote = null }; stack.clear(); stack.add(n) }
+    fun tab(n: Nav) { error = null; message = null; if (n == Nav.Activity) { activityTab = null; exportNote = null }; restack { clear(); add(n) } }
     fun backTo(n: Nav) { while (stack.size > 1 && stack.last() != n) stack.removeAt(stack.lastIndex) }
     /**
      * Runs a user action: one at a time (a second tap while it runs is ignored, so nothing is saved twice), with the
@@ -521,14 +524,14 @@ fun AppRoot(
         (host?.start as? Nav.Scan)?.let { s ->
             val checking = scanId
             // 1.9.5: a receipt still being checked: back to it
-            if (checking != null && scanForm != null) { stack.clear(); stack.add(Nav.ReceiptEdit(checking, isNew = true)) }
+            if (checking != null && scanForm != null) restack { clear(); add(Nav.ReceiptEdit(checking, isNew = true)) }
             else if (scanId == null) { scanId = net.darkrelay.deaddropfinance.data.newId(); scanFor = s.forTx; scanPages.clear(); scanForm = null }
         }
     }
     // 0.14.0: the setup wizard opened by itself, from the program's Settings
     LaunchedEffect(host) { if (host?.start == Nav.SetupWizard && wizard == null) openWizard() }
     // 0.13.0: a screen opened from elsewhere in the program
-    LaunchedEffect(host) { host?.requests?.collect { n -> error = null; message = null; stack.clear(); stack.add(n) } }
+    LaunchedEffect(host) { host?.requests?.collect { n -> error = null; message = null; restack { clear(); add(n) } } }
     LaunchedEffect(Unit) {
         // photos left behind by a receipt that's gone (or a scan never saved)
         val saved = withContext(Dispatchers.IO) { store.dao.receiptsNow().map { it.id }.toSet() }
@@ -579,7 +582,7 @@ fun AppRoot(
             try {
                 scanPages += platform.scanReceipt(uri, id, scanPages.size)
                 scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList())).also { it.guessEnvelopes(receiptItems, b.envelopes) }
-                if (stack.last() !is Nav.ReceiptEdit) { stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true)) }
+                if (stack.last() !is Nav.ReceiptEdit) restack { removeAll { it is Nav.Scan }; add(Nav.ReceiptEdit(id, isNew = true)) }
             } catch (e: Exception) {
                 error = if (words.camera) "That couldn't be read as a receipt photo or PDF. Try another, or a clearer photo."
                     else "That file couldn't be read as a receipt image or PDF. Try another."
@@ -609,7 +612,7 @@ fun AppRoot(
         try {
             for (u in s.uris) scanPages += platform.scanReceipt(u, id, scanPages.size)
             scanForm = ReceiptForm.from(net.darkrelay.deaddropfinance.domain.ReceiptParser.parse(scanPages.toList())).also { it.guessEnvelopes(receiptItems, b.envelopes) }
-            stack.removeAll { it is Nav.Scan }; stack.add(Nav.ReceiptEdit(id, isNew = true))
+            restack { removeAll { it is Nav.Scan }; add(Nav.ReceiptEdit(id, isNew = true)) }
         } catch (e: Exception) {
             error = "The shared file couldn't be read as a receipt."
         } finally {

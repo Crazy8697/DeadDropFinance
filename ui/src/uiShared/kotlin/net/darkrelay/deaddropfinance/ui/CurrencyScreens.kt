@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -53,10 +52,7 @@ fun CurrencySetting(code: String, onPick: (String) -> Unit) {
 fun CurrencyPicker(current: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val list = remember(query) { Currencies.pickerList(query) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Currency") },
-        text = {
+    FormDialog("Currency", onDismiss, listOf(DialogAction("Close", onDismiss)), tag = "dialog.currencyPicker") {
             Column {
                 OutlinedTextField(
                     value = query, onValueChange = { query = it }, label = { Text("Search by code or name") }, singleLine = true,
@@ -77,7 +73,5 @@ fun CurrencyPicker(current: String, onPick: (String) -> Unit, onDismiss: () -> U
                     if (list.isEmpty()) item { Text("No currency matches that.", color = DdfColors.Muted) }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
-    )
+    }
 }

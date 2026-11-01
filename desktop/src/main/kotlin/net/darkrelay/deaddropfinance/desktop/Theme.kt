@@ -119,9 +119,17 @@ fun moneyColor(cents: Long) = when { cents > 0 -> C.Good; cents < 0 -> C.Bad; el
 @Composable
 fun hovered(source: MutableInteractionSource): Boolean = source.collectIsHoveredAsState().value
 
+/** Set for a dialog's footer (Modal): its Btn are the shared dialog buttons. */
+val LocalDialogFooter = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /** The mockup's .btn (teal), .btn.ghost and .btn.sm. */
 @Composable
 fun Btn(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, ghost: Boolean = false, small: Boolean = false, enabled: Boolean = true, tag: String? = null) {
+    // 0.15.7: a dialog's own buttons (its footer) are the shared dialog buttons
+    if (LocalDialogFooter.current && !small) {
+        net.darkrelay.deaddropfinance.ui.DialogButton(text, onClick, modifier, filled = !ghost, enabled = enabled, tag = tag)
+        return
+    }
     val src = remember { MutableInteractionSource() }
     val hover = hovered(src) && enabled
     val shape = RoundedCornerShape(if (small) 6.dp else 7.dp)

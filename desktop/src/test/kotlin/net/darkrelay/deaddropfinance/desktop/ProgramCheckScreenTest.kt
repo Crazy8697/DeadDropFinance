@@ -33,6 +33,8 @@ import kotlin.test.assertTrue
 class ProgramCheckScreenTest {
 
     @get:Rule val tmp = TemporaryFolder()
+    /** 0.15.7: the one time this hung (a release build's test run), nothing said where; now every thread's stack is kept. */
+    @get:Rule val hang = HangDump()
     private val models = mutableListOf<AppModel>()
 
     @After fun close() { models.forEach { it.engine?.close() }; DdfColors.palette = PhonePalette }
@@ -43,7 +45,8 @@ class ProgramCheckScreenTest {
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }
         val photo = listOf(File("../shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png"), File("shared/src/jvmTest/resources/receipts/food-lion/food-lion-scanned-in-0.15.3.png"))
             .first { it.isFile }.copyTo(File(tmp.root, "food-lion-scanned-in-0.15.3.png"))
-        setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()), pickReceipt = { photo })) }
+        var picks = 0
+        setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()), pickReceipt = { picks++; photo })) }
         waitForIdle()
         fun shot(name: String) = shots?.let { dir ->
             // a dialog is a window of its own over the screen: drawn over it, as it shows
@@ -56,8 +59,21 @@ class ProgramCheckScreenTest {
         m.go(Screen.RECEIPTS)
         m.openPhone(Nav.Scan(null))
         waitUntil(timeoutMillis = 10_000) { onAllNodesWithText("Choose an image or PDF").fetchSemanticsNodes().isNotEmpty() }
+        val scanStart = System.nanoTime()
         onNodeWithText("Choose an image or PDF").performClick()
-        waitUntil(timeoutMillis = 120_000) { onAllNodesWithTag("receipt.save", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        // 0.15.7: within the test's own minute, and if the check screen never comes, what the screen shows instead
+        try {
+            waitUntil(timeoutMillis = 40_000) { onAllNodesWithTag("receipt.save", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        } catch (e: androidx.compose.ui.test.ComposeTimeoutException) {
+            val texts = mutableListOf<String>()
+            fun walk(n: androidx.compose.ui.semantics.SemanticsNode) {
+                if (androidx.compose.ui.semantics.SemanticsProperties.Text in n.config) texts += n.config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString { it.text }
+                n.children.forEach { walk(it) }
+            }
+            onAllNodes(androidx.compose.ui.test.isRoot(), useUnmergedTree = true).fetchSemanticsNodes().forEach { walk(it) }
+            throw AssertionError("no check screen after ${(System.nanoTime() - scanStart) / 1_000_000} ms; file picked $picks times; screen: $texts", e)
+        }
+        println("SCAN-TIME ${w}x$h ${(System.nanoTime() - scanStart) / 1_000_000} ms")
         assertEquals(21, (0 until 30).count { onAllNodesWithTag("item.card.$it", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() })
         onNodeWithTag("item.checked.1", useUnmergedTree = true).performScrollTo().performClick()
         waitForIdle()

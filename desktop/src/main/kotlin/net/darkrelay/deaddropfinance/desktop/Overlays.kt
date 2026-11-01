@@ -125,26 +125,19 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
     }
 }
 
+/**
+ * The program's form dialogs (Add transaction, Move money, New envelope, Restore...). 0.15.7: drawn as the shared
+ * program dialog (ui ProgramDialog), as the confirms are: a card like the program's over a scrim on the whole window,
+ * drawn from the window's root; Esc or a click on the scrim closes it ([onClose]); the fields scroll when the window is
+ * too short. The [footer]'s buttons are the dialog's: Btn there draws as the shared DialogButton (a ghost one quiet, the
+ * others filled teal), so Cancel is quiet and the action filled.
+ */
 @Composable
 fun Modal(title: String, width: Dp, onClose: () -> Unit, tag: String, footer: @Composable () -> Unit, body: @Composable () -> Unit) {
-    Box(
-        Modifier.fillMaxSize().background(C.Scrim).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose),
-        contentAlignment = Alignment.Center,
-    ) {
-        val shape = RoundedCornerShape(12.dp)
-        // 0.14.2: the dialog fits the window (its title and buttons always show; the fields take what's left and scroll)
-        Column(
-            Modifier.padding(vertical = 24.dp).width(width).shadow(30.dp, shape).clip(shape).background(C.Panel).border(1.dp, C.Line2, shape)
-                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}.testTag(tag),
-        ) {
-            T(title, 16.sp, weight = FontWeight.SemiBold, modifier = Modifier.fillMaxWidth().bottomLine().padding(horizontal = 20.dp, vertical = 16.dp))
-            net.darkrelay.deaddropfinance.ui.ScrollColumn(
-                Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp), inner = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(13.dp),
-            ) { body() }
-            Row(Modifier.fillMaxWidth().topLine().padding(horizontal = 20.dp, vertical = 13.dp), horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End)) { footer() }
-        }
-    }
+    net.darkrelay.deaddropfinance.ui.ProgramDialog(
+        title, onClose, tag, width,
+        buttons = { androidx.compose.runtime.CompositionLocalProvider(LocalDialogFooter provides true) { footer() } },
+    ) { body() }
 }
 
 @Composable

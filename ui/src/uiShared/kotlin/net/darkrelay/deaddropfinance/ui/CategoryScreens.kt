@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -154,13 +153,11 @@ fun ManageCategoriesScreen(
         Gap(24)
     }
     renaming?.let { c ->
-        AlertDialog(
-            onDismissRequest = { renaming = null },
-            title = { Text("Rename category") },
-            text = { TextFieldRow("Name", renameText, { renameText = it }) },
-            confirmButton = { TextButton(onClick = { onRename(c.id, renameText); renaming = null }) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text("Cancel") } },
-        )
+        FormDialog(
+            "Rename category", onDismiss = { renaming = null },
+            actions = listOf(DialogAction("Cancel", { renaming = null }), DialogAction("Save", { onRename(c.id, renameText); renaming = null }, filled = true)),
+            tag = "dialog.renameCategory",
+        ) { TextFieldRow("Name", renameText, { renameText = it }) }
     }
     deleting?.let { c ->
         val n = usage(c.id)
