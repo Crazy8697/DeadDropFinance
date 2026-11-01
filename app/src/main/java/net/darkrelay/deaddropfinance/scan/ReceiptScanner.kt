@@ -37,7 +37,13 @@ class TesseractReader(context: Context) : TextReader {
         api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
     }
 
-    override fun read(g: ImageCleanup.Gray): List<ReceiptParser.Line> {
+    override fun read(g: ImageCleanup.Gray): List<ReceiptParser.Line> = read(g, TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
+
+    /** 1.9.6: the page as scattered text (Tesseract's sparse text mode), the raw pass the shared second read asks for, as the program's. */
+    override fun readSparse(g: ImageCleanup.Gray): List<ReceiptParser.Line> = read(g, TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT)
+
+    private fun read(g: ImageCleanup.Gray, mode: Int): List<ReceiptParser.Line> {
+        api.setPageSegMode(mode)
         val bmp = Bitmap.createBitmap(ImageCleanup.toArgb(g), g.width, g.height, Bitmap.Config.ARGB_8888)
         val out = mutableListOf<ReceiptParser.Line>()
         try {
@@ -56,6 +62,7 @@ class TesseractReader(context: Context) : TextReader {
         } finally {
             api.clear()
             bmp.recycle()
+            api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK)
         }
         return out
     }

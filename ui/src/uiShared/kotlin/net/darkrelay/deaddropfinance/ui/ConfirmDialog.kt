@@ -25,6 +25,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -64,7 +69,8 @@ import androidx.compose.ui.window.DialogProperties
 /**
  * The one confirm every screen uses (0.15.6): a question, what happens, Cancel and the action (Clear, Delete, Log out...).
  *
- * On the phone it's Material's AlertDialog, Cancel left of the action, an action that throws work away in red. In the
+ * On the phone (1.9.6) it's the same dialog in Material's own window and shape: Cancel quiet on the left, the action filled on the right,
+ * red when [destructive]. In the
  * program (LocalProgramStyle) it's the program's dialog ([ProgramDialog]): the text 13.5sp in the muted color, as wide
  * as its text up to [CONFIRM_MAX_WIDTH] (longer text wraps). Cancel is quiet (outlined) on the left; the action is filled
  * on the right: red when [destructive], teal otherwise. Esc cancels; focus starts on Cancel, and Enter presses the
@@ -87,18 +93,30 @@ fun ConfirmDialog(
     extra: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     if (!programDialogs()) {
-        AlertDialog(
-            onDismissRequest = onCancel,
-            modifier = Modifier.tagged(tag),
-            title = title?.let { t -> { Text(t) } },
-            text = { Column { Text(text, modifier = Modifier.tagged(textTag)); extra?.invoke(this) } },
-            confirmButton = {
-                TextButton(onClick = onConfirm, enabled = enabled, modifier = Modifier.tagged(actionTag)) {
-                    if (destructive) Text(action, color = DdfColors.Error) else Text(action)
+        // 1.9.6: the same confirm as the program's: the question, what happens, Cancel quiet on the left and the action
+        // filled on the right (red when it throws work away). Material's dialog window and shape stay the phone's own.
+        androidx.compose.ui.window.Dialog(onDismissRequest = onCancel) {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.tagged(tag),
+                shape = AlertDialogDefaults.shape, color = AlertDialogDefaults.containerColor, contentColor = AlertDialogDefaults.textContentColor, tonalElevation = AlertDialogDefaults.TonalElevation,
+            ) {
+                Column(Modifier.padding(24.dp)) {
+                    if (title != null) {
+                        Text(title, style = MaterialTheme.typography.headlineSmall, color = AlertDialogDefaults.titleContentColor, modifier = Modifier.testTag("confirm.title"))
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Text(text, style = MaterialTheme.typography.bodyMedium, color = AlertDialogDefaults.textContentColor, modifier = Modifier.tagged(textTag ?: "confirm.text"))
+                    if (extra != null) Column(Modifier.fillMaxWidth().padding(top = 8.dp), content = extra)
+                    Row(Modifier.fillMaxWidth().padding(top = 24.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(onClick = onCancel, modifier = Modifier.tagged(cancelTag ?: "confirm.cancel")) { Text("Cancel") }
+                        Button(
+                            onClick = onConfirm, enabled = enabled, modifier = Modifier.tagged(actionTag ?: "confirm.action"),
+                            colors = if (destructive) ButtonDefaults.buttonColors(containerColor = ConfirmRed, contentColor = ConfirmOnFill) else ButtonDefaults.buttonColors(),
+                        ) { Text(action) }
+                    }
                 }
-            },
-            dismissButton = { TextButton(onClick = onCancel, modifier = Modifier.tagged(cancelTag)) { Text("Cancel") } },
-        )
+            }
+        }
         return
     }
     val cancelFocus = remember { FocusRequester() }

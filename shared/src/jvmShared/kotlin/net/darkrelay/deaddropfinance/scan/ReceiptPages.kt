@@ -15,7 +15,7 @@ interface TextReader : AutoCloseable {
      *
      * 0.15.6: this is the platform's whole part of the second read: the raw pass, nothing more. When to ask for it, the
      * page it gets (uncleaned, enlarged) and what's taken from it are the shared reader's ([ReceiptPages.read],
-     * [ReceiptPages.withAmountsFound]). The program supplies it (Tess4J); the phone doesn't, and gets the total worked out.
+     * [ReceiptPages.withAmountsFound]). The program supplies it (Tess4J) and, from 1.9.6, the phone (Tesseract4Android).
      */
     fun readSparse(g: ImageCleanup.Gray): List<ReceiptParser.Line> = emptyList()
 }

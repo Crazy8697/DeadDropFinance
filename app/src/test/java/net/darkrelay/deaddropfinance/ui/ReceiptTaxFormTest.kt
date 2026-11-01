@@ -131,13 +131,13 @@ class ReceiptTaxFormTest {
         val f = ReceiptForm.from(ReceiptParser.parseLines(lines.map { (t, c) -> ReceiptParser.Line(t, c) }))
         show(f)
         assertEquals(mapOf(0 to 5_49L), f.misread(f.totals(f.taxWork())))
-        compose.onNodeWithText("price may be misread: \$5.49 would make it add up").performScrollTo().assertExists()
+        compose.onNodeWithText("Check price, may be misread: \$5.49 would make it add up").performScrollTo().assertExists()
         compose.onNodeWithText("the items come to \$4.00 more than the total paid").assertExists()
         assertEquals("9.49", f.items[0].amount)
         // the user fixes it: it adds up and the yellow goes
         field("item.price.0").performScrollTo().performTextReplacement("5.49")
         compose.waitForIdle()
-        assertEquals(0, compose.onAllNodesWithText("price may be misread: \$5.49 would make it add up").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("Check price, may be misread: \$5.49 would make it add up").fetchSemanticsNodes().size)
         compose.onNodeWithTag("tax.addsUp").performScrollTo().assertExists()
     }
 
@@ -176,10 +176,12 @@ class ReceiptTaxFormTest {
         compose.onNodeWithTag("tax.ask").performScrollTo().assertExists()
         compose.onNodeWithTag("receipt.save").performScrollTo().assertIsNotEnabled()
         assertNull(f.taxedOf(0, f.taxWork()))
-        compose.onAllNodesWithText("not sure whether it's taxed").fetchSemanticsNodes().let { assertEquals(2, it.size) }
+        compose.onAllNodesWithText("Check taxed, not sure whether it's taxed").fetchSemanticsNodes().let { assertEquals(2, it.size) }
         field("item.taxed.0").performScrollTo().performClick()
         compose.onNodeWithTag("receipt.save").performScrollTo().assertIsNotEnabled()
-        field("item.untaxed.1").performScrollTo().performClick()
+        // item 1: the slider is off while it is unanswered; on and off again answers Not taxed
+        field("item.taxed.1").performScrollTo().performClick()
+        field("item.taxed.1").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("receipt.save").performScrollTo().assertIsEnabled()
         assertEquals(listOf(10_60L, 4_00L), f.draft(1).items.map { it.priceWithTax })
@@ -209,20 +211,20 @@ class ReceiptTaxFormTest {
         )
         show(f)
         // what wasn't on the photo, and what may be misread, each says so
-        compose.onNodeWithText("store wasn't on the photo").performScrollTo().assertExists()
-        compose.onNodeWithText("date wasn't on the photo").assertExists()
-        compose.onNodeWithText("quantity read from a smudged line").performScrollTo().assertExists()
-        compose.onNodeWithText("price may be misread").performScrollTo().assertExists()
+        compose.onNodeWithText("Check the store, it wasn't on the photo").performScrollTo().assertExists()
+        compose.onNodeWithText("Check the date, it wasn't on the photo").assertExists()
+        compose.onNodeWithText("Check quantity, read from a smudged line").performScrollTo().assertExists()
+        compose.onNodeWithText("may be misread", substring = true).performScrollTo().assertExists()
         assertTrue(compose.onAllNodesWithText("(check this)", substring = true).fetchSemanticsNodes().isEmpty())
         // editing the store clears its yellow
         field("receipt.store").performScrollTo().performTextReplacement("Sample Mart")
         compose.waitForIdle()
-        assertEquals(0, compose.onAllNodesWithText("store wasn't on the photo").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("Check the store, it wasn't on the photo").fetchSemanticsNodes().size)
         // Checked: a mark, the card dimmed, its yellow quiet; saving isn't blocked and nothing changes
         field("item.checked.1").performScrollTo().performClick()
         compose.waitForIdle()
         field("item.checkedMark.1").assertExists()
-        assertEquals(0, compose.onAllNodesWithText("price may be misread").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("may be misread", substring = true).fetchSemanticsNodes().size)
         assertTrue(f.items[1].checked)
         assertEquals("2.19", f.items[1].amount)
         compose.onNodeWithTag("receipt.save").performScrollTo().assertIsEnabled()

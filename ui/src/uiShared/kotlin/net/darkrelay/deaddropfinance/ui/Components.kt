@@ -122,26 +122,27 @@ fun ListRow(onClick: (() -> Unit)?, content: @Composable () -> Unit) {
 }
 
 @Composable
-fun AmountField(label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null) {
+fun AmountField(label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false) {
     OutlinedTextField(
         value = text, onValueChange = onChange, label = { Text(label) }, singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = modifier.fillMaxWidth(),
         isError = text.isNotBlank() && Money.parse(text) == null,
-        colors = warnColors(warn), supportingText = warnText(warn),
+        colors = warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
     )
 }
 
 @Composable
-fun TextFieldRow(label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null) {
+fun TextFieldRow(label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false) {
     OutlinedTextField(
         value = text, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = modifier.fillMaxWidth(),
-        colors = warnColors(warn), supportingText = warnText(warn),
+        colors = warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
     )
 }
 
 /**
  * 1.9.5: a field the receipt reader wasn't sure of: a yellow outline (the program's warning color), the same style as
- * the teal focus outline, which still shows while it's typed in; [warn] says why, under it.
+ * the teal focus outline, which still shows while it's typed in; [warn] says why, under it. 1.9.6: with `listed` the field
+ * keeps its yellow border and a plain yellow label and says nothing under it: why is in the card's list of reasons.
  */
 @Composable
 fun warnColors(warn: String?) = if (warn == null) androidx.compose.material3.OutlinedTextFieldDefaults.colors()
@@ -151,21 +152,21 @@ fun warnText(warn: String?): (@Composable () -> Unit)? = warn?.let { { Text(it, 
 
 /** An amount worked out, not typed (1.9.5: the totals breakdown, an item's price with tax), in a field's frame. */
 @Composable
-fun ReadOnlyAmount(label: String, cents: Long, modifier: Modifier = Modifier, warn: String? = null) {
+fun ReadOnlyAmount(label: String, cents: Long, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false) {
     OutlinedTextField(
         value = Money.plain(cents), onValueChange = {}, readOnly = true, label = { Text(label) }, singleLine = true,
-        modifier = modifier.fillMaxWidth(), colors = warnColors(warn), supportingText = warnText(warn),
+        modifier = modifier.fillMaxWidth(), colors = warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
     )
 }
 
 /** A date typed as yyyy-mm-dd, with Today as a shortcut. */
 @Composable
-fun DateField(label: String, text: String, onChange: (String) -> Unit, warn: String? = null, modifier: Modifier = Modifier) {
+fun DateField(label: String, text: String, onChange: (String) -> Unit, warn: String? = null, modifier: Modifier = Modifier, listed: Boolean = false) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(
             value = text, onValueChange = onChange, label = { Text("$label (yyyy-mm-dd)") }, singleLine = true,
             modifier = modifier.weight(1f), isError = text.isNotBlank() && parseDateOrNull(text) == null,
-            colors = warnColors(warn), supportingText = warnText(warn),
+            colors = warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
         )
         TextButton(onClick = { onChange(LocalDate.now().toString()) }) { Text("Today") }
     }
@@ -175,7 +176,7 @@ fun parseDateOrNull(s: String): LocalDate? = try { LocalDate.parse(s.trim()) } c
 
 /** A labeled dropdown of [options] (value to label). */
 @Composable
-fun <T> Picker(label: String, options: List<Pair<T, String>>, selected: T?, onSelect: (T) -> Unit, modifier: Modifier = Modifier, warn: String? = null) {
+fun <T> Picker(label: String, options: List<Pair<T, String>>, selected: T?, onSelect: (T) -> Unit, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     Column(modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = if (warn != null) DdfColors.Warning else DdfColors.Muted)
@@ -190,7 +191,7 @@ fun <T> Picker(label: String, options: List<Pair<T, String>>, selected: T?, onSe
                 options.forEach { (v, l) -> DropdownMenuItem(text = { Text(l) }, onClick = { open = false; onSelect(v) }) }
             }
         }
-        if (warn != null) Text(warn, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
+        if (warn != null && !listed) Text(warn, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
     }
 }
 

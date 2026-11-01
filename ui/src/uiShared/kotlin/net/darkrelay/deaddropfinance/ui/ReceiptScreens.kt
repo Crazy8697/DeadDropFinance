@@ -400,8 +400,13 @@ fun ReceiptEditScreen(
         if (form.kind == ReceiptKind.RETURN) Pill("return receipt")
         // 0.15.9: the program's Store and Date are boxes in the item card's style, their reasons listed on the right
         if (LocalProgramStyle.current) ProgramStoreDate(form) else {
-            TextFieldRow("Store", form.store, { form.store = it; form.edited("store") }, Modifier.testTag("receipt.store"), warn = form.notes["store"])
-            DateField("Date", form.date, { form.date = it; form.edited("date") }, warn = form.notes["date"], modifier = Modifier.testTag("receipt.date"))
+            // 1.9.6: a flagged field keeps its yellow border and a plain yellow label; why is listed under it, one line
+            val storeWhy = form.notes["store"]?.let { checkThe("store", it) }
+            val dateWhy = form.notes["date"]?.let { checkThe("date", it) }
+            TextFieldRow("Store", form.store, { form.store = it; form.edited("store") }, Modifier.testTag("receipt.store"), warn = storeWhy, listed = true)
+            storeWhy?.let { ReasonLines(listOf(it)) { "receipt.store.reason" } }
+            DateField("Date", form.date, { form.date = it; form.edited("date") }, warn = dateWhy, modifier = Modifier.testTag("receipt.date"), listed = true)
+            dateWhy?.let { ReasonLines(listOf(it)) { "receipt.date.reason" } }
         }
         SectionTitle("Items")
         form.items.forEachIndexed { i, r -> ItemCard(form, i, r, work, misread[i], envelopes.isNotEmpty(), envelopeOptions) }
@@ -449,28 +454,28 @@ private fun ItemCard(
 ) {
     // 0.15.8: the program's card, as drawn in the approved mockup (ProgramItemCard)
     if (LocalProgramStyle.current) { ProgramItemCard(form, i, r, work, misreadTo, showEnvelope, envelopeOptions); return }
-    // the price the gap points at says which price would add up, before the reader's own doubt about it
-    fun warn(field: String): String? = if (r.checked) null
-        else if (field == "price" && misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else r.unsure[field]
+    // 1.9.6: the same checks as the program's card; the fields keep a yellow border and a plain yellow label, why is listed
+    // stacked under them (the program's narrow layout), and Taxed is the program's slider
     val taxedNow = form.taxedOf(i, work)
-    val taxWarn = warn("taxed") ?: if (!r.checked && taxedNow == null) "not sure whether it's taxed" else null
+    val checks = itemChecks(r, misreadTo, taxedNow)
     ItemCardFrame(Modifier.padding(bottom = 10.dp).alpha(if (r.checked) 0.6f else 1f).testTag("item.card.$i")) {
         if (r.checked) Text("✓ Checked", color = DdfColors.Cyan, style = MaterialTheme.typography.labelMedium, modifier = Modifier.testTag("item.checkedMark.$i"))
-        TextFieldRow("Item", r.text, { v -> form.editItem(i, "name") { it.copy(text = v) } }, Modifier.testTag("item.name.$i"), warn = warn("name"))
+        TextFieldRow("Item", r.text, { v -> form.editItem(i, "name") { it.copy(text = v) } }, Modifier.testTag("item.name.$i"), warn = checks.name, listed = true)
         Row(verticalAlignment = Alignment.Top) {
-            Box(Modifier.weight(0.8f)) { TextFieldRow("Qty", r.qty, { v -> form.editItem(i, "qty") { it.copy(qty = v) } }, Modifier.testTag("item.qty.$i"), warn = warn("qty")) }
+            Box(Modifier.weight(0.8f)) { TextFieldRow("Qty", r.qty, { v -> form.editItem(i, "qty") { it.copy(qty = v) } }, Modifier.testTag("item.qty.$i"), warn = checks.qty, listed = true) }
             HGap(6)
-            Box(Modifier.weight(1f)) { AmountField("Price", r.amount, { v -> form.editItem(i, "price") { it.copy(amount = v) } }, Modifier.testTag("item.price.$i"), warn = warn("price")) }
+            Box(Modifier.weight(1f)) { AmountField("Price", r.amount, { v -> form.editItem(i, "price") { it.copy(amount = v) } }, Modifier.testTag("item.price.$i"), warn = checks.price, listed = true) }
             HGap(6)
-            Box(Modifier.weight(1f)) { ReadOnlyAmount("With tax", form.withTaxOf(i, work), Modifier.testTag("item.withTax.$i")) }
+            Box(Modifier.weight(1f)) { ReadOnlyAmount("With tax", form.withTaxOf(i, work), Modifier.testTag("item.withTax.$i"), warn = checks.withTax, listed = true) }
         }
         qtyLine(r)?.let { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("item.qtyLine.$i")) }
-        TaxedToggle(taxedNow, { v -> form.editItem(i, "taxed") { it.copy(taxed = v) } }, i, taxWarn)
+        TaxedSlider(taxedNow == true, { form.editItem(i, "taxed") { it.copy(taxed = taxedNow != true) } }, checks.taxed != null, i, Modifier.heightIn(min = 48.dp))
         if (showEnvelope) {
             Box(Modifier.testTag("item.envelope.$i")) {
-                Picker("Envelope", envelopeOptions, r.envelopeId, { v -> form.editItem(i, "envelope") { it.copy(envelopeId = v) } }, warn = warn("envelope"))
+                Picker("Envelope", envelopeOptions, r.envelopeId, { v -> form.editItem(i, "envelope") { it.copy(envelopeId = v) } }, warn = checks.envelope, listed = true)
             }
         }
+        if (checks.reasons.isNotEmpty()) Box(Modifier.padding(vertical = 4.dp)) { ItemReasons(i, r.checked, checks.reasons, showChecked = false) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Column(horizontalAlignment = Alignment.End) {
                 TextButton(onClick = { form.items[i] = r.copy(checked = !r.checked) }, modifier = Modifier.testTag("item.checked.$i")) { Text(if (r.checked) "Not checked" else "Checked") }
@@ -488,25 +493,6 @@ fun qtyLine(r: ItemRow): String? {
     val unit = r.unitPrice?.takeIf { (it * q + 500) / 1000 == amount || kotlin.math.abs((it * q + 500) / 1000 - amount) <= 1 } ?: if (q > 0) (amount * 1000 + q / 2) / q else return null
     val qty = Receipts.qty(q)
     return if (r.unit.isNotEmpty()) "$qty ${r.unit} @ ${Money.format(unit)}/${r.unit} = ${Money.format(amount)}" else "$qty @ ${Money.format(unit)} = ${Money.format(amount)}"
-}
-
-/** Taxed or Not taxed: two buttons, the chosen one filled; neither chosen while it's not answered. */
-@Composable
-private fun TaxedToggle(taxed: Boolean?, onChange: (Boolean) -> Unit, i: Int, warn: String?) {
-    Column(Modifier.padding(vertical = 4.dp)) {
-        val shape = RoundedCornerShape(8.dp)
-        Row(
-            Modifier.then(if (warn != null) Modifier.border(1.dp, DdfColors.Warning, shape) else Modifier).padding(2.dp).testTag("item.taxToggle.$i"),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for ((value, label) in listOf(true to "Taxed", false to "Not taxed")) {
-                val tag = if (value) "item.taxed.$i" else "item.untaxed.$i"
-                if (taxed == value) Button(onClick = { onChange(value) }, modifier = Modifier.padding(end = 6.dp).testTag(tag)) { Text(label) }
-                else OutlinedButton(onClick = { onChange(value) }, modifier = Modifier.padding(end = 6.dp).testTag(tag)) { Text(label) }
-            }
-        }
-        if (warn != null) Text(warn, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
-    }
 }
 
 /** A card for one item: the program's Settings card style in the program (0.15.4), the phone's card on the phone. */

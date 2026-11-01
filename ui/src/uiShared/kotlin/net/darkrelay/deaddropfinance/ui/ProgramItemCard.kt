@@ -80,21 +80,11 @@ object ItemCardSizes {
 internal fun ProgramItemCard(
     form: ReceiptForm, i: Int, r: ItemRow, work: ReceiptTax.Result, misreadTo: Long?, showEnvelope: Boolean, envelopeOptions: List<Pair<String?, String>>,
 ) {
-    fun warn(field: String): String? = if (r.checked) null else r.unsure[field]
     val taxedNow = form.taxedOf(i, work)
-    // the price the gap points at says which price would add up, before the reader's own doubt about it
-    val priceWarn = if (r.checked) null else if (misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else r.unsure["price"]
-    val withTaxWarn = if (!r.checked && misreadTo != null) "it does not add up" else null
-    val taxWarn = warn("taxed") ?: if (!r.checked && taxedNow == null) "not sure whether it's taxed" else null
-    val nameWarn = warn("name"); val qtyWarn = warn("qty"); val envWarn = warn("envelope")
-    val reasons = listOfNotNull(
-        nameWarn?.let { checkLine("item name", it, "name") },
-        qtyWarn?.let { checkLine("quantity", it, "quantity") },
-        priceWarn?.let { checkLine("price", it, "price") },
-        withTaxWarn?.let { checkLine("with tax", it, "with tax") },
-        taxWarn?.let { checkLine("taxed", it, "tax mark", "taxed") },
-        envWarn?.let { checkLine("envelope", it, "envelope") },
-    )
+    val checks = itemChecks(r, misreadTo, taxedNow)
+    val nameWarn = checks.name; val qtyWarn = checks.qty; val priceWarn = checks.price
+    val withTaxWarn = checks.withTax; val taxWarn = checks.taxed; val envWarn = checks.envelope
+    val reasons = checks.reasons
     val shape = RoundedCornerShape(10.dp)
     BoxWithConstraints(
         Modifier.padding(bottom = 10.dp).fillMaxWidth().alpha(if (r.checked) 0.6f else 1f).clip(shape)
@@ -102,12 +92,7 @@ internal fun ProgramItemCard(
     ) {
         val inner = maxWidth - 32.dp
         val side = inner - ItemCardSizes.Left - ItemCardSizes.ReasonsGap >= ItemCardSizes.ReasonsMin
-        @Composable fun sideBlock(modifier: Modifier) {
-            Column(modifier.testTag("item.reasons.$i"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (r.checked) Text("✓ Checked", color = DdfColors.Cyan, style = programText(12), modifier = Modifier.testTag("item.checkedMark.$i"))
-                ReasonLines(reasons) { n -> "item.reason.$i.$n" }
-            }
-        }
+        @Composable fun sideBlock(modifier: Modifier) = ItemReasons(i, r.checked, reasons, modifier)
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(Modifier.fillMaxWidth()) {
                 Column(Modifier.width(ItemCardSizes.Left)) {
@@ -131,6 +116,37 @@ internal fun ProgramItemCard(
                 if (side && (reasons.isNotEmpty() || r.checked)) sideBlock(Modifier.padding(start = ItemCardSizes.ReasonsGap, top = 36.dp).weight(1f))
             }
         }
+    }
+}
+
+/** What the reader was not sure of on one item, by field (null: nothing), and the "Check ..." lines they make. */
+internal class ItemChecks(val name: String?, val qty: String?, val price: String?, val withTax: String?, val taxed: String?, val envelope: String?) {
+    val reasons: List<String> = listOfNotNull(
+        name?.let { checkLine("item name", it, "name") },
+        qty?.let { checkLine("quantity", it, "quantity") },
+        price?.let { checkLine("price", it, "price") },
+        withTax?.let { checkLine("with tax", it, "with tax") },
+        taxed?.let { checkLine("taxed", it, "tax mark", "taxed") },
+        envelope?.let { checkLine("envelope", it, "envelope") },
+    )
+}
+
+/** The item's checks, the same on the phone and the program (a Checked item has none). */
+internal fun itemChecks(r: ItemRow, misreadTo: Long?, taxedNow: Boolean?): ItemChecks {
+    fun warn(field: String): String? = if (r.checked) null else r.unsure[field]
+    // the price the gap points at says which price would add up, before the reader's own doubt about it
+    val price = if (r.checked) null else if (misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else r.unsure["price"]
+    val withTax = if (!r.checked && misreadTo != null) "it does not add up" else null
+    val taxed = warn("taxed") ?: if (!r.checked && taxedNow == null) "not sure whether it's taxed" else null
+    return ItemChecks(warn("name"), warn("qty"), price, withTax, taxed, warn("envelope"))
+}
+
+/** An item's Checked mark (unless [showChecked] is false) and its list of reasons, one line each. */
+@Composable
+internal fun ItemReasons(i: Int, checked: Boolean, reasons: List<String>, modifier: Modifier = Modifier, showChecked: Boolean = true) {
+    Column(modifier.testTag("item.reasons.$i"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (checked && showChecked) Text("✓ Checked", color = DdfColors.Cyan, style = programText(12), modifier = Modifier.testTag("item.checkedMark.$i"))
+        ReasonLines(reasons) { n -> "item.reason.$i.$n" }
     }
 }
 
@@ -216,10 +232,10 @@ private fun EnvelopeField(selected: String?, options: List<Pair<String?, String>
 
 /** Taxed: one slider switch with its label; off grey, on teal; yellow outline and label while the reader isn't sure. */
 @Composable
-private fun TaxedSlider(on: Boolean, onToggle: () -> Unit, flagged: Boolean, i: Int) {
+internal fun TaxedSlider(on: Boolean, onToggle: () -> Unit, flagged: Boolean, i: Int, modifier: Modifier = Modifier) {
     val track = RoundedCornerShape(10.dp)
     Row(
-        Modifier.width(ItemCardSizes.Slider).clickable(role = Role.Switch, onClick = onToggle).semantics { selected = on }.testTag("item.taxed.$i"),
+        Modifier.width(ItemCardSizes.Slider).then(modifier).clickable(role = Role.Switch, onClick = onToggle).semantics { selected = on }.testTag("item.taxed.$i"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
