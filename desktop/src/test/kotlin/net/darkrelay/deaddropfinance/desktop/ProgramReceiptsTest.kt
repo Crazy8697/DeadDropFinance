@@ -33,11 +33,14 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         compose.waitForIdle()
     }
 
+    /** 0.15.9: Store and Date are card-style boxes, found by tag. */
+    private fun typeCard(tag: String, text: String) { tag(tag).performScrollTo().performTextInputCleared(text); compose.waitForIdle() }
+
     private fun receipts() = runBlocking { store().dao.receiptsNow() }.filter { !it.deleted }
 
     /** Fills the receipt form: store, total, and one item per (name, price). Nothing was read, so they're marked to check. */
     private fun fill(store: String, total: String, items: List<Pair<String, String>>) {
-        typeMarked("Store", store)
+        typeCard("receipt.store", store)
         typeMarked("Total paid", total)
         items.forEachIndexed { i, (name, price) ->
             clickText("Add an item", exact = true)
@@ -104,9 +107,9 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         clickText("Scan", exact = true)
         clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
-        typeMarked("Store", "Corner Market")
+        typeCard("receipt.store", "Corner Market")
         typeMarked("Total paid", "42.00")
-        typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
+        typeCard("receipt.date", today.minusDays(1).toString())
         clickText("Save receipt", exact = true)
         compose.waitUntil(5_000) { receipts().size == 1 }
         until("Corner Market, $42.00")
@@ -119,9 +122,9 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         clickText("Scan", exact = true)
         clickText("Choose an image or PDF", exact = true)
         until("Save receipt")
-        typeMarked("Store", "Corner Market")
+        typeCard("receipt.store", "Corner Market")
         typeMarked("Total paid", "42.00")
-        typeMarked("Date", today.minusDays(1).toString(), " (yyyy-mm-dd)")
+        typeCard("receipt.date", today.minusDays(1).toString())
         clickText("Save receipt", exact = true)
         until("Matched to Corner Market on")
         compose.waitUntil(5_000) { receipts().size == 2 && receipts().all { it.transactionId != null } }

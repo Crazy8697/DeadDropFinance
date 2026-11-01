@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.runDesktopComposeUiTest
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -39,7 +40,7 @@ class ProgramCheckScreenTest {
 
     @After fun close() { models.forEach { it.engine?.close() }; DdfColors.palette = PhonePalette }
 
-    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5", "0.15.6", "0.15.8") }?.let { File(it).also { d -> d.mkdirs() } }
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5", "0.15.6", "0.15.8", "0.15.9") }?.let { File(it).also { d -> d.mkdirs() } }
 
     private fun run(w: Int, h: Int) = runDesktopComposeUiTest(w, h) {
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }
@@ -79,14 +80,34 @@ class ProgramCheckScreenTest {
         waitForIdle()
         onNodeWithTag("receipt.store", useUnmergedTree = true).performScrollTo()
         waitForIdle()
-        assertTrue(onAllNodesWithText("store wasn't on the photo", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
+        assertTrue(onAllNodesWithText("Check the store, it wasn't on the photo", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         shot("program-check-top")
+        // 0.15.9: Store and Date once they're filled in: no yellow, no list
+        run {
+            onNodeWithTag("receipt.store", useUnmergedTree = true).performTextInput("SAMPLE MART")
+            onNodeWithTag("receipt.date", useUnmergedTree = true).performTextInput("2030-08-14")
+            waitForIdle()
+            assertTrue(onAllNodesWithTag("receipt.store.reason", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+            assertTrue(onAllNodesWithTag("receipt.date.reason", useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+            shot("program-check-top-filled")
+        }
         // 0.15.6: the screen is taller than the window: its scrollbar shows on the right, and the fields end left of it
         val bar = onNodeWithTag("scrollbar.vertical", useUnmergedTree = true).getBoundsInRoot()
         assertTrue(onNodeWithTag("receipt.store", useUnmergedTree = true).getBoundsInRoot().right <= bar.left)
         onNodeWithTag("item.card.3", useUnmergedTree = true).performScrollTo()
         waitForIdle()
         shot("program-check-cards")
+        // 0.15.9: the card's toggle off and on: the label follows it and Checked and Remove hold still
+        run {
+            onNodeWithTag("item.card.3", useUnmergedTree = true).performScrollTo(); waitForIdle()
+            fun x(tag: String) = onNodeWithTag(tag, useUnmergedTree = true).getBoundsInRoot().left
+            val before = x("item.checked.3") to x("item.remove.3")
+            shot("program-card-toggle-on")
+            onNodeWithTag("item.taxed.3", useUnmergedTree = true).performClick(); waitForIdle()
+            assertEquals(before, x("item.checked.3") to x("item.remove.3"), "Checked and Remove didn't move")
+            shot("program-card-toggle-off")
+            onNodeWithTag("item.taxed.3", useUnmergedTree = true).performClick(); waitForIdle()
+        }
         onNodeWithTag("breakdown.total", useUnmergedTree = true).performScrollTo()
         waitForIdle()
         shot("program-check-totals")

@@ -73,7 +73,9 @@ class ProgramItemCardTest {
             // widths as drawn, ten apart
             assertEquals(90f, qty.width, 0.6f); assertEquals(120f, price.width, 0.6f); assertEquals(120f, tax.width, 0.6f)
             assertEquals(10f, price.left - qty.right, 0.6f); assertEquals(10f, tax.left - price.right, 0.6f)
-            assertEquals(200f, env.width, 0.6f); assertEquals(10f, env.left - item.right, 0.6f)
+            assertEquals(296f, env.width, 0.6f); assertEquals(10f, env.left - item.right, 0.6f)
+            // Envelope runs on to Remove's right edge, exactly
+            assertEquals(remove.right, env.right, 0.6f)
             // Item's right edge is With tax's, exactly
             assertEquals(tax.right, item.right, 0.6f); assertEquals(qty.left, item.left, 0.6f)
             // every box is 26 tall
@@ -115,6 +117,52 @@ class ProgramItemCardTest {
         assertTrue(yellow in border("item.price.0.box"), "flagged: yellow border")
         assertTrue(yellow !in border("item.price.1.box"), "clean: no yellow")
     }
+
+    /** 0.15.9: the label follows the switch, and Checked and Remove stay where they are when it's clicked. */
+    @Test fun theTaxedLabelFollowsTheSwitchAndTheButtonsHoldStill() = runDesktopComposeUiTest(1400, 900) {
+        show(form())
+        fun x(tag: String) = box(tag).left
+        val before = x("item.checked.1") to x("item.remove.1")
+        assertTrue(onAllNodesWithText("Not taxed", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(), "off reads Not taxed")
+        onNodeWithTag("item.taxed.1", useUnmergedTree = true).performClick(); waitForIdle()
+        assertEquals(before, x("item.checked.1") to x("item.remove.1"))
+        // item 1 is on: one switch now reads Taxed
+        assertEquals(1, onAllNodesWithText("Taxed", useUnmergedTree = true).fetchSemanticsNodes().size)
+        onNodeWithTag("item.taxed.1", useUnmergedTree = true).performClick(); waitForIdle()
+        assertEquals(before, x("item.checked.1") to x("item.remove.1"))
+    }
+
+    /** 0.15.9: Store and Date as boxes in the card style, their reasons in the cards' own column. */
+    @Test fun storeAndDateAreCardStyleBoxesWithTheirReasonsListedOnTheRight() = runDesktopComposeUiTest(1400, 900) {
+        val lines = listOf("SAMPLE CREAM 9.49" to 40, "TOTAL 9.49" to 95)
+        val f = ReceiptForm.from(ReceiptParser.parseLines(lines.map { (t, c) -> ReceiptParser.Line(t, c) }))
+        show(f)
+        val store = box("receipt.store.box"); val date = box("receipt.date.box"); val today = box("receipt.today"); val item = box("item.name.0.box")
+        assertEquals(26f, store.height, 0.6f); assertEquals(26f, date.height, 0.6f); assertEquals(26f, today.height, 0.6f)
+        assertEquals(350f, store.width, 0.6f); assertEquals(200f, date.width, 0.6f)
+        // Store's edges are the Item boxes' below
+        assertEquals(item.left, store.left, 0.6f); assertEquals(item.right, store.right, 0.6f); assertEquals(item.left, date.left, 0.6f)
+        assertEquals(10f, today.left - date.right, 0.6f)
+        // yellow border, plain labels, one line each in the column the cards use
+        val img = onRoot().captureToImage().toAwtImage()
+        val yellow = (ProgramPalette.warning.value shr 32).toInt() and 0xFFFFFF
+        assertTrue((-1..1).any { img.getRGB((store.left + 100).toInt(), (store.top + it).toInt()) and 0xFFFFFF == yellow }, "Store is yellow")
+        for (l in listOf("Store", "Date")) assertTrue(onAllNodesWithText(l, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty(), l)
+        val sr = box("receipt.store.reason"); val dr = box("receipt.date.reason")
+        assertEquals(listOf("Check the store, it wasn't on the photo"), listOf(textOf("receipt.store.reason")))
+        assertEquals(listOf("Check the date, it wasn't on the photo"), listOf(textOf("receipt.date.reason")))
+        assertTrue(sr.height < 20f && dr.height < 20f)
+        assertTrue(has("item.reason.0.0")); assertEquals(box("item.reason.0.0").left, sr.left, 0.6f); assertEquals(sr.left, dr.left, 0.6f)
+        assertTrue(sr.left > store.right && dr.left > today.right)
+    }
+
+    @Test fun aFilledStoreAndDateHaveNoList() = runDesktopComposeUiTest(1400, 900) {
+        show(form())
+        assertTrue(!has("receipt.store.reason") && !has("receipt.date.reason"))
+        assertEquals(26f, box("receipt.store.box").height, 0.6f)
+    }
+
+    private fun ComposeUiTest.textOf(tag: String) = onNodeWithTag(tag, useUnmergedTree = true).fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text }
 
     @Test fun aCleanCardHasNoList() = runDesktopComposeUiTest(1400, 900) {
         val f = form()

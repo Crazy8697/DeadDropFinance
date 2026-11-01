@@ -57,15 +57,18 @@ object ItemCardSizes {
     val Gap = 10.dp
     /** Item's right edge is With tax's: Qty + Price + With tax and the gaps between them. */
     val Item = Qty + Price + WithTax + Gap * 2
-    val Envelope = 200.dp
+    /** Envelope runs on to Remove's right edge: Left less Item and the gap. */
+    val Envelope = 296.dp
     val Button = 80.dp
     /** Twice the text's height, padding included: 13sp text in a 26dp box. */
     val Box = 26.dp
     /** The left block's width: Row 2 through Checked and Remove (slider 36 + label after it, then the buttons). */
-    val Left = 636.dp
+    val Left = 656.dp
     /** The room the side list needs; less than this and it goes under the left block instead. */
     val ReasonsMin = 280.dp
-    val ReasonsGap = 40.dp
+    val ReasonsGap = 74.dp
+    /** The slider and its label ("Taxed" or "Not taxed", the room reserved for the longer): Checked never moves when it is clicked. */
+    val Slider = 114.dp
 }
 
 /**
@@ -102,13 +105,7 @@ internal fun ProgramItemCard(
         @Composable fun sideBlock(modifier: Modifier) {
             Column(modifier.testTag("item.reasons.$i"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (r.checked) Text("✓ Checked", color = DdfColors.Cyan, style = programText(12), modifier = Modifier.testTag("item.checkedMark.$i"))
-                reasons.forEachIndexed { n, line ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(5.dp).background(DdfColors.Warning, CircleShape))
-                        Spacer(Modifier.width(9.dp))
-                        Text(line, color = DdfColors.Warning, style = programText(12), modifier = Modifier.testTag("item.reason.$i.$n"))
-                    }
-                }
+                ReasonLines(reasons) { n -> "item.reason.$i.$n" }
             }
         }
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -137,7 +134,21 @@ internal fun ProgramItemCard(
     }
 }
 
-private fun programText(sp: Int) = TextStyle(fontFamily = ProgramType.family, fontSize = sp.sp, lineHeight = (sp + 4).sp)
+/** One line each, yellow, a small dot, as the item cards and the Store and Date boxes list what to check. */
+@Composable
+internal fun ReasonLines(lines: List<String>, tag: (Int) -> String) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        lines.forEachIndexed { n, line ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(5.dp).background(DdfColors.Warning, CircleShape))
+                Spacer(Modifier.width(9.dp))
+                Text(line, color = DdfColors.Warning, style = programText(12), modifier = Modifier.testTag(tag(n)))
+            }
+        }
+    }
+}
+
+internal fun programText(sp: Int) = TextStyle(fontFamily = ProgramType.family, fontSize = sp.sp, lineHeight = (sp + 4).sp)
 
 /** "Check item name", "Check quantity, read from a smudged line": what the reader said, after its own field word is dropped. */
 internal fun checkLine(phrase: String, reason: String, vararg own: String): String {
@@ -151,11 +162,12 @@ internal fun checkLine(phrase: String, reason: String, vararg own: String): Stri
 
 /** A field box: 26dp (13sp text), its label on the border; a yellow border and label when [flagged], the label's words never change. */
 @Composable
-private fun CompactField(label: String, value: String, onChange: ((String) -> Unit)?, width: Dp, flagged: Boolean, tag: String, decimal: Boolean = false) {
+internal fun CompactField(label: String, value: String, onChange: ((String) -> Unit)?, width: Dp, flagged: Boolean, tag: String, decimal: Boolean = false, error: Boolean = false, placeholder: String? = null) {
     val shape = RoundedCornerShape(6.dp)
-    val line = if (flagged) DdfColors.Warning else DdfColors.Outline
+    val line = if (error) DdfColors.Error else if (flagged) DdfColors.Warning else DdfColors.Outline
     Box(Modifier.width(width).height(ItemCardSizes.Box)) {
         Box(Modifier.matchParentSize().clip(shape).border(1.dp, line, shape).testTag("$tag.box"), contentAlignment = Alignment.CenterStart) {
+            if (placeholder != null && value.isEmpty()) Text(placeholder, color = DdfColors.Muted.copy(alpha = 0.6f), style = programText(13), modifier = Modifier.padding(horizontal = 10.dp))
             BasicTextField(
                 value, { onChange?.invoke(it) }, readOnly = onChange == null, singleLine = true,
                 textStyle = programText(13).copy(color = DdfColors.Text), cursorBrush = SolidColor(DdfColors.Cyan),
@@ -207,7 +219,7 @@ private fun EnvelopeField(selected: String?, options: List<Pair<String?, String>
 private fun TaxedSlider(on: Boolean, onToggle: () -> Unit, flagged: Boolean, i: Int) {
     val track = RoundedCornerShape(10.dp)
     Row(
-        Modifier.width(94.dp).clickable(role = Role.Switch, onClick = onToggle).semantics { selected = on }.testTag("item.taxed.$i"),
+        Modifier.width(ItemCardSizes.Slider).clickable(role = Role.Switch, onClick = onToggle).semantics { selected = on }.testTag("item.taxed.$i"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -220,17 +232,59 @@ private fun TaxedSlider(on: Boolean, onToggle: () -> Unit, flagged: Boolean, i: 
             )
         }
         Spacer(Modifier.width(10.dp))
-        Text("Taxed", color = if (flagged) DdfColors.Warning else if (on) DdfColors.Text else DdfColors.Muted, style = programText(12))
+        Text(if (on) "Taxed" else "Not taxed", color = if (flagged) DdfColors.Warning else if (on) DdfColors.Text else DdfColors.Muted, style = programText(12))
     }
 }
 
 /** Checked and Remove: 80 by 26, outlined, 12sp. */
 @Composable
-private fun CardButton(label: String, onClick: () -> Unit, tag: String) {
+internal fun CardButton(label: String, onClick: () -> Unit, tag: String) {
     val shape = RoundedCornerShape(6.dp)
     Box(
         Modifier.width(ItemCardSizes.Button).height(ItemCardSizes.Box).clip(shape).border(1.dp, DdfColors.Outline, shape)
             .clickable(role = Role.Button, onClick = onClick).testTag(tag),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = DdfColors.Text, style = programText(12), maxLines = 1) }
+}
+
+/**
+ * Store and Date on the check screen (0.15.9), in the item card's style: 26dp boxes with their labels on the border,
+ * Store as wide as the Item boxes below (350) with its edges lined up with them, Date 200 with Today after it. A field
+ * the reader wasn't sure of has a yellow border and a plain yellow label; why is listed, one line starting with "Check",
+ * in the column the item cards list theirs in (under the field when the screen is too narrow for it).
+ */
+@Composable
+internal fun ProgramStoreDate(form: ReceiptForm) {
+    val storeWhy = form.notes["store"]?.let { checkThe("store", it) }
+    val dateWhy = form.notes["date"]?.let { checkThe("date", it) }
+    val dateBad = form.date.isNotBlank() && parseDateOrNull(form.date) == null
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        // the item cards' own edge: their padding
+        val side = maxWidth - 32.dp - ItemCardSizes.Left - ItemCardSizes.ReasonsGap >= ItemCardSizes.ReasonsMin
+        @Composable fun row(why: String?, tag: String, field: @Composable () -> Unit) {
+            Row(Modifier.padding(start = 16.dp, top = 6.dp)) {
+                Column(Modifier.then(if (side) Modifier.width(ItemCardSizes.Left) else Modifier.fillMaxWidth())) {
+                    Row(verticalAlignment = Alignment.CenterVertically) { field() }
+                    if (!side && why != null) Box(Modifier.padding(top = 8.dp)) { ReasonLines(listOf(why)) { "$tag.reason" } }
+                }
+                if (side && why != null) Box(Modifier.padding(start = ItemCardSizes.ReasonsGap).height(ItemCardSizes.Box), contentAlignment = Alignment.CenterStart) { ReasonLines(listOf(why)) { "$tag.reason" } }
+            }
+        }
+        Column {
+            row(storeWhy, "receipt.store") {
+                CompactField("Store", form.store, { form.store = it; form.edited("store") }, ItemCardSizes.Item, storeWhy != null, "receipt.store")
+            }
+            row(dateWhy, "receipt.date") {
+                CompactField("Date", form.date, { form.date = it; form.edited("date") }, 200.dp, dateWhy != null, "receipt.date", error = dateBad, placeholder = "yyyy-mm-dd")
+                Spacer(Modifier.width(ItemCardSizes.Gap))
+                CardButton("Today", { form.date = java.time.LocalDate.now().toString(); form.edited("date") }, "receipt.today")
+            }
+        }
+    }
+}
+
+/** "Check the store, it wasn't on the photo": the reader's own reason, after its field word. */
+internal fun checkThe(field: String, reason: String): String {
+    val r = reason.trim()
+    return if (r.startsWith("$field ", true)) "Check the $field, it ${r.drop(field.length + 1)}" else "Check the $field, $r"
 }

@@ -398,8 +398,11 @@ fun ReceiptEditScreen(
             Text("Fields in yellow weren't clear on the photo, or don't add up. Check them.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         }
         if (form.kind == ReceiptKind.RETURN) Pill("return receipt")
-        TextFieldRow("Store", form.store, { form.store = it; form.edited("store") }, Modifier.testTag("receipt.store"), warn = form.notes["store"])
-        DateField("Date", form.date, { form.date = it; form.edited("date") }, warn = form.notes["date"], modifier = Modifier.testTag("receipt.date"))
+        // 0.15.9: the program's Store and Date are boxes in the item card's style, their reasons listed on the right
+        if (LocalProgramStyle.current) ProgramStoreDate(form) else {
+            TextFieldRow("Store", form.store, { form.store = it; form.edited("store") }, Modifier.testTag("receipt.store"), warn = form.notes["store"])
+            DateField("Date", form.date, { form.date = it; form.edited("date") }, warn = form.notes["date"], modifier = Modifier.testTag("receipt.date"))
+        }
         SectionTitle("Items")
         form.items.forEachIndexed { i, r -> ItemCard(form, i, r, work, misread[i], envelopes.isNotEmpty(), envelopeOptions) }
         TextButton(onClick = { form.items.add(ItemRow("", "1", "")) }) { Text("Add an item") }

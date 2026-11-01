@@ -310,6 +310,9 @@ fun AppRoot(
     // and only while it's still the receipt being checked)
     val draftLock = remember { Any() }
     fun clearDraft() = synchronized(draftLock) { runCatching { platform.saveScanDraft(null) } }
+    // 0.15.9: a saved receipt's edit draft, once Saved or Cleared, is never written again by a write that was already on its way
+    val closedEdits = remember { mutableSetOf<String>() }
+    fun closeEditDraft(id: String) = synchronized(draftLock) { closedEdits += id; runCatching { platform.saveEditDraft(id, null) } }
     LaunchedEffect(scanForm, scanId) {
         val f = scanForm ?: return@LaunchedEffect
         val id = scanId ?: return@LaunchedEffect
@@ -907,8 +910,9 @@ fun AppRoot(
                 }
                 if (!top.isNew && form != null) {
                     LaunchedEffect(form) {
+                        synchronized(draftLock) { closedEdits -= top.id }
                         androidx.compose.runtime.snapshotFlow { form.toJson().toString() }.drop(1)
-                            .collect { j -> withContext(Dispatchers.IO) { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, j) } } } }
+                            .collect { j -> withContext(Dispatchers.IO) { synchronized(draftLock) { if (top.id !in closedEdits) runCatching { platform.saveEditDraft(top.id, j) } } } }
                     }
                 }
                 val pageCount = if (top.isNew) scanPages.size else saved?.pages ?: 0
@@ -920,12 +924,12 @@ fun AppRoot(
                     envelopes = b.fillOrder.filter { !it.isSystem },
                     // 1.9.5: Back keeps the receipt being checked (Clear throws it out)
                     onBack = ::back,
-                    onClear = if (top.isNew) { { dropScan(); back() } } else { { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, null) } }; back() } },
+                    onClear = if (top.isNew) { { dropScan(); back() } } else { { closeEditDraft(top.id); back() } },
                     onAddCamera = { platform.takeReceiptPhoto { addToScan(it) } }, onAddFile = { platform.pickReceiptFile { addToScan(it) } },
                     onSave = {
                         run(scope) {
                             val id = receiptsOps.save(top.id, form.draft(pageCount), if (top.isNew) scanFor else null)
-                            if (!top.isNew) { synchronized(draftLock) { runCatching { platform.saveEditDraft(top.id, null) } }; back(); return@run }
+                            if (!top.isNew) { closeEditDraft(top.id); back(); return@run }
                             val forTx = scanFor
                             scanId = null; scanForm = null; scanPages.clear()
                             clearDraft()

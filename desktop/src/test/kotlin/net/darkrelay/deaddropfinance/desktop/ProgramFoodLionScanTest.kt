@@ -81,7 +81,7 @@ class ProgramFoodLionScanTest : ProgramScreensBase() {
         assertEquals(qtys, (0 until 21).map { text("item.qty.$it") })
         assertEquals("", text("receipt.store"))
         assertEquals("", text("receipt.date"))
-        assertTrue(shows("store wasn't on the photo") && shows("date wasn't on the photo"))
+        assertTrue(shows("Check the store, it wasn't on the photo") && shows("Check the date, it wasn't on the photo"))
         assertEquals("63.56", text("breakdown.untaxed"))
         assertEquals("45.46", text("breakdown.taxed"))
         assertEquals("3.18", text("breakdown.tax"))
@@ -142,6 +142,8 @@ class ProgramFoodLionScanTest : ProgramScreensBase() {
         Thread.sleep(300)
         click("receipt.save")
         compose.waitUntil(5_000) { runBlocking { store().dao.itemsOf(id) }.any { it.text == "SAMPLE DISH SOAP" } }
+        // the draft goes as part of the save, just after its rows are written: wait for that, not for the rows
+        compose.waitUntil(5_000) { File(dir, "receipts").listFiles().orEmpty().none { it.name == "draft" } }
         assertTrue(File(dir, "receipts").listFiles().orEmpty().none { it.name == "draft" }, File(dir, "receipts").list().orEmpty().joinToString())
     }
 
@@ -157,7 +159,7 @@ class ProgramFoodLionScanTest : ProgramScreensBase() {
         // store and date left for the user (never a section header), and the totals as the receipt shows them
         assertEquals("", text("receipt.store"))
         assertEquals("", text("receipt.date"))
-        assertTrue(shows("store wasn't on the photo"))
+        assertTrue(shows("Check the store, it wasn't on the photo"))
         assertEquals("63.56", text("breakdown.untaxed"))
         assertEquals("45.46", text("breakdown.taxed"))
         assertEquals("3.18", text("breakdown.tax"))
