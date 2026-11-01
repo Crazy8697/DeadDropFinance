@@ -1,5 +1,6 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
@@ -40,10 +41,9 @@ class ProgramReceiptsTest : ProgramScreensBase() {
         typeMarked("Total paid", total)
         items.forEachIndexed { i, (name, price) ->
             clickText("Add an item", exact = true)
-            val names = compose.onAllNodes(fieldMatcher("Item"), useUnmergedTree = false)
-            names[i].performTextInputCleared(name)
-            val prices = compose.onAllNodes(fieldMatcher("Price"), useUnmergedTree = false)
-            prices[i].performTextInputCleared(price)
+            // 0.15.8: the item card's own fields (labels sit on the borders), by tag
+            tag("item.name.$i").performScrollTo().performTextInputCleared(name)
+            tag("item.price.$i").performScrollTo().performTextInputCleared(price)
         }
     }
 

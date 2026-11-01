@@ -80,7 +80,9 @@ class ProgramReceiptTaxTest {
         shots?.let { javax.imageio.ImageIO.write(onRoot().captureToImage().toAwtImage(), "png", File(it, "receipt-tax-ask-${w}x$h.png")) }
         // 0.15.4: no letters shown; each item's Taxed toggle is the answer
         onNodeWithTag("item.taxed.0", useUnmergedTree = true).performScrollTo().performClick()
-        onNodeWithTag("item.untaxed.1", useUnmergedTree = true).performScrollTo().performClick()
+        // 0.15.8: one slider per item; an unanswered item shows it off, so Not taxed is on then off
+        onNodeWithTag("item.taxed.1", useUnmergedTree = true).performScrollTo().performClick()
+        onNodeWithTag("item.taxed.1", useUnmergedTree = true).performClick()
         waitForIdle()
         onNodeWithTag("receipt.save", useUnmergedTree = true).assertIsEnabled()
         assertEquals(0, onAllNodesWithTag("tax.ask", useUnmergedTree = true).fetchSemanticsNodes().size)

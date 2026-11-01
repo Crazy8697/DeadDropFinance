@@ -39,7 +39,7 @@ class ProgramCheckScreenTest {
 
     @After fun close() { models.forEach { it.engine?.close() }; DdfColors.palette = PhonePalette }
 
-    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5", "0.15.6") }?.let { File(it).also { d -> d.mkdirs() } }
+    private val shots: File? = System.getProperty("ddf.screens").orEmpty().takeIf { it.isNotBlank() && System.getProperty("ddf.screensRound") in setOf("0.15.4", "0.15.5", "0.15.6", "0.15.8") }?.let { File(it).also { d -> d.mkdirs() } }
 
     private fun run(w: Int, h: Int) = runDesktopComposeUiTest(w, h) {
         val m = SampleBudget.filled(tmp.newFolder("DeadDropFinance")).model.also { models += it }

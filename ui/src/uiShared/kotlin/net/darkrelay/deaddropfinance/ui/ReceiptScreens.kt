@@ -444,6 +444,8 @@ fun ReceiptEditScreen(
 private fun ItemCard(
     form: ReceiptForm, i: Int, r: ItemRow, work: ReceiptTax.Result, misreadTo: Long?, showEnvelope: Boolean, envelopeOptions: List<Pair<String?, String>>,
 ) {
+    // 0.15.8: the program's card, as drawn in the approved mockup (ProgramItemCard)
+    if (LocalProgramStyle.current) { ProgramItemCard(form, i, r, work, misreadTo, showEnvelope, envelopeOptions); return }
     // the price the gap points at says which price would add up, before the reader's own doubt about it
     fun warn(field: String): String? = if (r.checked) null
         else if (field == "price" && misreadTo != null) "price may be misread: ${Money.format(misreadTo)} would make it add up" else r.unsure[field]
