@@ -29,7 +29,7 @@ class PayScheduleSyncTest {
 
     @get:Rule val tmp = TemporaryFolder()
 
-    private val adams = PaySchedule(PaySchedule.Kind.MONTHLY, dayOfMonth = 1, daysEarly = 2)
+    private val firstMinus2 = PaySchedule(PaySchedule.Kind.MONTHLY, dayOfMonth = 1, daysEarly = 2)
 
     @Test fun savedLoggedAndBroughtByAnotherDevice() = runBlocking<Unit> {
         val o = assertIs<DesktopDatabase.Opened.Ok>(DesktopDatabase.open(tmp.newFolder(), clock = { 1_000L }))
@@ -37,11 +37,11 @@ class PayScheduleSyncTest {
         try {
             val bills = BillActions(o.store, today = { LocalDate.of(2026, 11, 27) })
             assertNull(bills.paySchedule())
-            bills.savePaySchedule(adams)
-            assertEquals(adams, bills.paySchedule())
+            bills.savePaySchedule(firstMinus2)
+            assertEquals(firstMinus2, bills.paySchedule())
             val logged = o.store.dao.changes().last()
             assertEquals(BudgetStore.META_ENTITY to BudgetStore.META_PAY_SCHEDULE, logged.entityType to logged.entityId)
-            assertEquals(adams, PaySchedule.fromJson(JSONObject(logged.changedFields).getString("value")))
+            assertEquals(firstMinus2, PaySchedule.fromJson(JSONObject(logged.changedFields).getString("value")))
             assertEquals(LocalDate.of(2026, 11, 27), bills.prediction().next)
 
             val sync = ServerSync(o.store, ServerSyncTest.MemoryPrefs(), ServerSyncTest.MemoryVault(), scope, transportFor = { error("no network here") })
@@ -70,10 +70,10 @@ class PayScheduleSyncTest {
         val o = assertIs<DesktopDatabase.Opened.Ok>(DesktopDatabase.open(tmp.newFolder(), clock = { 1_000L }))
         try {
             assertTrue(BudgetStore.META_PAY_SCHEDULE in BudgetStore.SYNCED_META)
-            o.store.setPaySchedule(adams.toJson())
+            o.store.setPaySchedule(firstMinus2.toJson())
             // saving the same again logs nothing more
             val n = o.store.dao.changes().size
-            o.store.setPaySchedule(adams.toJson())
+            o.store.setPaySchedule(firstMinus2.toJson())
             assertEquals(n, o.store.dao.changes().size)
         } finally {
             o.store.db.close()

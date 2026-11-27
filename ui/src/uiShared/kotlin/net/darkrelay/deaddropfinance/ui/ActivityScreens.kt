@@ -523,7 +523,7 @@ fun TransactionEditScreen(
                     Checkbox(paydayOn, { payday = it; if (!it) fillEnvelopes = false }, enabled = paydayAllowed, modifier = Modifier.testTag("payday"))
                     Column {
                         Text("Payday", color = if (paydayAllowed) androidx.compose.ui.graphics.Color.Unspecified else DdfColors.Muted)
-                        Text("The new budget month starts on this date, and leftovers sweep into Rollover. Only for money in to Ready to assign.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                        Text("The new budget month starts on this date, and every envelope's leftover carries into it. Only for money in to Ready to assign.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 24.dp)) {
@@ -633,7 +633,7 @@ fun TransactionDetailScreen(
     if (askPayday) {
         ConfirmDialog(
             "Mark as payday?",
-            "The budget month closes on ${t.date}, and Fill to target leftovers sweep into Rollover.",
+            "The budget month closes on ${t.date}, and every envelope's leftover carries into the new one.",
             "Mark as payday",
             onCancel = { askPayday = false },
             onConfirm = { askPayday = false; onPayday(true, payFill) },
@@ -735,7 +735,7 @@ fun TransactionDetailScreen(
                 Gap()
                 if (t.isPayday) OutlinedButton(onClick = { onPayday(false, false) }) { Text("Unmark payday") }
                 else Button(onClick = { payFill = false; askPayday = true }) { Text("Mark as payday") }
-                Text("Payday closes the budget month and sweeps Fill to target leftovers into Rollover. Filling envelopes is your choice.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Payday closes the budget month; every envelope's leftover carries into the new one. Filling envelopes is your choice.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
             if (!t.isWash && !t.isPayday && washCandidates.isNotEmpty()) {
                 SectionTitle("Pass it through (wash) with")

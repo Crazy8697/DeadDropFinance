@@ -7,7 +7,7 @@ import androidx.room.TypeConverters
 import java.time.LocalDate
 
 /**
- * The budget database, schema version 15 (a transaction's bank original description and import id). Every version's schema is exported to app/schemas. From 0.6.0 on the
+ * The budget database, schema version 16 (a bill's amount for one budget month). Every version's schema is exported to app/schemas. From 0.6.0 on the
  * app may hold real data, so a version bump always comes with a real Migration and a migration test; a
  * destructive fallback is never configured (docs/DATABASE.md, enforced by DatabaseRulesTest).
  */
@@ -17,9 +17,9 @@ import java.time.LocalDate
         MoveEntity::class, BillEntity::class, BillPaymentEntity::class, ChangeLogEntity::class, MetaEntity::class,
         RuleEntity::class,
         ReceiptEntity::class, ReceiptItemEntity::class, ItemReturnEntity::class,
-        SubscriptionEntity::class, NotifAppEntity::class, ParkedBuyEntity::class, CategoryEntity::class,
+        SubscriptionEntity::class, NotifAppEntity::class, ParkedBuyEntity::class, CategoryEntity::class, BillMonthEntity::class,
     ],
-    version = 15,
+    version = 16,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -49,6 +49,14 @@ object SchemaChanges {
     val V14_V15 = listOf(
         "ALTER TABLE `txn` ADD COLUMN `original_description` TEXT",
         "ALTER TABLE `txn` ADD COLUMN `import_id` TEXT",
+    )
+
+    /** 15 to 16 (phone 1.9.9, program 0.15.12): a bill's amount for one budget month (Bills, Coming up, This month). */
+    val V15_V16 = listOf(
+        "CREATE TABLE IF NOT EXISTS `bill_month` (`id` TEXT NOT NULL, `bill_id` TEXT NOT NULL, `month_start` TEXT NOT NULL, `amount` INTEGER, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL, `deleted` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "CREATE INDEX IF NOT EXISTS `index_bill_month_bill_id` ON `bill_month` (`bill_id`)",
+        // money assigned ahead to the next budget month (1.9.9)
+        "ALTER TABLE `envelope_move` ADD COLUMN `for_month` TEXT",
     )
 }
 

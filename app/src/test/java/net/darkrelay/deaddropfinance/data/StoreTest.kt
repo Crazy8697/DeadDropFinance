@@ -122,7 +122,7 @@ class StoreTest {
         assertEquals(before, changes().size)
     }
 
-    @Test fun paydaySweepsFillsAndUnmarks() = runBlocking<Unit> {
+    @Test fun paydayCarriesOverFillsAndUnmarks() = runBlocking<Unit> {
         val acct = a.saveAccount(null, "Test Bank", AccountType.BANK, 0, d)
         val g = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Groceries", EnvelopeMode.FILL_TO_TARGET, target = 90_00))
         val s = a.saveEnvelope(null, BudgetActions.EnvelopeDraft("Savings", EnvelopeMode.ADD_EVERY_PAYDAY, perPayday = 25_00))
@@ -132,13 +132,14 @@ class StoreTest {
         var b = a.snapshot()
         assertEquals(90_00L, b.envelopeBalance(g))
         assertEquals(25_00L, b.envelopeBalance(s))
-        // spend some, then the next payday sweeps the leftover into Rollover and fills again
+        // spend some, then the next payday: the leftover 30 carries over (1.9.9, nothing swept) and the fill tops it up
         a.saveTransaction(null, TransactionDraft(acct, d.plusDays(3), "Corner Grocer", "", -60_00, listOf(LineDraft(g, -60_00))))
         val p2 = a.saveTransaction(null, TransactionDraft(acct, d.plusDays(14), "Sample Payroll Co", "", 500_00, listOf(LineDraft(null, 500_00, toReadyToAssign = true))))
         val plan2 = a.markPayday(p2, d.plusDays(14), fill = true)
-        assertEquals(30_00L, plan2.sweeps.single().amount)
+        assertTrue(plan2.sweeps.isEmpty())
+        assertEquals(60_00L, plan2.fills.first { it.toEnvelopeId == g }.amount)
         b = a.snapshot()
-        assertEquals(30_00L, b.envelopeBalance(b.rollover!!.id))
+        assertEquals(0L, b.envelopeBalance(b.rollover!!.id))
         assertEquals(90_00L, b.envelopeBalance(g))
         assertEquals(50_00L, b.envelopeBalance(s))
         assertEquals(0L, b.sortedCheck)

@@ -60,10 +60,11 @@ object Bills {
         return bank[earlier]!!.sumOf { it.amount }
     }
 
-    fun cycles(b: BillEntity, payments: List<BillPaymentEntity>, through: LocalDate): List<Cycle> {
+    /** [amountOf] (1.9.9): an amount typed for the month an occurrence falls in, which counts instead of the expected one. */
+    fun cycles(b: BillEntity, payments: List<BillPaymentEntity>, through: LocalDate, amountOf: ((LocalDate) -> Long?)? = null): List<Cycle> {
         val mine = live(payments, b)
         val byDue = mine.groupBy { periodOf(it, b) }
-        return dueDates(b, through).map { d -> Cycle(b, d, expectedFor(b, d, mine), byDue[d].orEmpty()) }
+        return dueDates(b, through).map { d -> Cycle(b, d, amountOf?.invoke(d) ?: expectedFor(b, d, mine), byDue[d].orEmpty()) }
     }
 
     /**

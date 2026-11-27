@@ -122,12 +122,13 @@ class AddAndBackupTest {
         save()
         assertNull(m.dialog, m.message?.first)
         assertEquals(Budget.Month(SampleBudget.today, null), b().months(SampleBudget.today).first())
-        // 0.9.0: the month closes, so Fill to target leftovers go to Rollover; nothing is filled
+        // the month closes; 0.15.12: every leftover carries over (nothing goes to Rollover) and nothing is filled
         val added = b().moves.filter { mv -> before.moves.none { it.id == mv.id } }
-        assertTrue(added.isNotEmpty() && added.all { it.kind == MoveKind.SWEEP && it.toEnvelopeId == rollover }, "$added")
+        assertTrue(added.isEmpty(), "$added")
+        assertEquals(before.envelopeBalance(rollover), b().envelopeBalance(rollover))
         assertTrue(b().moves.none { it.kind == MoveKind.AUTOFILL && it.date == SampleBudget.today })
         assertEquals(before.readyToAssign + 300_00, b().readyToAssign)
-        assertTrue(m.message!!.first.contains("swept into Rollover"), m.message?.first)
+        assertTrue(m.message!!.first.startsWith("Payday: the new budget month starts"), m.message?.first)
     }
 
     @Test fun moneyInThatIsntAPaydayIsPlainMoneyIn() {

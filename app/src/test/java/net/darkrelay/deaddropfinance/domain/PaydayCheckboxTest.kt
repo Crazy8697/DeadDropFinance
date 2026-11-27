@@ -104,7 +104,7 @@ class PaydayCheckboxTest {
         assertEquals(listOf(Payday.Shortfall(food, 300_00, 100_00)), plan.shortfalls)
     }
 
-    @Test fun aPaydayWithoutFillSweepsLeftoversToRolloverAndFillsNothing() = runBlocking<Unit> {
+    @Test fun aPaydayWithoutFillCarriesLeftoversOverAndFillsNothing() = runBlocking<Unit> {
         val first = LocalDate.of(2030, 3, 1)
         a.savePayday(pay(first, 1500_00), fill = true, today = first)
         val before = a.snapshot()
@@ -112,29 +112,32 @@ class PaydayCheckboxTest {
         val second = LocalDate.of(2030, 3, 15)
         val plan = a.savePayday(pay(second, 200_00), fill = false, today = second).second
         val after = a.snapshot()
-        // 1.4.0: the month closes, so Fill to target leftovers sweep into Rollover; nothing is filled
-        assertEquals(2, plan.sweeps.size)
+        // the month closes; 1.9.9: every leftover carries into the new one (nothing swept into Rollover), nothing is filled
+        assertTrue(plan.sweeps.isEmpty())
         assertTrue(plan.fills.isEmpty())
-        assertEquals(0L, after.envelopeBalance(rent))
-        assertEquals(0L, after.envelopeBalance(food))
-        assertEquals(before.envelopeBalance(rollover) + 800_00 + 300_00, after.envelopeBalance(rollover))
-        assertTrue(after.moves.filter { it.date == second }.all { it.kind == MoveKind.SWEEP })
+        assertEquals(before.envelopeBalance(rent), after.envelopeBalance(rent))
+        assertEquals(before.envelopeBalance(food), after.envelopeBalance(food))
+        assertEquals(before.envelopeBalance(rollover), after.envelopeBalance(rollover))
+        assertTrue(after.moves.none { it.date == second })
         assertEquals(before.readyToAssign + 200_00, after.readyToAssign)
         assertEquals(Budget.Month(second, null), after.months(second).first())
     }
 
-    @Test fun aPaydayWithFillSweepsThenFills() = runBlocking<Unit> {
+    @Test fun aPaydayWithFillCarriesOverThenTopsUp() = runBlocking<Unit> {
         val first = LocalDate.of(2030, 3, 1)
         a.savePayday(pay(first, 1500_00), fill = true, today = first)
-        val rollover = a.snapshot().rollover!!.id
+        val before = a.snapshot()
+        val rollover = before.rollover!!.id
         val second = LocalDate.of(2030, 3, 15)
         val plan = a.savePayday(pay(second, 1100_00), fill = true, today = second).second
         val after = a.snapshot()
-        assertEquals(2, plan.sweeps.size)
-        assertEquals(2, plan.fills.size)
+        // 1.9.9: both are still full (carried over), so nothing is swept and nothing needs filling
+        assertTrue(plan.sweeps.isEmpty())
+        assertTrue(plan.fills.isEmpty())
         assertEquals(800_00L, after.envelopeBalance(rent))
         assertEquals(300_00L, after.envelopeBalance(food))
-        assertEquals(1100_00L, after.envelopeBalance(rollover))
+        assertEquals(before.envelopeBalance(rollover), after.envelopeBalance(rollover))
+        assertEquals(before.readyToAssign + 1100_00, after.readyToAssign)
     }
 
     @Test fun editingAnExistingDepositMakesItAPaydayOrUnmarksIt() = runBlocking<Unit> {

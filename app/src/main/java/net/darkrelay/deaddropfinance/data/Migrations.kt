@@ -167,5 +167,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13, V13_V14, V14_V15)
+    /** 15 to 16 (1.9.9): a bill's amount for one budget month; one new table (the program runs the same SQL). */
+    val V15_V16 = object : Migration(15, 16) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SchemaChanges.V15_V16.forEach { db.execSQL(it) }
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13, V13_V14, V14_V15, V15_V16)
 }

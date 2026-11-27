@@ -30,12 +30,13 @@ class PaydayTest {
         assertTrue("nothing is swept when no month closes", noClose.sweeps.isEmpty())
         assertEquals(listOf(Payday.PlannedMove(null, "g", 60_00)), noClose.fills)
 
+        // 1.9.9: a month closing carries the 30 over too (nothing swept), so it tops up the same 60
         val closes = Payday.plan(budget(30_00 + 500_00, env, moves), today, closesMonth = true)
-        assertEquals("the 30 is swept to Rollover first", listOf(Payday.PlannedMove("g", "roll", 30_00)), closes.sweeps)
-        assertEquals("then the envelope fills from 0 to 90", listOf(Payday.PlannedMove(null, "g", 90_00)), closes.fills)
+        assertTrue("nothing is swept: leftovers carry over", closes.sweeps.isEmpty())
+        assertEquals(listOf(Payday.PlannedMove(null, "g", 60_00)), closes.fills)
     }
 
-    @Test fun closingTheMonthSweepsFillToTargetLeftoversOnly() {
+    @Test fun closingTheMonthCarriesEveryLeftoverAndOverspending() {
         val b = budget(
             30_00 + 20_00 + 10_00 + 1000_00,
             listOf(F.envelope("g", target = 90_00, order = 1), F.envelope("s", EnvelopeMode.ADD_EVERY_PAYDAY, order = 2, perPayday = 5_00), F.envelope("neg", target = 10_00, order = 3)),
@@ -43,10 +44,10 @@ class PaydayTest {
             txs = listOf(F.tx("t", "a", -10_00)), lines = listOf(F.line("t", -10_00, "neg")),
         )
         val p = Payday.plan(b, today, closesMonth = true)
-        // g's 30 goes to Rollover; s (add every payday) is never swept; neg (-10) has nothing to sweep
-        assertEquals(listOf(Payday.PlannedMove("g", "roll", 30_00)), p.sweeps)
-        // then auto-fill: g 0 -> 90, s +5, neg -10 -> 10 (20)
-        assertEquals(listOf(Payday.PlannedMove(null, "g", 90_00), Payday.PlannedMove(null, "s", 5_00), Payday.PlannedMove(null, "neg", 20_00)), p.fills)
+        // 1.9.9: nothing swept; g keeps its 30, s its 20, neg its -10 (carried as negative)
+        assertTrue(p.sweeps.isEmpty())
+        // then auto-fill: g 30 -> 90, s +5, neg -10 -> 10 (20)
+        assertEquals(listOf(Payday.PlannedMove(null, "g", 60_00), Payday.PlannedMove(null, "s", 5_00), Payday.PlannedMove(null, "neg", 20_00)), p.fills)
     }
 
     @Test fun fillsInListOrderAndReportsShortfalls() {

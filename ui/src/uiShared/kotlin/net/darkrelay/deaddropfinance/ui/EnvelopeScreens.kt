@@ -53,20 +53,44 @@ fun EnvelopesScreen(
     budget: Budget, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onMove: () -> Unit, onReorder: (List<String>) -> Unit, today: LocalDate = LocalDate.now(),
     /** 1.9.4: Scan receipt, beside Move money and Add (null hides it). */
     onScan: (() -> Unit)? = null,
+    /** 1.9.9: the Payday button's work (the account, the bank balance, Clean up); returns what to say. Null hides it. */
+    onPayday: (suspend (String, Long, Boolean) -> String)? = null,
+    /** 1.9.9: the next budget month when it's the one shown (the month picker's forward arrow), else null. */
+    next: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? = null,
+    /** 1.9.9: the month picker's arrows (true: the next budget month); null hides the picker. */
+    onNext: ((Boolean) -> Unit)? = null,
+    /** 1.9.9: Assign, for the next budget month. */
+    onAssignAhead: () -> Unit = {},
 ) {
     val list = budget.fillOrder
+    var payday by remember { mutableStateOf(false) }
+    if (payday && onPayday != null) PaydayPopup(budget, today, onClose = { payday = false }, onRun = onPayday)
     val archived = budget.envelopes.filter { it.archived }
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Envelopes", onBack = null) {
             if (onScan != null) TextButton(onClick = onScan, modifier = Modifier.testTag("envelopes.scan")) { Text("Scan receipt") }
+            if (onPayday != null) TextButton(onClick = { payday = true }, modifier = Modifier.testTag("envelopes.payday")) { Text("Payday") }
             TextButton(onClick = onMove) { Text("Move money") }
             TextButton(onClick = onAdd) { Text("Add") }
         }
+        // 1.9.9: a scheduled payday that came and isn't marked; the month doesn't roll on its own
+        budget.paydayDue(today)?.let { due ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).testTag("envelopes.paydayDue"), verticalAlignment = Alignment.CenterVertically) {
+                Text(paydayDueLine(due), color = DdfColors.Warning, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                if (onPayday != null) TextButton(onClick = { payday = true }, modifier = Modifier.testTag("envelopes.paydayDue.go")) { Text("Payday") }
+            }
+        }
         val month = budget.months(today).first()
-        Text(assignedLine(budget.assignedIn(month), budget.incomeIn(month)), style = MaterialTheme.typography.titleSmall, color = DdfColors.Cyan)
+        if (onNext != null) BudgetMonthPicker(if (next != null) next.nextLabel else thisMonthLabel(month), back = next != null, forward = next == null, onBack = { onNext(false) }, onForward = { onNext(true) })
+        if (next != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("${Money.format(budget.assignedAhead)} assigned ahead. Ready to assign ${Money.format(budget.readyToAssign)}", style = MaterialTheme.typography.titleSmall, color = DdfColors.Cyan, modifier = Modifier.weight(1f).testTag("envelopes.aheadLine"))
+                TextButton(onClick = onAssignAhead, modifier = Modifier.testTag("envelopes.assignAhead")) { Text("Assign") }
+            }
+        } else Text(assignedLine(budget.assignedIn(month), budget.incomeIn(month)), style = MaterialTheme.typography.titleSmall, color = DdfColors.Cyan)
         Text("Fill order, drag the handle to change it", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         if (list.size <= 1) EmptyState("No envelopes yet besides Rollover. Add one to give your money a job.")
-        ReorderableList(list, budget, onEnvelope, onReorder)
+        ReorderableList(list, budget, onEnvelope, onReorder, next)
         if (archived.isNotEmpty()) {
             SectionTitle("Archived")
             archived.forEach { e -> EnvelopeRow(e, budget, onClick = { onEnvelope(e.id) }) }
@@ -76,7 +100,7 @@ fun EnvelopesScreen(
 }
 
 @Composable
-private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelope: (String) -> Unit, onReorder: (List<String>) -> Unit) {
+private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelope: (String) -> Unit, onReorder: (List<String>) -> Unit, next: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? = null) {
     val byId = list.associateBy { it.id }
     var order by remember(list.map { it.id }) { mutableStateOf(list.map { it.id }) }
     var dragging by remember { mutableStateOf<String?>(null) }
@@ -92,7 +116,7 @@ private fun ReorderableList(list: List<EnvelopeEntity>, budget: Budget, onEnvelo
                     .zIndex(if (dragging == id) 1f else 0f)
                     .graphicsLayer { translationY = if (dragging == id) offset else 0f },
             ) {
-                EnvelopeRow(e, budget, onClick = { onEnvelope(id) }, handle = {
+                EnvelopeRow(e, budget, onClick = { onEnvelope(id) }, next = next, handle = {
                     Text(
                         "≡", color = DdfColors.Muted, style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.padding(end = 12.dp).pointerInput(id) {
@@ -148,7 +172,11 @@ fun EnvelopeDetailScreen(
                 Text(modeName(envelope.mode), color = DdfColors.Muted)
                 Text(Money.format(bal), style = MaterialTheme.typography.headlineMedium, color = if (bal < 0) DdfColors.Warning else DdfColors.Cyan)
                 when (envelope.mode) {
-                    EnvelopeMode.FILL_TO_TARGET -> Detail("Target", envelope.target?.let { Money.format(it) } ?: "No target")
+                    EnvelopeMode.FILL_TO_TARGET -> {
+                        // 1.9.9: this budget month's target, from its bills' amounts typed for the month
+                        budget.monthTarget(envelope, today)?.let { Detail("Target this month", Money.format(it)) }
+                        Detail("Target", envelope.target?.let { Money.format(it) } ?: "No target")
+                    }
                     EnvelopeMode.ADD_EVERY_PAYDAY, EnvelopeMode.SEASONAL -> Detail("Each payday", envelope.perPayday?.let { Money.format(it) } ?: "Not set")
                     EnvelopeMode.GOAL -> {
                         Detail("Goal", envelope.goalAmount?.let { Money.format(it) } ?: "Not set")
@@ -345,12 +373,14 @@ fun MoveMoneyScreen(
     editing: MoveEntity? = null,
     onSaveEdit: (String?, String?, Long, LocalDate?) -> Unit = { _, _, _, _ -> },
     onDelete: () -> Unit = {},
+    /** 1.9.9: for the next budget month (assigned ahead to it). */
+    next: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? = null,
     onMove: (String?, String?, Long) -> Unit,
 ) {
     // the move's own envelopes stay choosable even when archived
     val shown = budget.fillOrder + budget.envelopes.filter { e -> editing != null && (e.id == editing.fromEnvelopeId || e.id == editing.toEnvelopeId) && budget.fillOrder.none { it.id == e.id } }
     val options: List<Pair<String?, String>> = listOf<Pair<String?, String>>(null to "Ready to assign (${Money.format(budget.readyToAssign)})") +
-        shown.map { it.id to "${it.name} (${Money.format(budget.envelopeBalance(it.id))})" }
+        shown.map { it.id to "${it.name} (${Money.format(if (next != null) budget.nextBalance(it.id) else budget.envelopeBalance(it.id))})" }
     val fullest = budget.fillOrder.maxByOrNull { budget.envelopeBalance(it.id) }?.id
     var from by remember { mutableStateOf(if (editing != null) editing.fromEnvelopeId else if (backToReady) fullest else null) }
     var to by remember { mutableStateOf<String?>(if (editing != null) editing.toEnvelopeId else if (backToReady) null else intoId ?: budget.fillOrder.firstOrNull()?.id) }
@@ -358,7 +388,8 @@ fun MoveMoneyScreen(
     var date by remember { mutableStateOf(editing?.date?.toString() ?: "") }
     var confirmDelete by remember { mutableStateOf(false) }
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
-        ScreenTitle(if (editing != null) "Edit move" else "Move money", onBack)
+        ScreenTitle(if (editing != null) "Edit move" else if (next != null) "Move money, next month" else "Move money", onBack)
+        if (next != null) Text(next.nextLabel, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         if (editing == null && backToReady && budget.readyToAssign < 0) {
             Text("Ready to assign is ${Money.format(budget.readyToAssign)}: more is in envelopes than you have. Move that much back.", color = DdfColors.Warning)
         }
@@ -391,9 +422,14 @@ fun AssignScreen(
     onAdd: (String) -> Unit,
     onAssignAmount: (String, Long) -> Unit,
     shortfalls: List<Payday.Shortfall>?,
+    /** 1.9.9: for the next budget month: what each envelope wants then, on what it will have. */
+    next: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? = null,
 ) {
+    val bal: (String) -> Long = { id -> if (next != null) budget.nextBalance(id) else budget.envelopeBalance(id) }
+    val day = next?.start ?: today
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
-        ScreenTitle("Assign", onBack)
+        ScreenTitle(if (next != null) "Assign, next month" else "Assign", onBack)
+        if (next != null) Text(next.nextLabel, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 Text("Ready to assign", color = DdfColors.Muted)
@@ -416,11 +452,11 @@ fun AssignScreen(
         }
         ErrorLine(error)
         SectionTitle("Envelopes still short, in fill order")
-        val short = budget.fillOrder.filter { e -> Payday.amountFor(e, budget.envelopeBalance(e.id), budget, today) > 0 }
+        val short = budget.fillOrder.filter { e -> Payday.amountFor(e, bal(e.id), budget, day) > 0 }
         if (short.isEmpty()) EmptyState("Every envelope has what it needs.")
         short.forEach { e ->
             var custom by remember(e.id) { mutableStateOf("") }
-            val want = Payday.amountFor(e, budget.envelopeBalance(e.id), budget, today)
+            val want = Payday.amountFor(e, bal(e.id), budget, day)
             ListRow(onClick = null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -436,6 +472,25 @@ fun AssignScreen(
             }
         }
         Gap(24)
+    }
+}
+
+/** "Payday was due Nov 27. Mark it with Payday." (1.9.9) */
+fun paydayDueLine(due: LocalDate): String = "Payday was due ${due.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US))}. Mark it with Payday."
+
+/** The open budget month on the picker: "This budget month, since Oct 28". */
+fun thisMonthLabel(m: Budget.Month): String = when (val s = m.start) {
+    null -> "This budget month"
+    else -> "This budget month, since ${s.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US))}"
+}
+
+/** Envelopes' month picker (1.9.9): this budget month, and the next one ahead (no further). */
+@Composable
+fun BudgetMonthPicker(label: String, back: Boolean, forward: Boolean, onBack: () -> Unit, onForward: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        TextButton(onClick = onBack, enabled = back, modifier = Modifier.testTag("envelopes.month.back")) { Text("◀") }
+        Text(label, modifier = Modifier.weight(1f).testTag("envelopes.month.label"), style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        TextButton(onClick = onForward, enabled = forward, modifier = Modifier.testTag("envelopes.month.forward")) { Text("▶") }
     }
 }
 

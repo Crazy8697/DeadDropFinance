@@ -43,8 +43,24 @@ class Budget(
      * Categories, but never count in envelopes, Ready to Assign, Safe to Spend or the assigned total. Null: none set.
      */
     val budgetStart: LocalDate? = null,
+    /** 1.9.9: the bills' amounts typed for single budget months (Bills, Coming up, This month). */
+    val billMonths: List<net.darkrelay.deaddropfinance.data.BillMonthEntity> = emptyList(),
+    /** 1.9.8: the pay schedule, when one is saved; Bills' budget months follow it. */
+    val paySchedule: PaySchedule? = null,
 ) {
     private val txById = transactions.associateBy { it.id }
+
+    private val monthsByYear = java.util.concurrent.ConcurrentHashMap<Int, BudgetMonths>()
+
+    /** 1.9.9: Bills' budget months, payday to payday ([BudgetMonths]), around [reference]. */
+    fun budgetMonths(reference: LocalDate): BudgetMonths = monthsByYear.getOrPut(reference.year) { BudgetMonths(paydayDates, paySchedule, reference) }
+
+    /** 1.9.9: for [bill]'s occurrences, the amount typed for the budget month that holds each (null: its normal amount). */
+    fun billAmountOf(bill: BillEntity, reference: LocalDate): (LocalDate) -> Long? = BillMonths.amountOf(billMonths, budgetMonths(reference), bill)
+
+    /** 1.9.9: [e]'s target for the budget month holding [date] when its bills have amounts typed for it, else null. */
+    fun monthTarget(e: EnvelopeEntity, date: LocalDate): Long? =
+        if (billMonths.isEmpty()) null else BillMonths.monthTarget(e, bills, billMonths, budgetMonths(date).containing(date))
 
     /** Accounts whose money isn't part of the budget (archived or track only). */
     val offBudgetIds: Set<String> = accounts.filter { !it.onBudget }.map { it.id }.toSet()
@@ -117,10 +133,70 @@ class Budget(
     fun postedBalanceOn(accountId: String, date: LocalDate): Long =
         accounts.firstOrNull { it.id == accountId }?.let { balanceOf(it, postedOnly = true, through = date) } ?: 0L
 
+    /**
+     * 1.9.9 (program 0.15.12): moves assigned ahead to the next budget month, which hasn't started: no payday is marked
+     * on or after a few days ([Paydays.SAME_PAYDAY_DAYS]) before the month they're for. Ready to Assign already gave
+     * them out (so the same dollar can't be assigned twice); the envelopes have them only in the next month.
+     */
+    val aheadMoves: List<MoveEntity> = run {
+        val marked = transactions.filter { it.isPayday }.map { it.date }
+        moves.filter { m -> m.forMonth?.let { f -> marked.none { !it.isBefore(f.minusDays(Paydays.SAME_PAYDAY_DAYS)) } } == true }
+    }
+    private val aheadIds: Set<String> = aheadMoves.mapTo(HashSet()) { it.id }
+
+    /** A move assigned ahead to the next budget month (not in this month's figures). */
+    fun isAhead(m: MoveEntity): Boolean = m.id in aheadIds
+
+    /** Each envelope's money assigned ahead, net (in less out). */
+    val aheadBalances: Map<String, Long> = buildMap {
+        for (m in aheadMoves) {
+            m.toEnvelopeId?.let { put(it, (get(it) ?: 0L) + m.amount) }
+            m.fromEnvelopeId?.let { put(it, (get(it) ?: 0L) - m.amount) }
+        }
+    }
+
+    /** An envelope in the next budget month: what it has now carried over, plus what's assigned ahead to it. */
+    fun nextBalance(id: String): Long = envelopeBalance(id) + (aheadBalances[id] ?: 0L)
+
+    /** Assigned ahead to [envelopeId]: out of Ready to Assign into it, less what went back. */
+    fun assignedAheadTo(envelopeId: String): Long = aheadMoves.sumOf { m ->
+        when {
+            m.fromEnvelopeId == null && m.toEnvelopeId == envelopeId -> m.amount
+            m.toEnvelopeId == null && m.fromEnvelopeId == envelopeId -> -m.amount
+            else -> 0L
+        }
+    }
+
+    /** Assigned ahead in all: out of Ready to Assign, less what went back. */
+    val assignedAhead: Long get() = aheadMoves.sumOf { m ->
+        when {
+            m.fromEnvelopeId == null && m.toEnvelopeId != null -> m.amount
+            m.toEnvelopeId == null && m.fromEnvelopeId != null -> -m.amount
+            else -> 0L
+        }
+    }
+
+    /**
+     * The next budget month (1.9.9): from the payday after the open month's to the one after that, by the pay schedule
+     * when one is saved (monthly on the 1st, 2 days early: Nov 27 to Dec 30), otherwise the app's next payday ([BudgetMonths]).
+     */
+    fun nextMonth(today: LocalDate): BudgetMonths.Window {
+        val bm = budgetMonths(today)
+        val open = paydayDates.lastOrNull { !it.isAfter(today) }
+        return bm.step(bm.containing(open ?: today), 1)
+    }
+
+    /** The scheduled payday that has come without being marked (the Budget screen's banner), or null. */
+    fun paydayDue(today: LocalDate): LocalDate? {
+        if (paySchedule == null) return null
+        return nextMonth(today).start.takeIf { !it.isAfter(today) }
+    }
+
     val envelopeBalances: Map<String, Long> = envelopes.associate { e ->
         var b = 0L
         for (l in budgetLines) if (l.bucket == LineBucket.ENVELOPE && l.envelopeId == e.id) b += l.amount
         for (m in moves) {
+            if (m.id in aheadIds) continue
             if (m.toEnvelopeId == e.id) b += m.amount
             if (m.fromEnvelopeId == e.id) b -= m.amount
         }
@@ -184,7 +260,7 @@ class Budget(
 
     /** sum(budget accounts) + bonus income - (RTA + envelopes + To sort + held): always 0 (washes net to zero in pairs). */
     val sortedCheck: Long
-        get() = overallBalance - (readyToAssign + envelopeBalances.values.sum() + toSortTotal + heldTotal) -
+        get() = overallBalance - (readyToAssign + envelopeBalances.values.sum() + aheadBalances.values.sum() + toSortTotal + heldTotal) -
             transactions.filter { it.isWash && it.kind == TransactionKind.NORMAL && isOnBudget(it.accountId) && countsFor(it.accountId, it.date) }.sumOf { it.amount }
 
     fun envelopeBalance(id: String) = envelopeBalances[id] ?: 0L
@@ -329,7 +405,7 @@ class Budget(
      * What was assigned to envelopes in [m]: out of Ready to Assign, less what was moved back into it, plus income put
      * straight into an envelope. A Rollover sweep (envelope to Rollover) and a return change neither figure.
      */
-    fun assignedIn(m: Month): Long = moves.filter { m.contains(it.date) }.sumOf { mv ->
+    fun assignedIn(m: Month): Long = moves.filter { m.contains(it.date) && it.id !in aheadIds }.sumOf { mv ->
         when {
             mv.fromEnvelopeId == null && mv.toEnvelopeId != null -> mv.amount
             mv.toEnvelopeId == null && mv.fromEnvelopeId != null -> -mv.amount

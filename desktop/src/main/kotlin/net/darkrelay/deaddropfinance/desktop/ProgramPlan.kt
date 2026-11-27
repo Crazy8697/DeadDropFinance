@@ -1,5 +1,9 @@
 package net.darkrelay.deaddropfinance.desktop
 
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -35,8 +39,13 @@ import net.darkrelay.deaddropfinance.domain.Forecast
 import net.darkrelay.deaddropfinance.domain.Paydays
 import net.darkrelay.deaddropfinance.domain.Recurring
 import net.darkrelay.deaddropfinance.ui.Nav
-import net.darkrelay.deaddropfinance.ui.NO_PAYDAY_DAYS
 import net.darkrelay.deaddropfinance.ui.comingUp
+import net.darkrelay.deaddropfinance.ui.MonthAmountBox
+import net.darkrelay.deaddropfinance.ui.lastCheckedText
+import net.darkrelay.deaddropfinance.ui.comingUpLabel
+import net.darkrelay.deaddropfinance.ui.comingUpCount
+import net.darkrelay.deaddropfinance.ui.comingUpView
+import net.darkrelay.deaddropfinance.ui.ComingUpView
 import net.darkrelay.deaddropfinance.ui.dayText
 import net.darkrelay.deaddropfinance.ui.ordinal
 
@@ -100,14 +109,15 @@ fun ProgramBillsScreen(model: AppModel) {
     val plan = rememberPlan(model, b)
     val today = model.today()
     Body {
-        // 0.15.11: this budget month's unpaid bills (before the next payday), and anything overdue
-        val payday = plan?.nextPayday
-        val items = comingUp(b, today, payday)
+        // 0.15.12: one budget month at a time (or a custom range), each bill's earliest unpaid occurrence in it
+        val state = model.comingUp
+        val view = comingUpView(b, today, state)
+        val items = comingUp(b, today, view)
         val live = plan?.series.orEmpty().filter { !it.dismissed }
         CardRow {
             val next = plan?.prediction?.next
             StatCard("Next payday", next?.let { dayText(it) } ?: "Not yet", plan?.prediction?.let { paydayWhy(it) } ?: "", Modifier.weight(1f), hi = true, cyan = true, tag = "card.nextPayday")
-            StatCard("Coming up", net.darkrelay.deaddropfinance.desktop.money(items.sumOf { it.amount }), if (payday != null) "${items.size} unpaid before payday" else "${items.size} unpaid in the next $NO_PAYDAY_DAYS days", Modifier.weight(1f), tag = "card.comingUp")
+            StatCard("Coming up", net.darkrelay.deaddropfinance.desktop.money(items.sumOf { it.amount }), comingUpCount(view, items.size), Modifier.weight(1f), tag = "card.comingUp")
             StatCard("Subscriptions", "${net.darkrelay.deaddropfinance.desktop.money(Recurring.monthlyTotal(live))}/mo",
                 "${live.size} repeating charge${if (live.size == 1) "" else "s"}" + live.count { it.isNew }.let { if (it > 0) ", $it new" else "" },
                 Modifier.weight(1f), tag = "card.subscriptions")
@@ -133,17 +143,33 @@ fun ProgramBillsScreen(model: AppModel) {
             Spacer(Modifier.height(18.dp))
         }
         RowHead("Coming up") {
+            ComingUpPicker(state, view, today)
             Btn("Change payday", { model.dialog = Dialog.NextPayday }, ghost = true, small = true, enabled = plan != null, tag = "bills.payday")
             Btn("Subscriptions", { model.openPhone(Nav.Subscriptions) }, ghost = true, small = true, tag = "bills.subscriptions")
             Btn("Add bill", { model.openPhone(Nav.BillEdit(null)) }, small = true, tag = "bills.add")
         }
-        Table(listOf(Col("Bill", 0.40f), Col("Due", 0.24f), Col("Paid so far", 0.16f, true), Col("Amount", 0.20f, true))) {
+        if (state.custom) {
+            Row(Modifier.padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
+                Field("From", state.from, { state.from = it }, Modifier.width(170.dp), placeholder = "2030-01-31", tag = "comingUp.from")
+                Field("To", state.to, { state.to = it }, Modifier.width(170.dp), placeholder = "2030-01-31", tag = "comingUp.to")
+            }
+        }
+        val scope = androidx.compose.runtime.rememberCoroutineScope()
+        val saveMonth: (String, LocalDate, Long?) -> Unit = { id, month, amount ->
+            scope.launch {
+                val st = model.store() ?: return@launch
+                runCatching { BillActions(st, model.actions!!) { model.today() }.setMonthAmount(id, month, amount) }
+                    .onFailure { model.message = (it.message ?: "That can't be saved.") to true }
+                model.refresh()
+            }
+        }
+        Table(listOf(Col("Bill", 0.27f), Col("Due", 0.19f), Col("This month", 0.14f), Col("Last checked", 0.12f), Col("Paid so far", 0.12f, true), Col("Amount", 0.16f, true))) {
             if (b.bills.isEmpty() && items.isEmpty()) EmptyRow("No bills yet. Add one, or make one from a repeating charge in Subscriptions.")
-            else if (items.isEmpty()) EmptyRow(if (payday != null) "Nothing unpaid before payday." else "Nothing unpaid in the next $NO_PAYDAY_DAYS days.")
-            items.forEach { i ->
+            else if (items.isEmpty()) EmptyRow(if (view is ComingUpView.Month) "Nothing unpaid this month." else "Nothing unpaid in this range.")
+            items.forEachIndexed { n, i ->
                 val open = { if (i.billId != null) model.openPhone(Nav.Bill(i.billId!!)) else i.envelopeId?.let { model.drawerEnvelope = it } }
                 TRow(onClick = { open() }, tag = "bill.${i.name}") {
-                    Cell(0.40f) {
+                    Cell(0.27f) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             T(i.name, maxLines = 1)
                             if (i.autopay) Tag("autopay")
@@ -152,9 +178,13 @@ fun ProgramBillsScreen(model: AppModel) {
                         }
                     }
                     val overdue = i.due.isBefore(today)
-                    Cell(0.24f) { T(if (overdue) "was due ${dayText(i.due)}, overdue" else "due ${dayText(i.due)}", 13.sp, if (overdue) C.Warn else C.Dim) }
-                    Cell(0.16f, true) { T(if (i.partialPaid > 0) money(i.partialPaid) else "", color = C.Dim, align = TextAlign.End) }
-                    Cell(0.20f, true) { T(money(i.amount), align = TextAlign.End, modifier = Modifier.testTag("billAmount.${i.name}")) }
+                    Cell(0.19f) { T(if (overdue) "was due ${dayText(i.due)}, overdue" else "due ${dayText(i.due)}", 13.sp, if (overdue) C.Warn else C.Dim) }
+                    Cell(0.14f) {
+                        if (i.billId != null && i.monthStart != null) MonthAmountBox(i.typed, { a -> saveMonth(i.billId!!, i.monthStart!!, a) }, "comingUp.box.$n", width = 110.dp)
+                    }
+                    Cell(0.12f) { T(lastCheckedText(i.lastChecked), 12.5.sp, C.Dim, modifier = Modifier.testTag("comingUp.checked.$n")) }
+                    Cell(0.12f, true) { T(if (i.partialPaid > 0) money(i.partialPaid) else "", color = C.Dim, align = TextAlign.End) }
+                    Cell(0.16f, true) { T(money(i.amount), align = TextAlign.End, modifier = Modifier.testTag("billAmount.${i.name}")) }
                 }
             }
         }
@@ -162,6 +192,28 @@ fun ProgramBillsScreen(model: AppModel) {
         val suggest = live.count { s -> s.subscription?.billId == null && b.bills.none { bill -> bill.matchText != null && s.keys.any { k -> net.darkrelay.deaddropfinance.domain.Payees.contains(k, bill.matchText!!) } } }
         if (suggest > 0) T("$suggest of them could be bills: open one in Subscriptions and click Make it a bill.", 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 4.dp).testTag("bills.suggest"))
     }
+}
+
+/**
+ * Coming up's month picker (0.15.12), styled like the top bar's: back, the budget month ("Dec 2026"), forward; and
+ * Custom range (its From and To under it), which choosing a month again leaves.
+ */
+@Composable
+private fun ComingUpPicker(state: net.darkrelay.deaddropfinance.ui.ComingUpState, view: ComingUpView, today: LocalDate) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
+    Row(Modifier.clip(shape).background(C.Panel2).border(1.dp, C.Line2, shape).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.clickable { state.custom = false; state.offset -= 1 }.padding(horizontal = 6.dp).testTag("comingUp.back")) { T("◀", 13.sp, C.Dim) }
+        T(comingUpLabel(view), 13.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 4.dp).testTag("comingUp.label"))
+        Box(Modifier.clickable { state.custom = false; state.offset += 1 }.padding(horizontal = 6.dp).testTag("comingUp.forward")) { T("▶", 13.sp, C.Dim) }
+    }
+    Btn(if (state.custom) "Month" else "Custom range", {
+        if (!state.custom) {
+            val w = (view as? ComingUpView.Month)?.window
+            if (state.from.isBlank()) state.from = (w?.start ?: today).toString()
+            if (state.to.isBlank()) state.to = (w?.end?.minusDays(1) ?: today).toString()
+        }
+        state.custom = !state.custom
+    }, ghost = true, small = true, tag = "comingUp.custom")
 }
 
 /**

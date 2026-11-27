@@ -236,10 +236,14 @@ private fun HomeLinkCard(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 }
 
 @Composable
-fun EnvelopeRow(e: EnvelopeEntity, budget: Budget, onClick: () -> Unit, handle: (@Composable () -> Unit)? = null) {
-    val bal = budget.envelopeBalance(e.id)
+fun EnvelopeRow(
+    e: EnvelopeEntity, budget: Budget, onClick: () -> Unit, handle: (@Composable () -> Unit)? = null,
+    /** 1.9.9: the next budget month: what the envelope will have there (carried over plus assigned ahead), and its target then. */
+    next: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? = null,
+) {
+    val bal = if (next != null) budget.nextBalance(e.id) else budget.envelopeBalance(e.id)
     val goal = when (e.mode) {
-        EnvelopeMode.FILL_TO_TARGET -> e.target
+        EnvelopeMode.FILL_TO_TARGET -> if (next != null) budget.monthTarget(e, next.start) ?: e.target else e.target
         EnvelopeMode.GOAL -> e.goalAmount
         else -> null
     }

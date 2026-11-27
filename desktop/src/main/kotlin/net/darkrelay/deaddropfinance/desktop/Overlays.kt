@@ -66,7 +66,10 @@ fun BoxScope.EnvelopeDrawer(model: AppModel, b: Budget, id: String, shell: Shell
             }
             Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatCard("Available", money(avail), null, Modifier.weight(1f), cyan = true, valueSize = 19.sp, tag = "drawer.available")
-                StatCard("Target", target?.let { money(it) } ?: "No target", null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
+                // 0.15.12: this budget month's target, from its bills' amounts typed for the month, says so
+                val monthOnly = model.budget?.monthTarget(e, model.today()) != null
+                StatCard(if (monthOnly) "Target this month" else "Target", target?.let { money(it) } ?: "No target",
+                    if (monthOnly) "From its bills this month; target ${e.target?.let { money(it) } ?: "none"}" else null, Modifier.weight(1f), valueSize = 19.sp, tag = "drawer.target")
             }
         }
         net.darkrelay.deaddropfinance.ui.ScrollColumn(Modifier.weight(1f).fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 18.dp, vertical = 16.dp)) {
@@ -118,6 +121,7 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.EnvelopeForm -> EnvelopeDialog(model, shell, b, d)
         is Dialog.AccountForm -> AccountDialog(model, shell, b, d)
         is Dialog.ImportCsv -> ImportDialog(model, shell, b, d)
+        is Dialog.Payday -> net.darkrelay.deaddropfinance.ui.PaydayPopup(b, model.today(), onClose = { model.dialog = null }, onRun = { a, bank, clean -> model.payday(a, bank, clean) })
         is Dialog.UndoImport -> net.darkrelay.deaddropfinance.ui.UndoImportConfirm(
             d.batch, onCancel = { model.dialog = null },
             onConfirm = { shell.run { if (model.undoImport(d.batch)) model.dialog = null } },
@@ -307,7 +311,7 @@ private fun AddTransactionDialog(model: AppModel, shell: Shell, b: Budget, d: Di
                 envelope != READY_TO_ASSIGN, "f.moneyIn") { moneyIn = it }
         }
         CheckRow("Pending", "Not cleared by the bank yet.", pending, true, "f.pending") { pending = it }
-        CheckRow("Payday", "The new budget month starts on this date, and leftovers sweep into Rollover. Only for money in to Ready to assign.", paydayOn, paydayAllowed, "f.payday") {
+        CheckRow("Payday", "The new budget month starts on this date, and every envelope's leftover carries into it. Only for money in to Ready to assign.", paydayOn, paydayAllowed, "f.payday") {
             payday = it
             if (!it) fill = false
         }
@@ -331,7 +335,9 @@ private fun MoveMoneyDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.
     var date by remember { mutableStateOf(existing?.date?.toString() ?: "") }
     var deleting by remember { mutableStateOf(false) }
     val close = { model.dialog = null }
-    Modal(if (existing != null) "Edit move" else "Move money", 420.dp, close, "dialog.move", footer = {
+    // 0.15.12: on Budget's next budget month, the move is for that month (assigned ahead)
+    val next = if (existing == null) model.shownNext else null
+    Modal(if (existing != null) "Edit move" else if (next != null) "Move money, next budget month" else "Move money", 420.dp, close, "dialog.move", footer = {
         if (existing != null && !deleting) Btn("Delete", { deleting = true }, ghost = true, tag = "dialog.delete")
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
         Btn(if (existing != null) "Save" else "Move", {
@@ -355,7 +361,7 @@ private fun MoveMoneyDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.
         Select("From", places, from, { from = it }, tag = "f.from")
         Select("To", places, to, { to = it }, tag = "f.to")
         Field("Amount", amount, { amount = it }, placeholder = Money.plain(0), tag = "f.amount")
-        val available = if (from == READY_TO_ASSIGN) b.readyToAssign else b.envelopeBalance(from)
+        val available = if (from == READY_TO_ASSIGN) b.readyToAssign else if (next != null) b.nextBalance(from) else b.envelopeBalance(from)
         T("Available to move: ${money(available)}", 11.5.sp, C.Dim2)
     }
 }

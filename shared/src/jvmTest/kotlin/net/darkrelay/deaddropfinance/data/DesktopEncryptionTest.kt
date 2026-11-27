@@ -84,8 +84,8 @@ class DesktopEncryptionTest {
         val (v, hash) = second.store.db.useReaderConnection { c ->
             c.usePrepared("PRAGMA user_version") { it.step(); it.getLong(0) } to c.usePrepared("SELECT identity_hash FROM room_master_table") { it.step(); it.getText(0) }
         }
-        assertEquals(15L, v)
-        assertEquals("1a0e21fa60ecf066fa6927eb78232acb", hash)
+        assertEquals(16L, v)
+        assertEquals("4f56a1bb076b3f15b11fcb1aa5b9a78c", hash)
         second.store.db.close()
     }
 

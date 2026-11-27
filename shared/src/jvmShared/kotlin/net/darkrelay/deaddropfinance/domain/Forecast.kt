@@ -53,7 +53,8 @@ object Forecast {
         fun add(d: LocalDate, o: Out) { fixed.getOrPut(if (d.isBefore(today)) today else d) { mutableListOf() } += o }
 
         for (bill in b.bills.filter { !it.deleted }) {
-            for (c in Bills.cycles(bill, b.billPayments, last).filter { !it.isPaid && it.remaining > 0 }) {
+            // 1.9.9: an amount typed for a budget month counts for that month's occurrence
+            for (c in Bills.cycles(bill, b.billPayments, last, b.billAmountOf(bill, today)).filter { !it.isPaid && it.remaining > 0 }) {
                 add(c.due, Out(bill.name + if (bill.autopay) " (autopay)" else "", c.remaining, if (bill.autopay) Kind.AUTOPAY else Kind.BILL))
             }
         }

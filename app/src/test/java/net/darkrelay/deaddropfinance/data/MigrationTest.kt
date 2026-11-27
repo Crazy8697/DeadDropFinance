@@ -496,4 +496,24 @@ class MigrationTest {
             db.close()
         }
     }
+
+    /** 15 to 16 (1.9.9): a bill's amount for one budget month. A 1.9.8 budget with a bill migrates with it kept; the new table is empty. */
+    @Test fun fifteenToSixteenAddsTheBillMonthTableAndKeepsEveryBill() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-15.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 15)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL("INSERT INTO bill (id, name, envelope_id, amount_due, due_date, recurrence, autopay, reminder, reminder_days, any_amount, varies, created_at, updated_at, deleted) VALUES ('bill-m1', 'Sample Power', NULL, 15000, '2030-12-01', 'MONTHLY', 0, 0, 2, 0, 0, 5, 5, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            assertEquals(1, d.billsNow().count { it.id == "bill-m1" })
+            assertTrue(d.billMonthsNow().isEmpty())
+            d.upsertBillMonth(net.darkrelay.deaddropfinance.data.BillMonthEntity(billId = "bill-m1", monthStart = java.time.LocalDate.of(2030, 11, 28), amount = 123_45, createdAt = 6, updatedAt = 6))
+            assertEquals(123_45L, d.billMonthsNow().single().amount)
+        } finally {
+            db.close()
+        }
+    }
 }

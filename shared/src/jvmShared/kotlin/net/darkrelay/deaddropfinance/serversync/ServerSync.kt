@@ -775,7 +775,7 @@ class ServerSync(
             "account" to "account", "envelope" to "envelope", "transaction" to "txn", "transaction_line" to "txn_line",
             "envelope_move" to "envelope_move", "bill" to "bill", "bill_payment" to "bill_payment", "rule" to "rule", "receipt" to "receipt",
             "receipt_item" to "receipt_item", "item_return" to "item_return", "subscription" to "subscription", "parked_buy" to "parked_buy",
-            "category" to "category",
+            "category" to "category", "bill_month" to "bill_month",
         )
 
         private fun what(type: String, id: String) = when (type) {
@@ -786,6 +786,7 @@ class ServerSync(
             "envelope_move" -> "a money move"
             "bill" -> "a bill"
             "bill_payment" -> "a bill payment"
+            "bill_month" -> "a bill's amount for a month"
             "rule" -> "a rule"
             "receipt" -> "a receipt"
             "receipt_item" -> "a receipt item"

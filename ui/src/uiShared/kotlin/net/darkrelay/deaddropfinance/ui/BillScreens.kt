@@ -49,33 +49,14 @@ fun dayText(d: LocalDate): String = d.format(dayFormat)
 
 // ---- Bills tab ------------------------------------------------------------------------------------------------------
 
-/** Coming up's window before there's a next payday at all (no payday marked and no pay schedule saved). */
-const val NO_PAYDAY_DAYS = 45L
-
-/** One line in Coming up: a bill's unpaid cycle, or a debt envelope's payment due. */
-data class DueItem(val name: String, val due: LocalDate, val amount: Long, val autopay: Boolean, val reminder: Boolean, val partialPaid: Long, val billId: String?, val envelopeId: String?)
-
-/**
- * Coming up (1.9.8, program 0.15.11): this budget month's unpaid bills, due before [nextPayday] (from the pay schedule,
- * or the next payday the app works out without one), and every unpaid one from before, overdue. Before there's any
- * next payday at all (no payday marked, no schedule), the next [NO_PAYDAY_DAYS] days.
- */
-fun comingUp(b: Budget, today: LocalDate, nextPayday: LocalDate?): List<DueItem> {
-    val until = nextPayday?.minusDays(1) ?: today.plusDays(NO_PAYDAY_DAYS)
-    val bills = Bills.comingUp(b.bills, b.billPayments, until).map { c ->
-        DueItem(c.bill.name, c.due, c.remaining, c.bill.autopay, c.bill.reminder, c.paid, c.bill.id, c.bill.envelopeId)
-    }
-    val debts = b.envelopes.filter { it.mode == EnvelopeMode.DEBT && !it.archived && it.requiredPayment != null }.mapNotNull { e ->
-        Bills.nextDebtDue(b, e, today)?.takeIf { !it.isAfter(until) }?.let { DueItem(e.name, it, e.requiredPayment!!, false, e.reminder, 0, null, e.id) }
-    }
-    return (bills + debts).sortedBy { it.due }
-}
-
 @Composable
 fun BillsScreen(
     budget: Budget, today: LocalDate, prediction: Paydays.Prediction, series: List<Recurring.Series>,
     onBill: (String) -> Unit, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onSubscriptions: () -> Unit, onPayday: (net.darkrelay.deaddropfinance.domain.PaySchedule) -> Unit,
     editingPayday: Boolean = false,
+    /** 1.9.9: a bill's This month box saved (its id, the budget month's first day, the amount or null when cleared). */
+    onMonthAmount: (String, LocalDate, Long?) -> Unit = { _, _, _ -> },
+    comingUp: ComingUpState = remember { ComingUpState() },
 ) {
     val next = prediction.effectiveNext(today)
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
@@ -103,25 +84,8 @@ fun BillsScreen(
             }
         }
         SectionTitle("Coming up")
-        val items = comingUp(budget, today, next)
-        if (budget.bills.isEmpty()) {
-            EmptyState("No bills yet. Add one, or make one from a repeating charge in Subscriptions.")
-        } else if (items.isEmpty()) Text(if (next != null) "Nothing unpaid before payday." else "Nothing unpaid in the next $NO_PAYDAY_DAYS days.", color = DdfColors.Muted)
-        items.forEach { i ->
-            ListRow(onClick = { i.billId?.let(onBill) ?: i.envelopeId?.let(onEnvelope) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Row { Text(i.name); if (i.autopay) Pill("autopay"); if (i.billId == null) Pill("debt"); if (i.reminder) Pill("reminder") }
-                        Text(
-                            (if (i.due.isBefore(today)) "was due ${dayText(i.due)}, overdue" else "due ${dayText(i.due)}") +
-                                (if (i.partialPaid > 0) ", ${Money.format(i.partialPaid)} paid so far" else ""),
-                            color = if (i.due.isBefore(today)) DdfColors.Warning else DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                    MoneyText(i.amount)
-                }
-            }
-        }
+        // 1.9.9: one budget month at a time (or a custom range), with each bill's This month box and Last checked
+        ComingUpSection(budget, today, comingUp, onBill, onEnvelope, onMonthAmount)
         Text("Reminders are off unless you turn them on for a bill.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
         val live = series.filter { !it.dismissed }
         SectionTitle("Subscriptions") { TextButton(onClick = onSubscriptions) { Text("All") } }

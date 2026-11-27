@@ -1,6 +1,8 @@
 package net.darkrelay.deaddropfinance.desktop
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -64,15 +66,19 @@ internal fun CardRow(content: @Composable RowScope.() -> Unit) {
 fun BudgetScreen(model: AppModel, shell: Shell) {
     val b = model.budget ?: return
     val m = model.month
+    // 0.15.12: the next budget month (the month picker's forward arrow): money assigned ahead to it, what each will have
+    val next = model.shownNext
     Body {
+        // 0.15.12: a scheduled payday has come and isn't marked; the month doesn't roll on its own
+        b.paydayDue(model.today())?.let { due -> PaydayDueBanner(model, due) }
         val onBudget = b.accounts.count { it.onBudget }
         val (spent, purchases) = model.spendingIn(b)
         val funded = b.fillOrder.count { model.assignedTo(b, it) > 0 }
         CardRow {
-            StatCard("Ready to assign", money(b.readyToAssign), "From $onBudget account${if (onBudget == 1) "" else "s"} in the budget", Modifier.weight(1f), hi = true, cyan = true, tag = "card.rta")
+            StatCard("Ready to assign", money(b.readyToAssign), if (next != null) "Not assigned to either month" else "From $onBudget account${if (onBudget == 1) "" else "s"} in the budget", Modifier.weight(1f), hi = true, cyan = true, tag = "card.rta")
             StatCard("Safe to spend", b.safeToSpend?.let { money(it) } ?: money(0), if (b.safeToSpend == null) "No envelope is marked everyday" else "Everyday envelopes only", Modifier.weight(1f), tag = "card.safe")
-            StatCard("Assigned this month", money(b.assignedIn(m)), "$funded envelope${if (funded == 1) "" else "s"} funded", Modifier.weight(1f), tag = "card.assigned")
-            StatCard("Spent this month", money(spent), "$purchases transaction${if (purchases == 1) "" else "s"}", Modifier.weight(1f), tag = "card.spent")
+            StatCard(if (next != null) "Assigned next month" else "Assigned this month", money(if (next != null) b.assignedAhead else b.assignedIn(m)), "$funded envelope${if (funded == 1) "" else "s"} funded", Modifier.weight(1f), tag = "card.assigned")
+            StatCard(if (next != null) "Spent next month" else "Spent this month", money(spent), "$purchases transaction${if (purchases == 1) "" else "s"}", Modifier.weight(1f), tag = "card.spent")
         }
         // 0.14.0: what the phone's Home showed that nothing else does: over-assigned, the forecast, Pay these now
         BudgetPlanParts(model, shell, b)
@@ -113,10 +119,27 @@ fun BudgetScreen(model: AppModel, shell: Shell) {
     }
 }
 
+/** "Payday was due Nov 27. Mark it with Payday." (0.15.12), with the Payday button. */
+@Composable
+private fun PaydayDueBanner(model: AppModel, due: java.time.LocalDate) {
+    val shape = RoundedCornerShape(10.dp)
+    Row(
+        Modifier.fillMaxWidth().padding(bottom = 18.dp).border(1.dp, C.Warn, shape).background(C.Warn.copy(alpha = 0.06f), shape).padding(horizontal = 14.dp, vertical = 10.dp).testTag("paydayDue"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        T(paydayDueText(due), 13.5.sp, C.Warn, FontWeight.SemiBold, modifier = Modifier.weight(1f).testTag("paydayDue.text"))
+        Btn("Payday", { model.dialog = Dialog.Payday }, small = true, tag = "paydayDue.go")
+    }
+}
+
+/** The banner's words (0.15.12). */
+fun paydayDueText(due: java.time.LocalDate): String = "Payday was due ${due.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", java.util.Locale.US))}. Mark it with Payday."
+
 @Composable
 private fun TableScope.EnvelopeRow(model: AppModel, b: Budget, e: EnvelopeEntity) {
     val target = model.targetOf(e)
-    val avail = b.envelopeBalance(e.id)
+    // 0.15.12: the next budget month: what it has carried over plus what's assigned ahead to it
+    val avail = if (model.aheadShown) b.nextBalance(e.id) else b.envelopeBalance(e.id)
     TRow(onClick = { model.drawerEnvelope = e.id }, tag = "env.${e.name}") {
         Cell(0.34f) {
             Row(verticalAlignment = Alignment.CenterVertically) {

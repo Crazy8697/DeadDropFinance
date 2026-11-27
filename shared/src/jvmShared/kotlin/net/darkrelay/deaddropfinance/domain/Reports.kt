@@ -192,7 +192,7 @@ object Reports {
         val last = month.atEndOfMonth()
         val out = mutableListOf<Due>()
         for (bill in b.bills.filter { !it.deleted }) {
-            for (c in Bills.cycles(bill, b.billPayments, last)) {
+            for (c in Bills.cycles(bill, b.billPayments, last, b.billAmountOf(bill, month.atDay(1)))) {
                 if (YearMonth.from(c.due) == month) out += Due(c.due, bill.name, c.expected, debt = false, autopay = bill.autopay, paid = c.isPaid)
             }
         }

@@ -41,8 +41,8 @@ class ProgramBillsTest : ProgramScreensBase() {
         compose.waitUntil(5_000) { bills().any { it.name == "Sample Water" && it.amountDue == 35_00L } }
         // its detail: Mark paid records the payment
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("bill.Sample Water"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-        // this cycle and the next can both be before the next payday: the first row
-        compose.onAllNodes(androidx.compose.ui.test.hasTestTag("bill.Sample Water"), useUnmergedTree = true)[0].performClick()
+        // 0.15.12: one row per bill in the month; opened from its name (the row's middle is the This month box)
+        clickText("Sample Water", exact = true)
         compose.waitForIdle()
         until("Mark paid")
         clickText("Mark paid", exact = true)

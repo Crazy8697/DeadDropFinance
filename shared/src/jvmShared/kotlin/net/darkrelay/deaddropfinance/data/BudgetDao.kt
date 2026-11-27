@@ -30,6 +30,14 @@ interface BudgetDao {
     @Query("SELECT * FROM bill_payment WHERE deleted = 0")
     fun billPayments(): Flow<List<BillPaymentEntity>>
 
+    @Query("SELECT * FROM bill_month WHERE deleted = 0")
+    fun billMonths(): Flow<List<BillMonthEntity>>
+
+    @Query("SELECT * FROM bill_month WHERE deleted = 0")
+    suspend fun billMonthsNow(): List<BillMonthEntity>
+
+    @Upsert suspend fun upsertBillMonth(e: BillMonthEntity)
+
     @Query("SELECT * FROM category WHERE deleted = 0 ORDER BY sort_order, name")
     fun categories(): Flow<List<CategoryEntity>>
 

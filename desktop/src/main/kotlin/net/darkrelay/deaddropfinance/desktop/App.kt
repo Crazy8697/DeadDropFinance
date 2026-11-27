@@ -325,6 +325,8 @@ private fun TopBar(model: AppModel) = androidx.compose.foundation.layout.BoxWith
         // 0.14.1: Scan, the phone's Scan screen (an image or a PDF, read on this computer)
         if (model.screen == Screen.RECEIPTS && model.budget != null) Btn("Scan", { model.openPhone(net.darkrelay.deaddropfinance.ui.Nav.Scan(null)) }, tag = "top.scan")
         if (budgety && model.budget != null) {
+            // 0.15.12: Payday, with the account's balance from the bank and Clean up
+            Btn("Payday", { model.dialog = Dialog.Payday }, ghost = true, tag = "top.payday")
             Btn("Move money", { model.dialog = Dialog.MoveMoney() }, ghost = true, tag = "top.move")
             Btn("Add transaction", { model.dialog = Dialog.AddTransaction(model.activityTab.takeIf { model.screen == Screen.ACTIVITY }) }, tag = "top.add")
         }
@@ -335,12 +337,15 @@ private fun TopBar(model: AppModel) = androidx.compose.foundation.layout.BoxWith
 private fun MonthPicker(model: AppModel, short: Boolean = false) {
     val months = model.months
     val shape = RoundedCornerShape(7.dp)
+    // 0.15.12: on Budget, the forward arrow opens the next budget month, one ahead of the open one and no further
+    val next = model.shownNext
     Row(Modifier.clip(shape).background(C.Panel2).border(1.dp, C.Line2, shape).padding(horizontal = 6.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        val older = model.monthIndex < months.size - 1
-        val newer = model.monthIndex > 0
-        Box(Modifier.clickable(enabled = older) { model.monthIndex++ }.padding(horizontal = 6.dp).testTag("month.older")) { T("◀", 13.sp, if (older) C.Dim else C.Line2) }
-        T(monthLabel(model.month, short), 13.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 4.dp).testTag("month.label"))
-        Box(Modifier.clickable(enabled = newer) { model.monthIndex-- }.padding(horizontal = 6.dp).testTag("month.newer")) { T("▶", 13.sp, if (newer) C.Dim else C.Line2) }
+        val older = next != null || model.monthIndex < months.size - 1
+        val newer = next == null && (model.monthIndex > 0 || model.screen == Screen.BUDGET)
+        Box(Modifier.clickable(enabled = older) { if (next != null) model.showNext(false) else model.monthIndex++ }.padding(horizontal = 6.dp).testTag("month.older")) { T("◀", 13.sp, if (older) C.Dim else C.Line2) }
+        val label = next?.let { if (short) "Next, ${it.nextLabel.substringAfter("month, ")}" else it.nextLabel } ?: monthLabel(model.month, short)
+        T(label, 13.sp, maxLines = 1, modifier = Modifier.padding(horizontal = 4.dp).testTag("month.label"))
+        Box(Modifier.clickable(enabled = newer) { if (model.monthIndex > 0) model.monthIndex-- else model.showNext(true) }.padding(horizontal = 6.dp).testTag("month.newer")) { T("▶", 13.sp, if (newer) C.Dim else C.Line2) }
     }
 }
 

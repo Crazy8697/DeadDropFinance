@@ -37,7 +37,7 @@ class PayScheduleTest {
         return x
     }
 
-    private val adams = PaySchedule(Kind.MONTHLY, dayOfMonth = 1, daysEarly = 2, moveLater = false)
+    private val firstMinus2 = PaySchedule(Kind.MONTHLY, dayOfMonth = 1, daysEarly = 2, moveLater = false)
 
     @Test fun theFedHolidays2026To2030AreThePublishedOnes() {
         for ((year, days) in published) assertEquals(days, BankHolidays.of(year), "$year")
@@ -47,7 +47,7 @@ class PayScheduleTest {
     }
 
     @Test fun monthlyOnTheFirstTwoDaysEarlyMovedEarlier() {
-        val three = adams.dates(d("2026-11-27"), 3)
+        val three = firstMinus2.dates(d("2026-11-27"), 3)
         assertEquals(listOf(d("2026-11-27"), d("2026-12-30"), d("2027-01-29")), three)
         // each against the rule: Dec 1 less 2 is Sun Nov 29, so Fri Nov 27; Jan 1 less 2 is Wed Dec 30; Feb 1 less 2 is Sat Jan 30, so Fri Jan 29
         assertEquals(byHand(d("2026-12-01"), 2), three[0])
@@ -55,12 +55,12 @@ class PayScheduleTest {
         assertEquals(byHand(d("2027-02-01"), 2), three[2])
         assertEquals(DayOfWeek.FRIDAY, three[0].dayOfWeek)
         // and as the next payday once Nov 27 is marked
-        assertEquals(d("2026-12-30"), Paydays.predict(listOf(d("2026-10-30"), d("2026-11-27")), d("2026-11-28"), schedule = adams).next)
-        assertEquals("Monthly, the 1st, 2 days early", adams.describe())
+        assertEquals(d("2026-12-30"), Paydays.predict(listOf(d("2026-10-30"), d("2026-11-27")), d("2026-11-28"), schedule = firstMinus2).next)
+        assertEquals("Monthly, the 1st, 2 days early", firstMinus2.describe())
     }
 
     @Test fun twentyFourMonthsNeverLandOnAWeekendOrHoliday() {
-        val run = adams.dates(d("2026-11-27"), 24)
+        val run = firstMinus2.dates(d("2026-11-27"), 24)
         assertEquals(24, run.size)
         assertEquals(run.sorted(), run)
         for ((i, x) in run.withIndex()) {
@@ -106,17 +106,17 @@ class PayScheduleTest {
 
     @Test fun theNextPaydayFollowsTheSchedule() {
         // none marked yet: from today
-        assertEquals(d("2026-12-30"), Paydays.predict(emptyList(), d("2026-11-28"), schedule = adams).next)
+        assertEquals(d("2026-12-30"), Paydays.predict(emptyList(), d("2026-11-28"), schedule = firstMinus2).next)
         // marked a day early (Nov 26 for the Nov 27 one): that one, so the next is Dec 30
-        assertEquals(d("2026-12-30"), Paydays.predict(listOf(d("2026-11-26")), d("2026-11-27"), schedule = adams).next)
+        assertEquals(d("2026-12-30"), Paydays.predict(listOf(d("2026-11-26")), d("2026-11-27"), schedule = firstMinus2).next)
         // the last one marked Oct 30: Nov 27 is next, late after it, never a guess
-        val p = Paydays.predict(listOf(d("2026-10-30")), d("2026-11-28"), schedule = adams)
+        val p = Paydays.predict(listOf(d("2026-10-30")), d("2026-11-28"), schedule = firstMinus2)
         assertEquals(d("2026-11-27"), p.next)
         assertTrue(p.late)
         assertFalse(p.guessed)
-        assertEquals(adams, p.schedule)
+        assertEquals(firstMinus2, p.schedule)
         // a date set by hand before is no longer used once there's a schedule
-        assertEquals(d("2026-11-27"), Paydays.predict(listOf(d("2026-10-30")), d("2026-11-20"), correction = d("2026-11-13"), schedule = adams).next)
+        assertEquals(d("2026-11-27"), Paydays.predict(listOf(d("2026-10-30")), d("2026-11-20"), correction = d("2026-11-13"), schedule = firstMinus2).next)
     }
 
     @Test fun withoutAScheduleNothingChanges() {
@@ -131,7 +131,7 @@ class PayScheduleTest {
     }
 
     @Test fun savedAsJsonAndReadBack() {
-        for (s in listOf(adams, adams.copy(moveLater = true), PaySchedule(Kind.BIWEEKLY, anchor = d("2026-11-13")), PaySchedule(Kind.MONTHLY, dayOfMonth = 31))) {
+        for (s in listOf(firstMinus2, firstMinus2.copy(moveLater = true), PaySchedule(Kind.BIWEEKLY, anchor = d("2026-11-13")), PaySchedule(Kind.MONTHLY, dayOfMonth = 31))) {
             assertEquals(s, PaySchedule.fromJson(s.toJson()))
         }
         assertNull(PaySchedule.fromJson(null))

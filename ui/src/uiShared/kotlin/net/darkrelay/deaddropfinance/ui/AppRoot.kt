@@ -63,12 +63,12 @@ sealed interface Nav {
     data class EnvelopeEdit(val id: String?) : Nav
     /** Move money; [backToReady] starts it as a move back into Ready to Assign (fixing an over-assigned budget). */
     /** [intoId]: opened from that envelope's screen, so it starts as Ready to Assign into it. */
-    data class MoveMoney(val intoId: String?, val backToReady: Boolean = false) : Nav
+    data class MoveMoney(val intoId: String?, val backToReady: Boolean = false, val ahead: Boolean = false) : Nav
     /** Edit a move made by hand (1.8.1). */
     data class MoveEdit(val id: String) : Nav
     /** The setup wizard, opened by itself (the program's Settings, 0.14.0); it closes back to the program. */
     data object SetupWizard : Nav
-    data class Assign(val shortfalls: List<Payday.Shortfall>? = null) : Nav
+    data class Assign(val shortfalls: List<Payday.Shortfall>? = null, val ahead: Boolean = false) : Nav
     /** [envelopeId]: opened from that envelope's Add activity, so it starts with the envelope chosen (1.3.0). */
     data class TxEdit(val id: String?, val split: Boolean = false, val accountId: String? = null, val envelopeId: String? = null) : Nav
     data class TxDetail(val id: String) : Nav
@@ -226,13 +226,15 @@ interface Platform {
 
 fun budgetFlow(store: BudgetStore): Flow<Budget> {
     val d = store.dao
-    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments(), d.categories(), d.metaFlow(BudgetStore.META_BUDGET_START)) { a ->
+    return combine(d.accounts(), d.envelopes(), d.transactions(), d.lines(), d.moves(), d.bills(), d.billPayments(), d.categories(), d.metaFlow(BudgetStore.META_BUDGET_START),
+        d.billMonths(), d.metaFlow(BudgetStore.META_PAY_SCHEDULE)) { a ->
         @Suppress("UNCHECKED_CAST")
         Budget(a[0] as List<net.darkrelay.deaddropfinance.data.AccountEntity>, a[1] as List<net.darkrelay.deaddropfinance.data.EnvelopeEntity>,
             a[2] as List<TransactionEntity>, a[3] as List<net.darkrelay.deaddropfinance.data.TransactionLineEntity>,
             a[4] as List<net.darkrelay.deaddropfinance.data.MoveEntity>, a[5] as List<net.darkrelay.deaddropfinance.data.BillEntity>,
             a[6] as List<net.darkrelay.deaddropfinance.data.BillPaymentEntity>, a[7] as List<net.darkrelay.deaddropfinance.data.CategoryEntity>,
-            (a[8] as String?)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() })
+            (a[8] as String?)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() },
+            a[9] as List<net.darkrelay.deaddropfinance.data.BillMonthEntity>, net.darkrelay.deaddropfinance.domain.PaySchedule.fromJson(a[10] as String?))
     }
 }
 
@@ -280,6 +282,8 @@ fun AppRoot(
     var homeCards by remember { mutableStateOf(HomeDashboard.read(appSettings.homeReports)) }
     /** Activity's selected account tab; null is All, where Activity opens. */
     var activityTab by remember { mutableStateOf<String?>(null) }
+    /** 1.9.9: Envelopes shows the next budget month starting this day (the month picker's forward arrow), else null. */
+    var aheadOf by remember { mutableStateOf<LocalDate?>(null) }
     /** 1.8.0: Activity's budget month (0: the open one), and what Export CSV said last. */
     var activityMonth by remember { mutableIntStateOf(0) }
     var exportNote by remember { mutableStateOf<String?>(null) }
@@ -548,6 +552,8 @@ fun AppRoot(
     }
 
     val b = budget ?: return
+    // 1.9.9: the next budget month while Envelopes shows it; a payday marked since makes it the open month (shown as such)
+    val nextShown = aheadOf?.let { a -> b.nextMonth(today).takeIf { it.start == a } }
     // a screen that closes itself and those under it (a deleted bill) when it was the first: back to the program's
     // screen (0.14.0), or Home on the phone
     if (stack.isEmpty()) {
@@ -559,6 +565,8 @@ fun AppRoot(
     val suggestions = remember(b, rules) { Suggest.all(b, rules) }
     val correction by produceState<LocalDate?>(null, planTick) { value = billActions.paydayCorrection() }
     // 1.9.8: the pay schedule decides the next payday once saved (set here, or brought by another device)
+    // 1.9.9: Bills' month picker keeps its place while other screens are open
+    val comingUpState = remember { ComingUpState() }
     val scheduleJson by remember(store) { store.dao.metaFlow(BudgetStore.META_PAY_SCHEDULE) }.collectAsState(initial = null)
     val schedule = remember(scheduleJson) { net.darkrelay.deaddropfinance.domain.PaySchedule.fromJson(scheduleJson) }
     val prediction = remember(b.paydayDates, correction, today, schedule) { net.darkrelay.deaddropfinance.domain.Paydays.predict(b.paydayDates, today, correction, schedule) }
@@ -684,10 +692,15 @@ fun AppRoot(
                 )
             }
             Nav.Envelopes -> EnvelopesScreen(
-                b, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.EnvelopeEdit(null)) }, onMove = { go(Nav.MoveMoney(null)) },
+                b, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.EnvelopeEdit(null)) }, onMove = { go(Nav.MoveMoney(null, ahead = nextShown != null)) },
                 onReorder = { ids -> run(scope) { actions.reorderEnvelopes(ids) } },
                 // 1.9.4: Scan receipt beside Move money and Add; no envelope is preselected (each item picks its own)
                 onScan = { startScan(null) },
+                // 1.9.9: Payday, with the account's balance from the bank and Clean up
+                onPayday = { a, bank, clean -> paydayResultText(actions.payday(a, bank, clean, today)) },
+                // 1.9.9: the month picker; once a payday is marked the next month is the open one
+                next = nextShown, onNext = { on -> aheadOf = if (on) b.nextMonth(today).start else null },
+                onAssignAhead = { go(Nav.Assign(ahead = true)) },
             )
             Nav.Activity -> {
                 val weekAgo = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
@@ -820,7 +833,10 @@ fun AppRoot(
                     claims = claims,
                 )
             }
-            is Nav.MoveMoney -> MoveMoneyScreen(b, top.intoId, error, ::back, backToReady = top.backToReady) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount) } }
+            is Nav.MoveMoney -> {
+                val nx = if (top.ahead) b.nextMonth(today) else null
+                MoveMoneyScreen(b, top.intoId, error, ::back, backToReady = top.backToReady, next = nx) { from, to, amount -> run(scope, popAfter = true) { actions.move(from, to, amount, forMonth = nx?.start) } }
+            }
             Nav.SetupWizard -> Gone(::back)
             is Nav.MoveEdit -> {
                 val m = b.moves.firstOrNull { it.id == top.id }
@@ -833,12 +849,16 @@ fun AppRoot(
                     onDelete = { run(scope, popAfter = true) { actions.deleteMove(m.id) } },
                 ) { _, _, _ -> }
             }
-            is Nav.Assign -> AssignScreen(
-                b, today, error, ::back,
-                onAdd = { id -> run(scope) { if (actions.addToEnvelope(id) == 0L) throw BudgetRuleException("Nothing is ready to assign.") } },
-                onAssignAmount = { id, amount -> run(scope) { actions.assign(id, amount) } },
-                shortfalls = top.shortfalls,
-            )
+            is Nav.Assign -> {
+                // 1.9.9: Assign for the next budget month (from Envelopes' next month): assigned ahead to it
+                val nx = if (top.ahead) b.nextMonth(today) else null
+                AssignScreen(
+                    b, today, error, ::back,
+                    onAdd = { id -> run(scope) { if (actions.addToEnvelope(id, LocalDate.now(), nx) == 0L) throw BudgetRuleException("Nothing is ready to assign.") } },
+                    onAssignAmount = { id, amount -> run(scope) { actions.assign(id, amount, nx?.start) } },
+                    shortfalls = top.shortfalls, next = nx,
+                )
+            }
             is Nav.TxEdit -> TransactionEditScreen(
                 b, b.transactions.firstOrNull { it.id == top.id }, top.split, error, ::back, presetAccount = top.accountId, presetEnvelope = top.envelopeId,
                 onSave = { d -> run(scope, popAfter = true) { val id = actions.saveTransaction(top.id, d); if (top.id != null) offer = sorting.learnAfter(id) as? Sorting.Learned.Offer } },
@@ -1003,6 +1023,7 @@ fun AppRoot(
             Nav.Bills -> BillsScreen(
                 b, today, prediction, series, onBill = { go(Nav.Bill(it)) }, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.BillEdit(null)) },
                 onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { s -> run(scope) { billActions.savePaySchedule(s); planTick++ } },
+                onMonthAmount = { id, month, amount -> run(scope) { billActions.setMonthAmount(id, month, amount) } }, comingUp = comingUpState,
             )
             is Nav.Bill -> {
                 val bill = b.bills.firstOrNull { it.id == top.id }
@@ -1469,6 +1490,7 @@ fun money(c: Long) = Money.format(c)
 
 /** What a payday did, in a line: the month, the sweep into Rollover, and the fill when it was asked for. */
 fun paydayMessage(plan: Payday.Plan, fill: Boolean, date: LocalDate): String {
+    // nothing is swept since 1.9.9 (leftovers carry over); an older payday's sweep can still be in an undo
     val swept = if (plan.sweeps.isEmpty()) "" else " ${plan.sweeps.size} swept into Rollover."
     return if (!fill) "Payday: the new budget month starts $date.$swept"
     else "Payday: ${plan.fills.size} envelopes filled.$swept" + if (plan.shortfalls.isEmpty()) "" else " ${plan.shortfalls.size} didn't fill."

@@ -189,6 +189,19 @@ class BillActions(
     /** The user's own date for the next payday (null: back to the prediction). */
     suspend fun correctPayday(date: LocalDate?) = dao.putMeta(MetaEntity(META_PAYDAY, date?.toString() ?: ""))
 
+    /**
+     * Bills, Coming up, This month (1.9.9): [amount] for [billId] in the budget month starting [monthStart] (null:
+     * cleared, the normal amount counts again). Saving, a clear included, is the bill's Last checked. Exact, as typed.
+     */
+    suspend fun setMonthAmount(billId: String, monthStart: LocalDate, amount: Long?) {
+        if (amount != null && amount < 0) throw BudgetRuleException("Enter an amount, or leave the box empty.")
+        store.write {
+            val w = BudgetMonths.Window(monthStart, monthStart.plusDays(1))
+            val old = BillMonths.rowFor(dao.billMonthsNow(), billId, w)
+            put(old, (old ?: net.darkrelay.deaddropfinance.data.BillMonthEntity(billId = billId, monthStart = monthStart, createdAt = now, updatedAt = now)).copy(amount = amount, updatedAt = now))
+        }
+    }
+
     /** The pay schedule (1.9.8), or null before one is saved. */
     suspend fun paySchedule(): PaySchedule? = PaySchedule.fromJson(store.paySchedule())
 

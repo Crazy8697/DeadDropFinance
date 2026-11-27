@@ -137,13 +137,13 @@ class ProgramPayScheduleTest {
             setContent { DesktopApp(m, Shell(run = { b -> runBlocking { b() } }, settings = Settings(tmp.newFolder()))) }
             waitForIdle()
             click("nav.BILLS")
-            waitUntil(timeoutMillis = 10_000) { shows("unpaid before payday") }
+            waitUntil(timeoutMillis = 10_000) { shows("unpaid this month") }
             // the phone bill once (Dec 27; Nov 27's is paid), rent, the water bill twice (Nov 20 overdue, Dec 20), no gym (due on payday)
             assertEquals(1, onAllNodesWithTag("bill.Sample Phone", useUnmergedTree = true).fetchSemanticsNodes().size)
             assertEquals(2, onAllNodesWithTag("bill.Sample Water", useUnmergedTree = true).fetchSemanticsNodes().size)
             assertTrue(has("bill.Sample Rent") && !has("bill.Sample Gym"))
             assertTrue(shows("was due Nov 20, overdue"))
-            assertEquals("4 unpaid before payday", onAllNodes(hasText("unpaid before payday", substring = true), useUnmergedTree = true)[0].fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text })
+            assertEquals("4 unpaid this month", onAllNodes(hasText("unpaid this month", substring = true), useUnmergedTree = true)[0].fetchSemanticsNode().config[SemanticsProperties.Text].joinToString { it.text })
             shots?.let { ImageIO.write(image(), "png", File(it, "program-bills-coming-up-${w}x$h.png")) }
         }
     }

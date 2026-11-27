@@ -73,6 +73,7 @@ class BudgetStore(
                 is MoveEntity -> dao.upsertMove(new)
                 is BillEntity -> dao.upsertBill(new)
                 is BillPaymentEntity -> dao.upsertBillPayment(new)
+                is BillMonthEntity -> dao.upsertBillMonth(new)
                 is RuleEntity -> dao.upsertRule(new)
                 is ReceiptEntity -> dao.upsertReceipt(new)
                 is ReceiptItemEntity -> dao.upsertReceiptItem(new)
@@ -262,6 +263,7 @@ class BudgetStore(
             is MoveEntity -> "envelope_move"
             is BillEntity -> "bill"
             is BillPaymentEntity -> "bill_payment"
+            is BillMonthEntity -> "bill_month"
             is RuleEntity -> "rule"
             is ReceiptEntity -> "receipt"
             is ReceiptItemEntity -> "receipt_item"

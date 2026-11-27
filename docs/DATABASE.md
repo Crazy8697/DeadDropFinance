@@ -81,6 +81,16 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   with every transaction kept. The program runs the same SQL (`SchemaChanges.V14_V15`). Sync and restore write columns by
   name, so a device on 1.9.6 or 0.15.9 ignores the two and never clears them (`ImportColumnsSyncTest`). Transactions
   from before have neither; an import from before is found by its one write's created-at instant instead.
+- Version 16 (1.9.9, program 0.15.12): a new table `bill_month` (`id`, `bill_id`, `month_start` ISO date, `amount`
+  nullable cents, `created_at`, `updated_at`, `deleted`; index on `bill_id`): a bill's amount for one budget month, typed
+  in Bills, Coming up's This month box (null: cleared, the bill's normal amount counts; its `updated_at` is Last
+  checked). And `for_month` (nullable ISO date) on `envelope_move`: money assigned ahead to the budget month starting
+  then, before its payday is marked (marking the payday dates such moves from the payday on and sets `for_month` to the
+  payday's date). Migration 15 to 16 only creates the table and adds the column; `MigrationTest` checks it on the
+  phone, `DesktopMigrationTest` opens a 0.15.11 (schema 15) budget in the program with every bill kept. The program
+  runs the same SQL (`SchemaChanges.V15_V16`). Sync: `bill_month` is a synced entity of its own, which a device on
+  1.9.8 or 0.15.11 skips (an unknown entity type); sync and restore write columns by name, so such a device ignores
+  `for_month` and never clears it, and its own edit to a move leaves it (`BillsSurviveAndMonthSyncTest`).
 - The receipt reader overhaul and envelope per item (1.9.4, program 0.15.3) needed no schema change: an item's envelope
   is the existing `envelope_id` on `receipt_item` (already synced and in backups), and the last pick for an item name
   is read from those rows. A receipt item's section is used only while the form is open and isn't stored.

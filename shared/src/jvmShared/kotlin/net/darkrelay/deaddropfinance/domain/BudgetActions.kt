@@ -36,6 +36,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     suspend fun snapshot(): Budget = Budget(
         dao.accountsNow(), dao.envelopesNow(), dao.transactionsNow(), dao.linesNow(), dao.movesNow(),
         dao.billsNow(), dao.billPaymentsNow(), dao.categoriesNow(), store.budgetStart(),
+        dao.billMonthsNow(), PaySchedule.fromJson(store.paySchedule()),
     )
 
     // ---- accounts --------------------------------------------------------------------------------------------
@@ -419,11 +420,11 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
     // ---- moving money ----------------------------------------------------------------------------------------
 
     /** From Ready to Assign (null) or an envelope, to an envelope or back to Ready to Assign (null). */
-    suspend fun move(fromEnvelopeId: String?, toEnvelopeId: String?, amount: Long, kind: MoveKind = MoveKind.MOVE, date: LocalDate = LocalDate.now()) {
+    suspend fun move(fromEnvelopeId: String?, toEnvelopeId: String?, amount: Long, kind: MoveKind = MoveKind.MOVE, date: LocalDate = LocalDate.now(), forMonth: LocalDate? = null) {
         if (amount <= 0) throw BudgetRuleException("Enter an amount.")
         if (fromEnvelopeId == toEnvelopeId) throw BudgetRuleException("Choose two different places.")
         store.write {
-            put(null, MoveEntity(fromEnvelopeId = fromEnvelopeId, toEnvelopeId = toEnvelopeId, amount = amount, date = date, kind = kind, createdAt = now, updatedAt = now))
+            put(null, MoveEntity(fromEnvelopeId = fromEnvelopeId, toEnvelopeId = toEnvelopeId, amount = amount, date = date, kind = kind, createdAt = now, updatedAt = now, forMonth = forMonth))
         }
     }
 
@@ -457,20 +458,26 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         }
     }
 
-    /** Assign from Ready to Assign, at most what's there. */
-    suspend fun assign(envelopeId: String, amount: Long) {
+    /**
+     * Assign from Ready to Assign, at most what's there. [forMonth] (1.9.9): assigned ahead to the next budget month,
+     * the one starting then; Ready to Assign gives it out now either way, so nothing can be assigned twice.
+     */
+    suspend fun assign(envelopeId: String, amount: Long, forMonth: LocalDate? = null, today: LocalDate = LocalDate.now()) {
         val rta = snapshot().readyToAssign
         if (amount > rta) throw BudgetRuleException("Only ${Money.format(maxOf(0, rta))} is ready to assign.")
-        move(null, envelopeId, amount, MoveKind.ASSIGN)
+        move(null, envelopeId, amount, MoveKind.ASSIGN, today, forMonth)
     }
 
-    /** The Assign screen's Add: fills an envelope up to what its mode wants this payday, or as much as there is. */
-    suspend fun addToEnvelope(envelopeId: String, today: LocalDate = LocalDate.now()): Long {
+    /**
+     * The Assign screen's Add: fills an envelope up to what its mode wants this payday, or as much as there is. With
+     * [next] (1.9.9), for the next budget month: what it wants then (that month's bill amounts), on what it will have.
+     */
+    suspend fun addToEnvelope(envelopeId: String, today: LocalDate = LocalDate.now(), next: BudgetMonths.Window? = null): Long {
         val b = snapshot()
         val e = b.envelopes.first { it.id == envelopeId }
-        val want = Payday.amountFor(e, b.envelopeBalance(e.id), b, today)
+        val want = if (next == null) Payday.amountFor(e, b.envelopeBalance(e.id), b, today) else Payday.amountFor(e, b.nextBalance(e.id), b, next.start)
         val give = minOf(want, b.readyToAssign)
-        if (give > 0) move(null, envelopeId, give, MoveKind.ASSIGN)
+        if (give > 0) move(null, envelopeId, give, MoveKind.ASSIGN, today, next?.start)
         return give
     }
 
@@ -500,12 +507,15 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         if (tx.returnOf != null) throw BudgetRuleException("A return isn't income, so it can't be a payday.")
         if (snapshot().beforeStart(tx)) throw BudgetRuleException("That's before the budget start date, so it doesn't count in the budget.")
         return store.write {
+            // 1.9.9: what was assigned ahead becomes the new month's, dated from the payday on (an undone payday puts it ahead again)
+            val before = snapshot()
+            for (m in before.aheadMoves) put(m, m.copy(date = if (m.date.isBefore(tx.date)) tx.date else m.date, forMonth = tx.date, updatedAt = now))
             put(tx, tx.copy(isPayday = true, sortedBy = SortedBy.HAND, sortedAt = now, ruleId = null, updatedAt = now))
             // the deposit itself lands in Ready to Assign
             replaceLines(this, tx.id, listOf(LineDraft(null, tx.amount, toReadyToAssign = true)))
             val b = snapshot()
             val closes = b.paydayDates.any { it.isBefore(tx.date) } || b.transactions.count { it.isPayday } > 1
-            // without Fill envelopes (1.4.0): the month's leftovers still sweep into Rollover; nothing is filled
+            // without Fill envelopes (1.4.0) nothing is filled; leftovers carry over either way (1.9.9)
             val full = Payday.plan(b, today, closes)
             val plan = if (fill) full else Payday.Plan(full.sweeps, emptyList(), emptyList(), b.readyToAssign)
             for (m in plan.sweeps) {
@@ -516,6 +526,30 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
             }
             plan
         }
+    }
+
+    /** What the Payday button did (1.9.9): the payday plan, the deposit (added: its amount), the clean up. */
+    data class PaydayResult(val plan: Payday.Plan, val depositId: String, val added: Long?, val cleanupMoves: Int, val uncovered: Long)
+
+    /**
+     * The Payday button (1.9.9, [PaydayButton]): checked first; nothing is saved when it can't go ahead. With [cleanUp]
+     * every envelope is brought to zero through Unplanned (normal moves, on the budget as it was before the deposit);
+     * then the deposit is added for the difference (today, payee "Payday", to Unplanned) or the one already in is used,
+     * and it's marked as payday as Mark as payday does, Fill envelopes on. All ordinary transactions and moves.
+     */
+    suspend fun payday(accountId: String, bank: Long, cleanUp: Boolean, today: LocalDate = LocalDate.now()): PaydayResult {
+        val b = snapshot()
+        val c = PaydayButton.check(b, accountId, bank)
+        c.problem?.let { throw BudgetRuleException(it) }
+        val cl = if (cleanUp) PaydayButton.cleanup(b) else null
+        if (cl != null && cl.moves.isNotEmpty()) store.write {
+            for (m in cl.moves) put(null, MoveEntity(fromEnvelopeId = m.fromEnvelopeId, toEnvelopeId = m.toEnvelopeId, amount = m.amount, date = today, kind = MoveKind.MOVE, createdAt = now, updatedAt = now))
+        }
+        val id = c.existing?.id ?: saveTransaction(
+            null, TransactionDraft(accountId, today, "Payday", "", c.difference, listOf(LineDraft(b.unplannedEnvelope?.id, c.difference, toReadyToAssign = b.unplannedEnvelope == null))),
+        )
+        val plan = markPayday(id, today, fill = true)
+        return PaydayResult(plan, id, c.adds, cl?.moves?.size ?: 0, cl?.uncovered ?: 0)
     }
 
     /** Undoes a payday: its sweep and auto-fill moves become tombstones; the deposit stays in Ready to Assign. */

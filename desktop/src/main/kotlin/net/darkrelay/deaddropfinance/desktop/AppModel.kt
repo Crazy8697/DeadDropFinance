@@ -34,6 +34,8 @@ sealed class Dialog {
     data class Bonus(val editId: String? = null) : Dialog()
     /** Budget start date (0.12.3): change it, after a plain warning. */
     object BudgetStart : Dialog()
+    /** 0.15.12: the Payday button's popup (the account's balance after payday, Clean up). */
+    object Payday : Dialog()
     /** Bills (0.14.0): the next payday, set by hand or back to the prediction. */
     object NextPayday : Dialog()
     /** [editId] (0.14.0): a move made by hand, opened from its row to edit (and delete). */
@@ -102,6 +104,18 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
     var screen by mutableStateOf(Screen.BUDGET)
     /** Index into [months] (0 = the open budget month). */
     var monthIndex by mutableStateOf(0)
+    /**
+     * 0.15.12: Budget shows the next budget month (the month picker's forward arrow, one ahead of the open month). The
+     * month it was opened on: when a payday is marked the next month becomes the open one, and Budget shows it as such.
+     */
+    var aheadOf by mutableStateOf<LocalDate?>(null)
+    /** Budget is showing the next budget month. */
+    val aheadShown: Boolean get() = aheadOf != null && monthIndex == 0 && screen == Screen.BUDGET && budget != null
+    /** The next budget month, when Budget shows it. */
+    val shownNext: net.darkrelay.deaddropfinance.domain.BudgetMonths.Window? get() = if (aheadShown) budget?.nextMonth(today()) else null
+    fun showNext(on: Boolean) { aheadOf = if (on) budget?.nextMonth(today())?.start else null }
+    /** 0.15.12: Bills, Coming up's month picker (or custom range). */
+    val comingUp = net.darkrelay.deaddropfinance.ui.ComingUpState()
     /** Activity's tab: null = All. */
     var activityTab by mutableStateOf<String?>(null)
     var drawerEnvelope by mutableStateOf<String?>(null)
@@ -184,6 +198,8 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         currency = store()?.applyCurrency() ?: currency
         budget = actions?.snapshot()
         if (monthIndex >= months.size) monthIndex = 0
+        // a payday marked: the month shown as next is now the open one
+        if (aheadOf != null && budget?.nextMonth(today())?.start != aheadOf) aheadOf = null
     }
 
     private suspend fun act(done: String? = null, block: suspend BudgetActions.() -> Unit): Boolean {
@@ -208,9 +224,11 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
     suspend fun moveMoney(from: String, to: String, amount: Long): Boolean {
         if (amount <= 0) { message = "Enter an amount above zero." to true; return false }
         if (from == to) { message = "Pick two different places." to true; return false }
+        // 0.15.12: on the next budget month, the money is assigned (or moved) ahead to it
+        val ahead = shownNext?.start
         return act {
-            if (from == READY_TO_ASSIGN) assign(to, amount)
-            else move(from, to.takeIf { it != READY_TO_ASSIGN }, amount, MoveKind.MOVE, today())
+            if (from == READY_TO_ASSIGN) assign(to, amount, ahead, today())
+            else move(from, to.takeIf { it != READY_TO_ASSIGN }, amount, MoveKind.MOVE, today(), ahead)
         }
     }
 
@@ -258,8 +276,8 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         val names = budget?.envelopes?.associate { it.id to it.name }.orEmpty()
         return when {
             !fill -> "Payday: the new budget month starts $date." + if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover."
-            p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover."
-            else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled, ${p.sweeps.size} swept into Rollover. Short: " +
+            p.shortfalls.isEmpty() -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled." + if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover."
+            else -> "Payday: ${p.fills.size} envelope${if (p.fills.size == 1) "" else "s"} filled." + (if (p.sweeps.isEmpty()) "" else " ${p.sweeps.size} swept into Rollover.") + " Short: " +
                 p.shortfalls.joinToString(", ") { "${names[it.envelopeId] ?: "an envelope"} ${money(it.short)}" } + "."
         }
     }
@@ -361,9 +379,11 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
     suspend fun fillTargets(): Boolean {
         var total = 0L
         var count = 0
+        // 0.15.12: on the next budget month, what each wants then, assigned ahead to it
+        val next = shownNext
         val ok = act {
             for (e in snapshot().fillOrder.filter { !it.isSystem }) {
-                val given = addToEnvelope(e.id, today())
+                val given = addToEnvelope(e.id, today(), next)
                 if (given > 0) { total += given; count++ }
             }
         }
@@ -404,6 +424,15 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         val current = dialog as? Dialog.ImportCsv ?: d
         val choices = current.choices + (row to on)
         dialog = current.copy(choices = choices, plan = CsvImport.plan(current.read, current.accountId, b.transactions, choices))
+    }
+
+    /** The Payday button (0.15.12): what it did, to say; a refusal comes back as its message. */
+    suspend fun payday(accountId: String, bank: Long, cleanUp: Boolean): String {
+        val a = actions ?: throw IllegalStateException("The budget isn't open.")
+        val r = try { a.payday(accountId, bank, cleanUp, today()) } catch (e: BudgetRuleException) { throw IllegalStateException(e.message) }
+        refresh()
+        planTick++
+        return net.darkrelay.deaddropfinance.ui.paydayResultText(r)
     }
 
     /** Undo last import (0.15.10): the transactions it added are deleted (soft, so they sync), nothing else. */
@@ -550,13 +579,14 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
 
     /** What the envelope's mode aims for: Fill to target's target, Goal's amount (as the phone shows it). */
     fun targetOf(e: EnvelopeEntity): Long? = when (e.mode) {
-        EnvelopeMode.FILL_TO_TARGET -> e.target
+        // 0.15.12: this budget month's target when its bills have amounts typed for the month (the next month's, shown)
+        EnvelopeMode.FILL_TO_TARGET -> budget?.monthTarget(e, shownNext?.start ?: today()) ?: e.target
         EnvelopeMode.GOAL -> e.goalAmount
         else -> null
     }
 
     /** Assigned to [e] in the shown budget month: out of Ready to Assign into it, less what went back. */
-    fun assignedTo(b: Budget, e: EnvelopeEntity): Long = b.moves.filter { month.contains(it.date) }.sumOf { m ->
+    fun assignedTo(b: Budget, e: EnvelopeEntity): Long = if (aheadShown) b.assignedAheadTo(e.id) else b.moves.filter { month.contains(it.date) && !b.isAhead(it) }.sumOf { m ->
         when {
             m.fromEnvelopeId == null && m.toEnvelopeId == e.id -> m.amount
             m.toEnvelopeId == null && m.fromEnvelopeId == e.id -> -m.amount
@@ -565,6 +595,7 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
     }
 
     fun spendingIn(b: Budget): Pair<Long, Int> {
+        val month = shownNext?.let { Budget.Month(it.start, it.end) } ?: month
         val total = b.categoryTotal(month)
         val count = b.transactions.count { it.kind == TransactionKind.NORMAL && month.contains(it.date) && !it.isWash && it.amount < 0 && b.isOnBudget(it.accountId) }
         return total to count

@@ -30,7 +30,7 @@ import org.robolectric.annotation.Config
 
 /**
  * Payday is marked by hand only (1.3.1): a deposit from a CSV import is an ordinary transaction
- * and starts no payday; marking it by hand sweeps and fills as before. Also
+ * and starts no payday; marking it by hand fills as before (leftovers carry over since 1.9.9). Also
  * against its envelope when it's imported. Synthetic data only.
  */
 @RunWith(RobolectricTestRunner::class)
@@ -96,7 +96,8 @@ class PaydayByHandTest {
         assertEquals(0L, b.sortedCheck)
     }
 
-    @Test fun markingPaydayByHandStillSweepsAndFills() = runBlocking<Unit> {
+    @Test fun markingPaydayByHandStillFills() = runBlocking<Unit> {
+        val before = a.snapshot()
         val csv = "Date,Description,Amount\n${day.minusDays(1)},SAMPLE EMPLOYER PAYROLL,1480.00\n"
         val res = a.importCsv(acct, CsvImport.plan(CsvImport.read(csv, CsvImport.detect(csv)), acct, a.snapshot().transactions))
         Arrivals(store, a, { day }).landed(res.newIds, autoApprove = false)
@@ -104,8 +105,8 @@ class PaydayByHandTest {
         val b = a.snapshot()
         assertTrue(b.transactions.first { it.id == res.newIds.single() }.isPayday)
         assertEquals(2, b.paydayDates.size)
-        // Rollover sweep, then auto-fill, as before
-        assertEquals(250_00L, b.envelopeBalance(b.rollover!!.id))
+        // 1.9.9: nothing swept into Rollover (Groceries' 250 carries over), then auto-fill tops it up as before
+        assertEquals(before.envelopeBalance(b.rollover!!.id), b.envelopeBalance(b.rollover!!.id))
         assertEquals(300_00L, b.envelopeBalance(food))
         assertEquals(0L, b.sortedCheck)
     }

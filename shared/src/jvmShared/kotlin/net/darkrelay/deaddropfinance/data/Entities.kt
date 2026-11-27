@@ -265,11 +265,16 @@ data class MoveEntity(
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
+    /**
+     * 1.9.9 (program 0.15.12): assigned ahead to the budget month starting on this date (the next one, before its
+     * payday is marked). Null: an ordinary move. Older devices don't have the column and leave it as it is.
+     */
+    @ColumnInfo(name = "for_month") val forMonth: LocalDate? = null,
 ) : Synced {
     override fun fields() = mapOf(
         "from_envelope_id" to fromEnvelopeId, "to_envelope_id" to toEnvelopeId, "amount" to amount,
         "date" to date.toString(), "kind" to kind.name, "payday_transaction_id" to paydayTransactionId,
-        "linked_transaction_id" to linkedTransactionId, "deleted" to deleted,
+        "linked_transaction_id" to linkedTransactionId, "deleted" to deleted, "for_month" to forMonth?.toString(),
     )
 }
 
@@ -320,6 +325,25 @@ enum class PaymentMethod { BANK, HAND, CASH, DEBT }
  * One payment toward a bill; a bill's cycle counts as paid only when its payments reach the amount due. [periodDue] is
  * the due date of the cycle it counts toward (null on rows from before 0.10.0: the nearest cycle by date).
  */
+/**
+ * Schema 16 (phone 1.9.9, program 0.15.12): what a bill comes to in one budget month, typed in Bills, Coming up's This
+ * month box. [monthStart] is that budget month's first day (its payday); [amount] null: the box was cleared (the bill's
+ * normal amount counts). Its [updatedAt] is when the box was last saved, the bill's Last checked. One row per bill and
+ * budget month.
+ */
+@Entity(tableName = "bill_month", indices = [Index("bill_id")])
+data class BillMonthEntity(
+    @PrimaryKey override val id: String = newId(),
+    @ColumnInfo(name = "bill_id") val billId: String,
+    @ColumnInfo(name = "month_start") val monthStart: LocalDate,
+    val amount: Long? = null,
+    @ColumnInfo(name = "created_at") override val createdAt: Long,
+    @ColumnInfo(name = "updated_at") override val updatedAt: Long,
+    override val deleted: Boolean = false,
+) : Synced {
+    override fun fields() = mapOf("bill_id" to billId, "month_start" to monthStart.toString(), "amount" to amount, "deleted" to deleted)
+}
+
 @Entity(tableName = "bill_payment", indices = [Index("bill_id")])
 data class BillPaymentEntity(
     @PrimaryKey override val id: String = newId(),

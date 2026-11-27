@@ -53,10 +53,10 @@ class EngineTest {
             val h = c.usePrepared("SELECT identity_hash FROM room_master_table") { it.step(); it.getText(0) }
             v to h
         }
-        // the phone's schema 15 (0.15.10), as committed in app/schemas: same tables, columns, indexes (Room's identity hash)
+        // the phone's schema 16 (0.15.12), as committed in app/schemas: same tables, columns, indexes (Room's identity hash)
         val phone = listOf(File("../app/schemas"), File("app/schemas")).first { it.isDirectory }
-            .resolve("net.darkrelay.deaddropfinance.data.AppDatabase/15.json").readText()
-        assertEquals(15L, version)
+            .resolve("net.darkrelay.deaddropfinance.data.AppDatabase/16.json").readText()
+        assertEquals(16L, version)
         assertTrue(phone.contains("\"identityHash\": \"$hash\""), "identity hash $hash is the phone's")
         val d = e.describe()
         assertEquals("ok", d["db"])
