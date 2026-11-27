@@ -566,13 +566,19 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
 
     // ---- CSV import ------------------------------------------------------------------------------------------
 
-    data class ImportResult(val imported: Int, val posted: Int, val skipped: Int, val bad: Int, val skippedByUser: Int = 0, val newIds: List<String> = emptyList())
+    data class ImportResult(
+        val imported: Int, val posted: Int, val skipped: Int, val bad: Int, val skippedByUser: Int = 0, val newIds: List<String> = emptyList(),
+        /** 1.9.7: rows the bank lists as Pending, not added; the id this import's transactions carry. */
+        val pending: Int = 0, val importId: String? = null,
+    )
 
     /**
      * Writes a planned import in one go: new rows land in To sort (uncategorized), ATM fees and rebates tagged;
-     * a row matching a pending transaction posts that one instead of adding a second.
+     * a row matching a pending transaction posts that one instead of adding a second. 1.9.7: each new transaction
+     * keeps the bank's original description and this import's id, so the import can be undone ([undoImport]).
      */
     suspend fun importCsv(accountId: String, plan: CsvImport.Plan): ImportResult = store.write {
+        val importId = newId()
         // an account outside the budget records imported rows as handled instead of putting them in To sort
         val bucket = if (dao.account(accountId)?.onBudget == false) LineBucket.OFF_BUDGET else LineBucket.UNSORTED
         val newIds = mutableListOf<String>()
@@ -583,6 +589,7 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
                     accountId = accountId, date = r.date, payee = r.description, memo = r.memo, amount = r.amount,
                     fee = CsvImport.isAtmFee(r.description, r.amount), feeRebate = CsvImport.isFeeRebate(r.description, r.amount),
                     source = net.darkrelay.deaddropfinance.data.TransactionSource.CSV, importDescription = r.description,
+                    originalDescription = r.original, importId = importId,
                     createdAt = now, updatedAt = now,
                 ),
             )
@@ -591,9 +598,34 @@ class BudgetActions(private val store: BudgetStore, private val receiptFiles: ne
         }
         for ((r, p) in plan.matchedPending) {
             val old = dao.transaction(p.id) ?: continue
-            put(old, old.copy(pending = false, date = r.date, importDescription = r.description, updatedAt = now))
+            put(old, old.copy(pending = false, date = r.date, importDescription = r.description, originalDescription = r.original, updatedAt = now))
         }
-        ImportResult(plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size, plan.skippedByUser.size, newIds)
+        val chosen = plan.toImport.map { it.rowNumber }.toSet()
+        ImportResult(
+            plan.toImport.size, plan.matchedPending.size, plan.alreadyHere.size, plan.bad.size,
+            skippedByUser = plan.new.count { it.rowNumber !in chosen } + plan.unsure.count { it.row.rowNumber !in chosen },
+            newIds = newIds, pending = plan.pending.size, importId = importId.takeIf { newIds.isNotEmpty() },
+        )
+    }
+
+    /**
+     * Undo an import (1.9.7): every transaction it added is deleted (soft, so it syncs and stays in the history) with
+     * its lines, as a delete by hand would. Nothing else changes: a pending transaction it posted stays posted. Only the
+     * transactions still in [batch] when this runs are touched. Returns how many were removed.
+     */
+    suspend fun undoImport(batch: CsvImport.Batch): Int {
+        var n = 0
+        store.write {
+            for (id in batch.transactionIds) {
+                val t = dao.transaction(id) ?: continue
+                if (t.deleted || t.accountId != batch.accountId) continue
+                // a receipt matched to it waits for a charge again, as when a transaction goes without the user deleting it
+                TransactionCleanup.releaseReceipts(this, dao, id)
+                deleteTransactionRows(this, id)
+                n++
+            }
+        }
+        return n
     }
 
     // ---- pass-through (wash) ---------------------------------------------------------------------------------

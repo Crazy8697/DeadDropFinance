@@ -74,6 +74,13 @@ The budget lives in one encrypted database on the phone: Room on SQLCipher.
   `DesktopMigrationTest` opens a 0.15.1 (schema 13) budget in the program with every receipt kept. The program runs the
   same SQL (`SchemaChanges.V13_V14`). Sync and restore write columns by name, so a device on 1.9.2 or 0.15.1 ignores the
   two and never clears them (`TaxLetterSyncTest`). Older receipts keep no price with tax: their shelf price is what they paid.
+- Version 15 (1.9.7, program 0.15.10): `original_description` (nullable text) and `import_id` (nullable text) on `txn`:
+  the bank's own original description from the CSV row that made the transaction (never changed by renaming the payee),
+  for duplicate checks, and the CSV import that made it, for Undo last import. Migration 14 to 15 only adds the two
+  columns; `MigrationTest` checks it on the phone, `DesktopMigrationTest` opens a 0.15.9 (schema 14) budget in the program
+  with every transaction kept. The program runs the same SQL (`SchemaChanges.V14_V15`). Sync and restore write columns by
+  name, so a device on 1.9.6 or 0.15.9 ignores the two and never clears them (`ImportColumnsSyncTest`). Transactions
+  from before have neither; an import from before is found by its one write's created-at instant instead.
 - The receipt reader overhaul and envelope per item (1.9.4, program 0.15.3) needed no schema change: an item's envelope
   is the existing `envelope_id` on `receipt_item` (already synced and in backups), and the last pick for an item name
   is read from those rows. A receipt item's section is used only while the form is open and isn't stored.

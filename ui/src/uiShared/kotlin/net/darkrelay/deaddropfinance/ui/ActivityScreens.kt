@@ -51,6 +51,8 @@ data class ActivityTabs(
     val onAdd: (accountId: String) -> Unit = {},
     val onScan: (accountId: String) -> Unit = {},
     val onImport: (accountId: String) -> Unit = {},
+    /** 1.9.7: Undo last import, after its confirm; null hides it. */
+    val onUndoImport: ((net.darkrelay.deaddropfinance.domain.CsvImport.Batch) -> Unit)? = null,
     /** 1.8.0: the budget month Activity shows (0: the open one), stepped with Older and Newer as in Categories. */
     val monthIndex: Int = 0,
     val onMonth: (Int) -> Unit = {},
@@ -167,16 +169,39 @@ private fun AccountActivity(a: net.darkrelay.deaddropfinance.data.AccountEntity,
                 Text("Manual account", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
             }
         }
-        Row {
+        // 1.9.7: Undo last import beside Import CSV, while the account has an import to undo
+        val last = if (tabs.onUndoImport != null) net.darkrelay.deaddropfinance.domain.CsvImport.lastImport(budget.transactions, a.id) else null
+        var confirmUndo by remember(a.id) { mutableStateOf<net.darkrelay.deaddropfinance.domain.CsvImport.Batch?>(null) }
+        androidx.compose.foundation.layout.FlowRow {
             TextButton(onClick = { tabs.onAdd(a.id) }) { Text("Add") }
             TextButton(onClick = { tabs.onScan(a.id) }) { Text("Scan") }
             TextButton(onClick = { tabs.onImport(a.id) }) { Text("Import CSV") }
+            if (last != null) TextButton(onClick = { confirmUndo = last }, modifier = Modifier.testTag("undoImport")) { Text("Undo last import") }
+        }
+        confirmUndo?.let { batch ->
+            UndoImportConfirm(batch, onCancel = { confirmUndo = null }, onConfirm = { confirmUndo = null; tabs.onUndoImport?.invoke(batch) })
         }
         txs.forEach { t -> TransactionRow(t, budget, onClick = { onTransaction(t.id) }, forAccount = a.id) }
         // an account's balance is built from its starting balance: shown as its first (oldest) entry, in its month
         if (month.contains(a.startDate)) ActivityRowLines(name = "Starting balance", info = a.startDate.toString(), chips = emptyList(), amount = a.startingBalance, onClick = null)
         Gap(24)
     }
+}
+
+/** "Nov 27, 2026 7:59 AM": when an import was made, in this device's time. */
+fun importTime(ms: Long): String = java.time.Instant.ofEpochMilli(ms).atZone(java.time.ZoneId.systemDefault())
+    .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a", java.util.Locale.US))
+
+/** Undo last import's confirm (1.9.7), the shared confirm in its red, destructive style; the phone's and the program's. */
+@Composable
+fun UndoImportConfirm(batch: net.darkrelay.deaddropfinance.domain.CsvImport.Batch, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    ConfirmDialog(
+        "Undo the import from ${importTime(batch.createdAt)}?",
+        "This removes the ${batch.size} transaction${if (batch.size == 1) "" else "s"} it added. Nothing else changes.",
+        "Undo import",
+        onCancel = onCancel, onConfirm = onConfirm, destructive = true,
+        tag = "undoImport.confirm", cancelTag = "undoImport.cancel", actionTag = "undoImport.go", textTag = "undoImport.text",
+    )
 }
 
 /** All: the combined list as before 1.2.0, view only (no Add, no Scan). */

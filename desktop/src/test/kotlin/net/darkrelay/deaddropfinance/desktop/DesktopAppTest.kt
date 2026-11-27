@@ -120,7 +120,7 @@ class DesktopAppTest {
         tag("importCsv").performClick()
         compose.waitForIdle()
         tag("dialog.import").assertExists()
-        tag("import.new").assertTextEquals("3 new transactions go to To sort.")
+        tag("import.counts").assertTextEquals("3 new, 0 already in, 0 unsure, 0 pending")
         tag("dialog.save").performClick()
         compose.waitForIdle()
         assertNull(m.dialog)
@@ -130,7 +130,7 @@ class DesktopAppTest {
         // the same file again: nothing new
         tag("importCsv").performClick()
         compose.waitForIdle()
-        tag("import.new").assertTextEquals("0 new transactions go to To sort.")
+        tag("import.counts").assertTextEquals("0 new, 3 already in, 0 unsure, 0 pending")
     }
 
     @Test fun theAllTabIsViewOnly() {

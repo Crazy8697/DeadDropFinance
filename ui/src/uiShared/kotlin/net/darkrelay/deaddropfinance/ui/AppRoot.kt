@@ -720,6 +720,7 @@ fun AppRoot(
                         onAdd = { id -> go(Nav.TxEdit(null, accountId = id)) },
                         onScan = { startScan(null) },
                         onImport = { id -> importState = ImportState(accountId = id); go(Nav.Import) },
+                        onUndoImport = { batch -> run(scope) { actions.undoImport(batch) } },
                         monthIndex = activityMonth,
                         onMonth = { activityMonth = it; exportNote = null },
                         onExport = {
@@ -1355,9 +1356,11 @@ fun AppRoot(
                         else ImportState(fileName = name, text = text, layout = CsvImport.detect(text), accountId = importState.accountId ?: b.accounts.firstOrNull { !it.archived }?.id)
                     }
                 },
-                onLayout = { importState = importState.copy(layout = it, skippedRows = emptySet()) },
-                onAccount = { importState = importState.copy(accountId = it, skippedRows = emptySet()) },
-                onToggleSkip = { n -> importState = importState.copy(skippedRows = importState.skippedRows.let { if (n in it) it - n else it + n }) },
+                onLayout = { importState = importState.copy(layout = it, choices = emptyMap()) },
+                onAccount = { importState = importState.copy(accountId = it, choices = emptyMap()) },
+                onChoice = { n, on -> importState = importState.copy(choices = importState.choices + (n to on)) },
+                onPreview = { importState = importState.copy(previewing = it) },
+                rules = rules,
                 onImport = { plan ->
                     val acct = importState.accountId ?: return@ImportScreen
                     run(scope) {

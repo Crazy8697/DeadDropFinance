@@ -1,6 +1,7 @@
 package net.darkrelay.deaddropfinance.ui
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -12,6 +13,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -26,8 +33,10 @@ data class ImportState(
     val text: String? = null,
     val layout: CsvImport.Layout? = null,
     val accountId: String? = null,
-    /** Row numbers the user chose to skip in the possible-duplicates section. */
-    val skippedRows: Set<Int> = emptySet(),
+    /** 1.9.7: the user's ticks in the preview, by row number (a new row is ticked unless false, an unsure one only when true). */
+    val choices: Map<Int, Boolean> = emptyMap(),
+    /** 1.9.7: the preview dialog is open. Nothing is written until its Import is pressed. */
+    val previewing: Boolean = false,
     val result: BudgetActions.ImportResult? = null,
     val error: String? = null,
 )
@@ -35,6 +44,8 @@ data class ImportState(
 fun roleName(r: CsvImport.Role) = when (r) {
     CsvImport.Role.DATE -> "Date"
     CsvImport.Role.DESCRIPTION -> "Description"
+    CsvImport.Role.ORIGINAL -> "Original description"
+    CsvImport.Role.STATUS -> "Status (Pending is skipped)"
     CsvImport.Role.AMOUNT -> "Amount (signed)"
     CsvImport.Role.DEBIT -> "Debit (money out)"
     CsvImport.Role.CREDIT -> "Credit (money in)"
@@ -44,8 +55,9 @@ fun roleName(r: CsvImport.Role) = when (r) {
 }
 
 /**
- * One screen for the whole Old School import: pick the file, check the column mapping, date format and account,
- * see the preview with counts, then import. Imported rows land in To sort.
+ * One screen for the whole Old School import: pick the file, check the column mapping, date format and account, then
+ * Preview: a dialog with what's new, already here, unsure and pending, where each row can be ticked or not (1.9.7).
+ * Only its Import writes anything. Imported rows land in To sort.
  */
 @Composable
 fun ImportScreen(
@@ -56,7 +68,9 @@ fun ImportScreen(
     onLayout: (CsvImport.Layout) -> Unit,
     onAccount: (String) -> Unit,
     onImport: (CsvImport.Plan) -> Unit,
-    onToggleSkip: (Int) -> Unit = {},
+    onChoice: (Int, Boolean) -> Unit = { _, _ -> },
+    onPreview: (Boolean) -> Unit = {},
+    rules: List<net.darkrelay.deaddropfinance.data.RuleEntity> = emptyList(),
 ) {
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Import CSV", onBack)
@@ -73,7 +87,7 @@ fun ImportScreen(
                 Column(Modifier.padding(12.dp)) {
                     Text("Imported ${r.imported} into To sort.")
                     if (r.posted > 0) Text("${r.posted} pending ${if (r.posted == 1) "transaction was" else "transactions were"} posted.")
-                    Text("${r.skipped} already here (skipped), ${r.skippedByUser} skipped by you, ${r.bad} bad rows skipped.", color = DdfColors.Muted)
+                    Text("${r.skipped} already here, ${r.skippedByUser} not ticked, ${r.pending} pending not added, ${r.bad} bad rows skipped.", color = DdfColors.Muted)
                 }
             }
         }
@@ -91,49 +105,120 @@ fun ImportScreen(
         if (layout.dateAmbiguous) Text("These dates read both month-first and day-first. Check the format.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         val account = s.accountId ?: return@ScrollColumn
         val read = CsvImport.read(text, layout)
-        val plan = CsvImport.plan(read, account, budget.transactions, s.skippedRows)
+        val plan = CsvImport.plan(read, account, budget.transactions, s.choices)
         SectionTitle("Preview")
-        Text(
-            "${plan.total} rows: ${plan.toImport.size} to import, ${plan.alreadyHere.size} already here (skipped), " +
-                "${plan.matchedPending.size} posting a pending one, ${plan.possibleDuplicateRows} possible duplicates, ${plan.skippedByUser.size} skipped by you, ${plan.bad.size} bad",
-            color = DdfColors.Muted,
-        )
-        read.rows.take(8).forEach { r ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-                Column(Modifier.weight(1f)) { Text(r.description.ifBlank { "No description" }); Text(r.date.toString(), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
-                MoneyText(r.amount)
-            }
-        }
-        if (plan.possibleDuplicates.isNotEmpty()) {
-            SectionTitle("Possible duplicates in this file")
-            Text(
-                "These rows are identical. Two real purchases can look the same, so they are imported unless you skip them.",
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
-            plan.possibleDuplicates.forEach { g ->
-                val first = g.rows.first()
-                Gap(8)
-                Text("${first.description.ifBlank { "No description" }}, ${first.date}, ${Money.format(first.amount)}", style = MaterialTheme.typography.bodyMedium)
-                g.rows.forEach { r ->
-                    val skip = r.rowNumber in s.skippedRows
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Row ${r.rowNumber}", Modifier.weight(1f), color = DdfColors.Muted)
-                        Text(if (skip) "Skip" else "Import", color = if (skip) DdfColors.Warning else DdfColors.Cyan)
-                        HGap(12)
-                        Switch(checked = !skip, onCheckedChange = { onToggleSkip(r.rowNumber) })
-                    }
-                }
-            }
-        }
+        Text("${read.rows.size} rows read. Preview shows what's new, already here and unsure before anything is saved.", color = DdfColors.Muted)
         if (plan.bad.isNotEmpty()) {
             SectionTitle("Bad rows (skipped)")
             plan.bad.take(30).forEach { b -> Text("Row ${b.rowNumber}: ${b.reason}", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall) }
         }
         Gap()
-        Button(onClick = { onImport(plan) }, enabled = plan.toImport.isNotEmpty() || plan.matchedPending.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text("Import ${plan.toImport.size} into To sort")
+        Button(onClick = { onPreview(true) }, enabled = read.rows.isNotEmpty(), modifier = Modifier.fillMaxWidth().testTag("import.preview")) {
+            Text("Preview")
         }
         Gap(24)
+        if (s.previewing) {
+            val guesses = remember(plan, budget, rules) { net.darkrelay.deaddropfinance.domain.Suggest.guesses(budget, rules, account, plan.new + plan.unsure.map { it.row }) }
+            ImportPreviewDialog(plan, guesses, s.choices, onChoice, onCancel = { onPreview(false) }, onImport = { onImport(plan) })
+        }
     }
 }
+
+/** "4 new, 37 already in, 2 unsure, 1 pending": the preview's first line, the program's too. */
+fun importCounts(plan: CsvImport.Plan) = "${plan.new.size} new, ${plan.alreadyCount} already in, ${plan.unsure.size} unsure, ${plan.pending.size} pending"
+
+/** The Import button's words: how many go in, and the pending ones it posts. */
+fun importAction(plan: CsvImport.Plan) = "Import ${plan.toImport.size}"
+
+/**
+ * The import preview (1.9.7), before anything is saved: the counts, then the new rows (ticked) and the unsure ones (not
+ * ticked, with the transaction already here each may be), each with its date, payee, amount and envelope guess; the rows
+ * already in under a count that opens; the bank's pending rows under "Pending, not added". The phone's dialog
+ * ([FormDialog]); the program draws its own in its dialog frame.
+ */
+@Composable
+fun ImportPreviewDialog(
+    plan: CsvImport.Plan, guesses: Map<Int, String?>, choices: Map<Int, Boolean>,
+    onChoice: (Int, Boolean) -> Unit, onCancel: () -> Unit, onImport: () -> Unit,
+) {
+    var showAlready by remember { mutableStateOf(false) }
+    val canImport = plan.toImport.isNotEmpty() || plan.matchedPending.isNotEmpty()
+    val rows: @Composable ColumnScope.() -> Unit = {
+        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            if (plan.matchedPending.isNotEmpty()) Text("${plan.matchedPending.size} of the ones already in post a pending transaction you entered.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+            if (plan.new.isNotEmpty()) {
+                PreviewHead("New")
+                plan.new.forEach { r -> PreviewRow(r, guesses[r.rowNumber], choices[r.rowNumber] != false, { onChoice(r.rowNumber, it) }, "import.new.${r.rowNumber}") }
+            }
+            if (plan.unsure.isNotEmpty()) {
+                PreviewHead("Unsure: tick the ones that are new")
+                plan.unsure.forEach { u ->
+                    PreviewRow(u.row, guesses[u.row.rowNumber], choices[u.row.rowNumber] == true, { onChoice(u.row.rowNumber, it) }, "import.unsure.${u.row.rowNumber}")
+                    Text(
+                        "Maybe already here: ${u.maybe.date}, ${u.maybe.payee.ifBlank { "No payee" }}, ${Money.format(u.maybe.amount)}",
+                        color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 48.dp, bottom = 4.dp).testTag("import.maybe.${u.row.rowNumber}"),
+                    )
+                }
+            }
+            if (plan.alreadyCount > 0) {
+                TextButton(onClick = { showAlready = !showAlready }, modifier = Modifier.testTag("import.already")) {
+                    Text("${plan.alreadyCount} already in ${if (showAlready) "(hide)" else "(show)"}")
+                }
+                if (showAlready) (plan.alreadyHere + plan.matchedPending.map { it.first }).sortedBy { it.rowNumber }.forEach { r -> PlainRow(r) }
+            }
+            if (plan.pending.isNotEmpty()) {
+                PreviewHead("Pending, not added")
+                plan.pending.forEach { r -> PlainRow(r) }
+            }
+            if (plan.bad.isNotEmpty()) Text("${plan.bad.size} row${if (plan.bad.size == 1) "" else "s"} can't be read, skipped.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (LocalProgramStyle.current || LocalConfirmHost.current != null) {
+        // the program's dialog frame, which scrolls when the window is short
+        FormDialog(
+            "Check the import", onCancel,
+            listOf(
+                DialogAction("Cancel", onCancel, tag = "import.cancel"),
+                DialogAction(importAction(plan), onImport, filled = true, enabled = canImport, tag = "import.go"),
+            ),
+            tag = "import.dialog", width = 560.dp,
+        ) {
+            Text(importCounts(plan), style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("import.counts"))
+            rows()
+        }
+    } else {
+        // the phone: the shared confirm's own look (Cancel quiet on the left, Import filled on the right)
+        ConfirmDialog(
+            "Check the import", importCounts(plan), importAction(plan), onCancel = onCancel, onConfirm = onImport, enabled = canImport,
+            tag = "import.dialog", cancelTag = "import.cancel", actionTag = "import.go", textTag = "import.counts", extra = rows,
+        )
+    }
+}
+
+@Composable
+private fun PreviewHead(text: String) {
+    Text(text, style = MaterialTheme.typography.labelLarge, color = DdfColors.Muted, modifier = Modifier.padding(top = 12.dp, bottom = 2.dp))
+}
+
+@Composable
+private fun PreviewRow(r: CsvImport.Row, guess: String?, ticked: Boolean, onTick: (Boolean) -> Unit, tag: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        androidx.compose.material3.Checkbox(checked = ticked, onCheckedChange = onTick, modifier = Modifier.testTag(tag))
+        Column(Modifier.weight(1f)) {
+            Text(r.description.ifBlank { "No description" }, maxLines = 1)
+            Text("${r.date}, ${guess ?: "no envelope guess"}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+        }
+        MoneyText(r.amount)
+    }
+}
+
+@Composable
+private fun PlainRow(r: CsvImport.Row) {
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp, top = 2.dp, bottom = 2.dp)) {
+        Text("${r.date}  ${r.description.ifBlank { "No description" }}", Modifier.weight(1f), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+        Text(Money.format(r.amount), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 

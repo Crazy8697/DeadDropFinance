@@ -160,5 +160,12 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13, V13_V14)
+    /** 14 to 15 (1.9.7): a transaction's bank original description and import id; two added columns (the program runs the same SQL). */
+    val V14_V15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            SchemaChanges.V14_V15.forEach { db.execSQL(it) }
+        }
+    }
+
+    val ALL = arrayOf(V1_V2, V2_V3, V3_V4, V4_V5, V5_V6, V6_V7, V7_V8, V8_V9, V9_V10, V10_V11, V11_V12, V12_V13, V13_V14, V14_V15)
 }

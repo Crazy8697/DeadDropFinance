@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -117,6 +118,10 @@ fun DialogHost(model: AppModel, shell: Shell, b: Budget, d: Dialog) {
         is Dialog.EnvelopeForm -> EnvelopeDialog(model, shell, b, d)
         is Dialog.AccountForm -> AccountDialog(model, shell, b, d)
         is Dialog.ImportCsv -> ImportDialog(model, shell, b, d)
+        is Dialog.UndoImport -> net.darkrelay.deaddropfinance.ui.UndoImportConfirm(
+            d.batch, onCancel = { model.dialog = null },
+            onConfirm = { shell.run { if (model.undoImport(d.batch)) model.dialog = null } },
+        )
         is Dialog.Backup -> BackupDialog(model, shell)
         is Dialog.Restore -> RestoreDialog(model, shell, d)
         is Dialog.ShowRecoveryKey -> RecoveryKeyDialog(model, d)
@@ -452,19 +457,62 @@ private fun AccountDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Ac
     }
 }
 
+/**
+ * The import preview (0.15.10), in the program's dialog frame, before anything is saved: the counts, the new rows
+ * (ticked) and the unsure ones (not ticked, each with the transaction already here it may be), with date, payee,
+ * amount and envelope guess; the rows already in under a count that opens; the bank's pending rows, not added.
+ */
 @Composable
 private fun ImportDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.ImportCsv) {
     val name = b.accounts.firstOrNull { it.id == d.accountId }?.name ?: ""
     val close = { model.dialog = null }
-    Modal("Import CSV", 470.dp, close, "dialog.import", footer = {
+    val plan = d.plan
+    val store = model.store()
+    val rules by remember(store) { store?.dao?.rules() ?: kotlinx.coroutines.flow.flowOf(emptyList()) }.collectAsState(emptyList())
+    val guesses = remember(plan, b, rules) { net.darkrelay.deaddropfinance.domain.Suggest.guesses(b, rules, d.accountId, plan.new + plan.unsure.map { it.row }) }
+    var showAlready by remember(d.fileName) { mutableStateOf(false) }
+    Modal("Check the import", 620.dp, close, "dialog.import", footer = {
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-        Btn("Import ${d.plan.toImport.size}", { shell.run { if (model.importCsv(d)) model.dialog = null } }, enabled = d.plan.toImport.isNotEmpty(), tag = "dialog.save")
+        Btn(net.darkrelay.deaddropfinance.ui.importAction(plan), { shell.run { if (model.importCsv(d)) model.dialog = null } },
+            enabled = plan.toImport.isNotEmpty() || plan.matchedPending.isNotEmpty(), tag = "dialog.save")
     }) {
-        T("${d.fileName} into $name", 13.5.sp)
-        T("${d.plan.toImport.size} new transaction${if (d.plan.toImport.size == 1) "" else "s"} go to To sort.", 13.sp, C.Dim, modifier = Modifier.testTag("import.new"))
-        if (d.plan.alreadyHere.isNotEmpty()) T("${d.plan.alreadyHere.size} already here, skipped.", 13.sp, C.Dim)
-        if (d.plan.matchedPending.isNotEmpty()) T("${d.plan.matchedPending.size} post a pending transaction you entered.", 13.sp, C.Dim)
-        if (d.plan.bad.isNotEmpty()) T("${d.plan.bad.size} row${if (d.plan.bad.size == 1) "" else "s"} can't be read, skipped.", 13.sp, C.Warn)
+        T("${d.fileName} into $name", 13.sp, C.Dim)
+        T(net.darkrelay.deaddropfinance.ui.importCounts(plan), 14.sp, weight = FontWeight.SemiBold, modifier = Modifier.testTag("import.counts"))
+        if (plan.matchedPending.isNotEmpty()) T("${plan.matchedPending.size} of the ones already in post a pending transaction you entered.", 12.sp, C.Dim2)
+        @Composable fun row(r: CsvImport.Row, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                CheckRow(r.description.ifBlank { "No description" }, "${r.date}, ${guesses[r.rowNumber] ?: "no envelope guess"}", checked, true, tag, Modifier.weight(1f), onChange)
+                T(money(r.amount), 13.5.sp, moneyColor(r.amount))
+            }
+        }
+        @Composable fun plain(r: CsvImport.Row) {
+            Row(Modifier.fillMaxWidth().padding(start = 26.dp)) {
+                T("${r.date}  ${r.description.ifBlank { "No description" }}", 12.sp, C.Dim, modifier = Modifier.weight(1f))
+                T(money(r.amount), 12.sp, C.Dim)
+            }
+        }
+        if (plan.new.isNotEmpty()) {
+            Label("NEW")
+            plan.new.forEach { r -> row(r, d.choices[r.rowNumber] != false, "import.new.${r.rowNumber}") { model.chooseImportRow(d, r.rowNumber, it) } }
+        }
+        if (plan.unsure.isNotEmpty()) {
+            Label("UNSURE: TICK THE ONES THAT ARE NEW")
+            plan.unsure.forEach { u ->
+                row(u.row, d.choices[u.row.rowNumber] == true, "import.unsure.${u.row.rowNumber}") { model.chooseImportRow(d, u.row.rowNumber, it) }
+                T("Maybe already here: ${u.maybe.date}, ${u.maybe.payee.ifBlank { "No payee" }}, ${money(u.maybe.amount)}", 12.sp, C.Warn,
+                    modifier = Modifier.padding(start = 26.dp).testTag("import.maybe.${u.row.rowNumber}"))
+            }
+        }
+        if (plan.alreadyCount > 0) {
+            T("${plan.alreadyCount} already in ${if (showAlready) "(hide)" else "(show)"}", 13.sp, C.Cyan,
+                modifier = Modifier.clickable { showAlready = !showAlready }.testTag("import.already"))
+            if (showAlready) (plan.alreadyHere + plan.matchedPending.map { it.first }).sortedBy { it.rowNumber }.forEach { plain(it) }
+        }
+        if (plan.pending.isNotEmpty()) {
+            Label("PENDING, NOT ADDED")
+            plan.pending.forEach { plain(it) }
+        }
+        if (plan.bad.isNotEmpty()) T("${plan.bad.size} row${if (plan.bad.size == 1) "" else "s"} can't be read, skipped.", 13.sp, C.Warn)
     }
 }
 

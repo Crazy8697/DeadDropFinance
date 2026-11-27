@@ -192,7 +192,7 @@ class ScreenshotTest {
     @Test @Config(qualifiers = TALL) fun importDuplicates() = shot("25-import-possible-duplicates") {
         val text = "Date,Description,Amount\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-01,Sample Transfer Out,-25.00\n2030-03-02,Corner Grocer,-18.40\n2030-03-02,Corner Grocer,-18.40\n2030-03-04,Sample Payroll Co,900.00\n"
         val layout = CsvImport.detect(text)
-        ImportScreen(budget, ImportState("sample.csv", text, layout, "chk", skippedRows = setOf(4)), {}, {}, {}, {}, {}, {})
+        ImportScreen(budget, ImportState("sample.csv", text, layout, "chk", choices = mapOf(4 to false)), {}, {}, {}, {}, {}, { _, _ -> })
     }
     @Test fun importEmpty() = shot("22-import-no-accounts") { ImportScreen(empty, ImportState(), {}, {}, {}, {}, {}) }
     @Test fun lock() = shot("23-lock") { LockScreen({}, null) }

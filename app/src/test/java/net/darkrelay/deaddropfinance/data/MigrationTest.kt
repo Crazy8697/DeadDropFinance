@@ -471,4 +471,29 @@ class MigrationTest {
             db.close()
         }
     }
+
+    /**
+     * 14 to 15 (1.9.7): a transaction's bank original description and import id. A 1.9.6 budget with an imported
+     * transaction migrates with every value kept; it has neither (it's matched by amount and found by its one write).
+     */
+    @Test fun fourteenToFifteenAddsTheImportColumnsAndKeepsEveryTransaction() = runBlocking<Unit> {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        val file = ctx.getDatabasePath("migration-test-14.db").apply { parentFile?.mkdirs(); delete() }
+        createVersion(file, 14)
+        val raw = android.database.sqlite.SQLiteDatabase.openDatabase(file.path, null, android.database.sqlite.SQLiteDatabase.OPEN_READWRITE)
+        raw.execSQL("INSERT INTO txn (id, account_id, kind, date, payee, memo, amount, pending, is_payday, fee, fee_rebate, source, import_description, created_at, updated_at, deleted) VALUES ('t-imp-1', 'a1', 'NORMAL', '2030-11-03', 'Quick Trip', '', -4000, 0, 0, 0, 0, 'CSV', 'QuikTrip', 5, 5, 0)")
+        raw.close()
+        val db = Room.databaseBuilder(ctx, AppDatabase::class.java, file.path).addMigrations(*Migrations.ALL).build()
+        try {
+            val d = db.dao()
+            val t = d.transaction("t-imp-1")!!
+            assertEquals("Quick Trip", t.payee); assertEquals(-40_00L, t.amount); assertEquals("QuikTrip", t.importDescription)
+            assertNull(t.originalDescription)
+            assertNull(t.importId)
+            d.upsertTransaction(t.copy(originalDescription = "QUIKTRIP 0123", importId = "imp-1"))
+            assertEquals("imp-1", d.transaction("t-imp-1")!!.importId)
+        } finally {
+            db.close()
+        }
+    }
 }

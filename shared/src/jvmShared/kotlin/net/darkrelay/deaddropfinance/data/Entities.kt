@@ -173,6 +173,14 @@ data class TransactionEntity(
     @ColumnInfo(name = "rule_id") val ruleId: String? = null,
     /** A return: the purchase it gives money back to. */
     @ColumnInfo(name = "return_of") val returnOf: String? = null,
+    /**
+     * Schema 15 (phone 1.9.7, program 0.15.10): the bank's own original description from the CSV row that made this
+     * transaction (USAA's "Original Description", else the row's description). Never changed by renaming the payee, so
+     * a later import of an overlapping file finds it. Null for one entered by hand or imported before 1.9.7.
+     */
+    @ColumnInfo(name = "original_description") val originalDescription: String? = null,
+    /** Schema 15: the CSV import that made this transaction (one id per import), so that import can be undone. */
+    @ColumnInfo(name = "import_id") val importId: String? = null,
     @ColumnInfo(name = "created_at") override val createdAt: Long,
     @ColumnInfo(name = "updated_at") override val updatedAt: Long,
     override val deleted: Boolean = false,
@@ -184,7 +192,8 @@ data class TransactionEntity(
         "date" to date.toString(), "payee" to payee, "memo" to memo, "amount" to amount, "pending" to pending,
         "wash_group_id" to washGroupId, "is_payday" to isPayday, "fee" to fee, "fee_rebate" to feeRebate,
         "source" to source.name, "import_description" to importDescription, "external_id" to externalId,
-        "sorted_by" to sortedBy?.name, "sorted_at" to sortedAt, "rule_id" to ruleId, "return_of" to returnOf, "deleted" to deleted,
+        "sorted_by" to sortedBy?.name, "sorted_at" to sortedAt, "rule_id" to ruleId, "return_of" to returnOf,
+        "original_description" to originalDescription, "import_id" to importId, "deleted" to deleted,
     )
 }
 

@@ -39,27 +39,31 @@ class ProgramImportTest : ProgramScreensBase() {
         until("It's read once and never stored.")
         clickText("Choose a file", exact = true)
         // the account is chosen already (the only bank account), as on the phone
-        until("3 rows: 3 to import")
-        assertTrue(shows("2 possible duplicates"))
+        until("3 rows read.")
         // the mapping: Description read as the memo instead shows no description in the preview, then back
         pick("Description", "Description", "Memo")
+        click("import.preview")
         until("No description")
+        click("import.cancel")
         pick("Description", "Memo", "Description")
-        until("Sample Garage")
-        // the two identical rows are listed (rows 2 and 3 of the file); one is skipped
-        until("Possible duplicates in this file")
-        toggleFor("Row 3")
-        until("1 skipped by you")
-        clickText("Import 2 into To sort")
+        // 1.9.7: the preview dialog; nothing is written until its Import. The two identical rows are two new rows; one is unticked
+        click("import.preview")
+        until("3 new, 0 already in, 0 unsure, 0 pending")
+        assertTrue(shows("Sample Garage"))
+        click("import.new.3")
+        clickText("Import 2", exact = true)
         until("Imported 2 into To sort.")
         refresh()
         val imported = b().transactions.filter { it.source == TransactionSource.CSV }
         assertEquals(setOf("Sample Bakery", "Sample Garage"), imported.map { it.payee }.toSet())
         assertEquals(2, imported.size)
         assertTrue(imported.all { t -> b().toSort.any { it.id == t.id } })
-        assertTrue(shows("1 skipped by you"))
-        // the same file again: the two already here are skipped (the skipped twin can still come in)
+        assertTrue(imported.all { it.importId != null && it.originalDescription != null })
+        assertTrue(shows("1 not ticked"))
+        // the same file again: the two in are already in (the unticked twin can still come in)
         clickText("Choose a file", exact = true)
-        until("2 already here (skipped)")
+        until("3 rows read.")
+        click("import.preview")
+        until("1 new, 2 already in, 0 unsure, 0 pending")
     }
 }

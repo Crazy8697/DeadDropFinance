@@ -70,7 +70,11 @@ object CsvImport {
 
     // ---- layout guessing -------------------------------------------------------------------------------------
 
-    enum class Role { DATE, DESCRIPTION, AMOUNT, DEBIT, CREDIT, BALANCE, MEMO, IGNORE }
+    /**
+     * What a column holds. ORIGINAL (1.9.7): the bank's own original description (USAA's "Original Description"),
+     * stored with the transaction for duplicate checks; STATUS (1.9.7): "Pending" or "Posted".
+     */
+    enum class Role { DATE, DESCRIPTION, ORIGINAL, AMOUNT, DEBIT, CREDIT, BALANCE, MEMO, STATUS, IGNORE }
 
     data class Layout(
         val delimiter: Char,
@@ -85,6 +89,8 @@ object CsvImport {
     )
 
     private val HEADER_WORDS = mapOf(
+        Role.ORIGINAL to listOf("original description", "original name", "original"),
+        Role.STATUS to listOf("status"),
         Role.DATE to listOf("date", "posted", "transaction date", "posting date", "trans date"),
         Role.DESCRIPTION to listOf("description", "payee", "name", "merchant", "details", "narrative", "transaction"),
         Role.DEBIT to listOf("debit", "withdrawal", "withdrawals", "money out", "paid out", "charge"),
@@ -97,7 +103,7 @@ object CsvImport {
     fun roleForHeader(h: String): Role {
         val n = h.lowercase(Locale.ROOT).replace(Regex("[^a-z ]"), " ").trim().replace(Regex(" +"), " ")
         if (n.isEmpty()) return Role.IGNORE
-        for (role in listOf(Role.BALANCE, Role.DEBIT, Role.CREDIT, Role.DATE, Role.AMOUNT, Role.DESCRIPTION, Role.MEMO)) {
+        for (role in listOf(Role.ORIGINAL, Role.STATUS, Role.BALANCE, Role.DEBIT, Role.CREDIT, Role.DATE, Role.AMOUNT, Role.DESCRIPTION, Role.MEMO)) {
             if (HEADER_WORDS.getValue(role).any { n == it || n.startsWith("$it ") || n.endsWith(" $it") }) return role
         }
         return Role.IGNORE
@@ -122,7 +128,7 @@ object CsvImport {
             r.indices.filter { roles[it] == Role.IGNORE }.maxByOrNull { r[it].length }?.let { roles[it] = Role.DESCRIPTION }
         }
         // keep one column per single role
-        for (role in listOf(Role.DATE, Role.DESCRIPTION, Role.AMOUNT, Role.DEBIT, Role.CREDIT, Role.BALANCE)) {
+        for (role in listOf(Role.DATE, Role.DESCRIPTION, Role.ORIGINAL, Role.AMOUNT, Role.DEBIT, Role.CREDIT, Role.BALANCE, Role.STATUS)) {
             roles.indices.filter { roles[it] == role }.drop(1).forEach { roles[it] = Role.IGNORE }
         }
         val dateCol = roles.indexOf(Role.DATE)
@@ -208,7 +214,15 @@ object CsvImport {
 
     // ---- rows ------------------------------------------------------------------------------------------------
 
-    data class Row(val rowNumber: Int, val date: LocalDate, val description: String, val amount: Long, val memo: String)
+    /**
+     * One row as it imports. [original] (1.9.7): the bank's original description (the ORIGINAL column, else the
+     * description): what's stored on the transaction and compared on a later import. [pending]: the STATUS column says
+     * Pending (not posted yet); such a row isn't added.
+     */
+    data class Row(
+        val rowNumber: Int, val date: LocalDate, val description: String, val amount: Long, val memo: String,
+        val original: String = description, val pending: Boolean = false,
+    )
     data class BadRow(val rowNumber: Int, val reason: String)
     data class Read(val rows: List<Row>, val bad: List<BadRow>)
 
@@ -223,6 +237,8 @@ object CsvImport {
         val bad = mutableListOf<BadRow>()
         val col = { r: CsvImport.Role -> layout.roles.indexOf(r) }
         val (dc, desc, amt, deb, cred, memo) = listOf(col(Role.DATE), col(Role.DESCRIPTION), col(Role.AMOUNT), col(Role.DEBIT), col(Role.CREDIT), col(Role.MEMO))
+        val orig = col(Role.ORIGINAL)
+        val status = col(Role.STATUS)
         all.forEachIndexed { i, (n, r) ->
             if (i <= layout.headerRow) return@forEachIndexed
             if (r.size < layout.roles.size) { bad += BadRow(n, "has ${r.size} fields, expected ${layout.roles.size}"); return@forEachIndexed }
@@ -247,8 +263,10 @@ object CsvImport {
             }
             if (amount == null) { bad += BadRow(n, "no readable amount"); return@forEachIndexed }
             if (amount == 0L) { bad += BadRow(n, "the amount is zero"); return@forEachIndexed }
-            val description = if (desc >= 0) r[desc] else ""
-            rows += Row(n, date, description, amount, if (memo >= 0) r[memo] else "")
+            val original = if (orig >= 0) r[orig] else ""
+            val description = (if (desc >= 0) r[desc] else "").ifBlank { original }
+            val pending = status >= 0 && r[status].trim().equals("pending", ignoreCase = true)
+            rows += Row(n, date, description, amount, if (memo >= 0) r[memo] else "", original.ifBlank { description }, pending)
         }
         return Read(rows, bad)
     }
@@ -262,56 +280,129 @@ object CsvImport {
 
     fun dupKey(accountId: String, date: LocalDate, amount: Long, description: String) = "$accountId|$date|$amount|${normalize(description)}"
 
-    /** Identical rows (same date, cents and description) inside one file: the user chooses to import or skip each. */
-    data class DupGroup(val rows: List<Row>)
+    /** Why a row is listed as unsure: the transaction already here it may be, and how many days apart they are. */
+    data class Unsure(val row: Row, val maybe: TransactionEntity) {
+        val daysApart: Long get() = kotlin.math.abs(ChronoUnit.DAYS.between(maybe.date, row.date))
+    }
 
     data class Plan(
-        /** Rows that will be imported: new rows, plus the rows of possible-duplicate groups the user didn't skip. */
+        /** Rows that will be imported: the new rows left ticked, and the unsure rows the user ticked. */
         val toImport: List<Row>,
-        /** Rows the account already holds (same date, cents and description), counted per key: skipped. */
+        /** Rows the account already holds, each matched to its own transaction there: skipped. */
         val alreadyHere: List<Row>,
         /** Rows that are the posted version of a pending transaction entered by hand: that one gets posted instead. */
         val matchedPending: List<Pair<Row, TransactionEntity>>,
         val bad: List<BadRow>,
-        /** Groups of identical rows in the file that are not already here. Imported by default. */
-        val possibleDuplicates: List<DupGroup> = emptyList(),
-        /** Rows in those groups that the user chose to skip. */
-        val skippedByUser: List<Row> = emptyList(),
+        /** Rows not found here for sure, imported by default (the user can untick each). */
+        val new: List<Row> = emptyList(),
+        /** Rows that may already be here (see [Unsure]): not imported unless the user ticks them. */
+        val unsure: List<Unsure> = emptyList(),
+        /** Rows the bank lists as Pending: never added (they come back posted in a later file). */
+        val pending: List<Row> = emptyList(),
+        /** What each "already here" row matched, in the same order as [alreadyHere]. */
+        val matches: List<TransactionEntity> = emptyList(),
     ) {
-        val total get() = toImport.size + alreadyHere.size + matchedPending.size + bad.size + skippedByUser.size
-        val possibleDuplicateRows get() = possibleDuplicates.sumOf { it.rows.size }
+        val total get() = new.size + unsure.size + alreadyHere.size + matchedPending.size + pending.size + bad.size
+        /** Already here: matched rows and rows posting a pending transaction. */
+        val alreadyCount get() = alreadyHere.size + matchedPending.size
+    }
+
+    /** How far apart a row's date and a hand-entered (or older) transaction's date can be and still be the same one. */
+    const val NEAR_DAYS = 3L
+
+    /**
+     * Plans the import (1.9.7, program 0.15.10). Against the transactions already on the account:
+     *
+     *  1. A transaction that has the bank's original description (an import from 1.9.7 on) is the same one when the
+     *     amount, the date and that description are all the same. Renaming its payee changes nothing.
+     *  2. One entered by hand (or imported before 1.9.7) has no original description. On the same day with the same
+     *     amount: as many rows as there are such transactions are already here, the rest go on (three $3.00 rows in the
+     *     file and two here: two already here, one goes on). More such transactions than rows: each row is unsure.
+     *  3. A row left over with the same amount within [NEAR_DAYS] days of one of those (a hand entry on 11-02 that the
+     *     bank posted on 11-03) is unsure, with that transaction beside it.
+     *  4. Anything else is new.
+     *
+     * An existing transaction is matched (or shown beside an unsure row) once at most. Rows the bank lists as Pending
+     * are set aside, and a row matching a pending transaction entered by hand posts that one. [choices] is the user's
+     * ticks by row number: a new row is imported unless it's false, an unsure row only when it's true.
+     */
+    fun plan(read: Read, accountId: String, existing: List<TransactionEntity>, choices: Map<Int, Boolean> = emptyMap()): Plan {
+        val inAccount = existing.filter { it.accountId == accountId && it.kind == TransactionKind.NORMAL && !it.deleted }
+        val withOriginal = inAccount.filter { !it.pending && !it.originalDescription.isNullOrBlank() }
+        val handPending = inAccount.filter { it.pending }.toMutableList()
+        val legacy = inAccount.filter { !it.pending && it.originalDescription.isNullOrBlank() }.toMutableList()
+        val (bankPending, rows) = read.rows.partition { it.pending }
+
+        val already = mutableListOf<Pair<Row, TransactionEntity>>()
+        val matchedPending = mutableListOf<Pair<Row, TransactionEntity>>()
+        val unsure = mutableListOf<Unsure>()
+        val fresh = mutableListOf<Row>()
+
+        // 1. the bank's original description, the amount and the date
+        val byKey = withOriginal.groupBy { dupKey(accountId, it.date, it.amount, it.originalDescription!!) }
+            .mapValues { it.value.sortedBy { t -> t.createdAt }.toMutableList() }
+        var left = mutableListOf<Row>()
+        for (r in rows) {
+            val t = byKey[dupKey(accountId, r.date, r.amount, r.original)]?.removeFirstOrNull()
+            if (t != null) already += r to t else left += r
+        }
+        // a pending transaction entered by hand: posted by the row
+        left = left.filterTo(mutableListOf()) { r ->
+            val p = handPending.filter { it.amount == r.amount && kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) <= 5 }
+                .minByOrNull { kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) }
+            if (p != null) { handPending.remove(p); matchedPending += r to p; false } else true
+        }
+        // 2. no original description: the same day and amount, count by count
+        val after2 = mutableListOf<Row>()
+        for ((key, group) in left.groupBy { it.date to it.amount }) {
+            val here = legacy.filter { it.date == key.first && it.amount == key.second }.sortedBy { it.createdAt }
+            when {
+                here.isEmpty() -> after2 += group
+                here.size <= group.size -> {
+                    group.zip(here).forEach { (r, t) -> already += r to t; legacy.remove(t) }
+                    after2 += group.drop(here.size)
+                }
+                else -> group.zip(here).forEach { (r, t) -> unsure += Unsure(r, t); legacy.remove(t) }
+            }
+        }
+        // 3. the same amount a few days apart; 4. new
+        for (r in after2.sortedBy { it.rowNumber }) {
+            val near = legacy.filter { it.amount == r.amount && kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) <= NEAR_DAYS }
+                .minWithOrNull(compareBy<TransactionEntity> { kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) }.thenBy { it.createdAt })
+            if (near != null) { unsure += Unsure(r, near); legacy.remove(near) } else fresh += r
+        }
+
+        val byRow = compareBy<Row> { it.rowNumber }
+        val sortedAlready = already.sortedWith(compareBy { it.first.rowNumber })
+        val sortedUnsure = unsure.sortedWith(compareBy { it.row.rowNumber })
+        val newRows = fresh.sortedWith(byRow)
+        val toImport = (newRows.filter { choices[it.rowNumber] != false } + sortedUnsure.map { it.row }.filter { choices[it.rowNumber] == true }).sortedWith(byRow)
+        return Plan(
+            toImport, sortedAlready.map { it.first }, matchedPending.sortedWith(compareBy { it.first.rowNumber }), read.bad,
+            newRows, sortedUnsure, bankPending.sortedWith(byRow), sortedAlready.map { it.second },
+        )
     }
 
     /**
-     * Plans the import. Against the account the match is count-aware: for each key, if the file has N rows and the
-     * account holds M transactions with it, min(N, M) rows are "already here" and the rest are new. Identical rows
-     * inside the file are never skipped on their own: they are listed as [Plan.possibleDuplicates] and imported
-     * unless their row number is in [skippedRows].
+     * One CSV import's transactions on an account (1.9.7): those with its import id; for an import made before import ids
+     * existed, the CSV transactions saved in the same write (every row of one import shares its created-at instant to
+     * the millisecond, as the import is one write).
      */
-    fun plan(read: Read, accountId: String, existing: List<TransactionEntity>, skippedRows: Set<Int> = emptySet()): Plan {
-        val inAccount = existing.filter { it.accountId == accountId && it.kind == TransactionKind.NORMAL }
-        val held = mutableMapOf<String, Int>()
-        for (t in inAccount) {
-            val keys = listOfNotNull(t.payee, t.importDescription).map { dupKey(accountId, t.date, t.amount, it) }.toSet()
-            for (k in keys) held[k] = (held[k] ?: 0) + 1
+    data class Batch(val accountId: String, val importId: String?, val createdAt: Long, val transactionIds: List<String>) {
+        val size get() = transactionIds.size
+    }
+
+    /** The account's most recent import that still has transactions, or null when there's none to undo. */
+    fun lastImport(transactions: List<TransactionEntity>, accountId: String): Batch? {
+        val imported = transactions.filter {
+            it.accountId == accountId && !it.deleted && it.kind == TransactionKind.NORMAL &&
+                (it.importId != null || it.source == net.darkrelay.deaddropfinance.data.TransactionSource.CSV)
         }
-        val pending = inAccount.filter { it.pending }.toMutableList()
-        val fresh = mutableListOf<Row>()
-        val dup = mutableListOf<Row>()
-        val matched = mutableListOf<Pair<Row, TransactionEntity>>()
-        for (r in read.rows) {
-            val key = dupKey(accountId, r.date, r.amount, r.description)
-            val m = held[key] ?: 0
-            if (m > 0) { held[key] = m - 1; dup += r; continue }
-            val p = pending.firstOrNull { it.amount == r.amount && kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) <= 5 }
-            if (p != null) { pending.remove(p); matched += r to p; continue }
-            fresh += r
-        }
-        val groups = fresh.groupBy { dupKey(accountId, it.date, it.amount, it.description) }.values
-            .filter { it.size > 1 }.map { DupGroup(it) }.sortedBy { it.rows.first().rowNumber }
-        val skipped = groups.flatMap { it.rows }.filter { it.rowNumber in skippedRows }
-        val skippedNumbers = skipped.map { it.rowNumber }.toSet()
-        return Plan(fresh.filter { it.rowNumber !in skippedNumbers }, dup, matched, read.bad, groups, skipped)
+        if (imported.isEmpty()) return null
+        val groups = imported.groupBy { it.importId ?: "created@${it.createdAt}" }
+        val (key, rows) = groups.entries.maxBy { e -> e.value.maxOf { it.createdAt } }
+        val withId = rows.firstOrNull { it.importId != null }?.importId
+        return Batch(accountId, withId, rows.minOf { it.createdAt }, rows.sortedBy { it.id }.map { it.id }).takeIf { key.isNotEmpty() }
     }
 
     /** ATM fees are tagged automatically; a rebate of one offsets it. */

@@ -40,7 +40,13 @@ sealed class Dialog {
     data class MoveMoney(val fromId: String? = null, val toId: String? = null, val editId: String? = null) : Dialog()
     data class EnvelopeForm(val envelopeId: String? = null) : Dialog()
     data class AccountForm(val accountId: String? = null) : Dialog()
-    data class ImportCsv(val accountId: String, val fileName: String, val plan: CsvImport.Plan) : Dialog()
+    /** 0.15.10: the import preview; [choices] the ticks by row number, [plan] worked out with them. Nothing is written until Import. */
+    data class ImportCsv(
+        val accountId: String, val fileName: String, val plan: CsvImport.Plan,
+        val read: CsvImport.Read = CsvImport.Read(emptyList(), emptyList()), val choices: Map<Int, Boolean> = emptyMap(),
+    ) : Dialog()
+    /** 0.15.10: Undo last import's confirm for that import. */
+    data class UndoImport(val batch: CsvImport.Batch) : Dialog()
     /** Backup: where to save; encrypted with the recovery key (0.11.0). */
     object Backup : Dialog()
     /** Restore from [file]: its recovery key (or an older backup's password), then a confirmation before the budget is replaced. */
@@ -379,7 +385,7 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
             val layout = CsvImport.detect(text)
             val read = CsvImport.read(text, layout)
             if (read.rows.isEmpty()) throw BudgetRuleException("No transactions found in $fileName.")
-            dialog = Dialog.ImportCsv(accountId, fileName, CsvImport.plan(read, accountId, b.transactions))
+            dialog = Dialog.ImportCsv(accountId, fileName, CsvImport.plan(read, accountId, b.transactions), read)
             true
         } catch (e: BudgetRuleException) {
             message = (e.message ?: "That file can't be read.") to true
@@ -390,6 +396,21 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         }
     }
 
+    /** A tick in the import preview: the plan is worked out again with it. */
+    fun chooseImportRow(d: Dialog.ImportCsv, row: Int, on: Boolean) {
+        val b = budget ?: return
+        val choices = d.choices + (row to on)
+        dialog = d.copy(choices = choices, plan = CsvImport.plan(d.read, d.accountId, b.transactions, choices))
+    }
+
+    /** Undo last import (0.15.10): the transactions it added are deleted (soft, so they sync), nothing else. */
+    suspend fun undoImport(batch: CsvImport.Batch): Boolean {
+        var n = 0
+        val ok = act { n = undoImport(batch) }
+        if (ok) message = "Removed the $n transaction${if (n == 1) "" else "s"} that import added." to false
+        return ok
+    }
+
     suspend fun importCsv(d: Dialog.ImportCsv): Boolean {
         var result: BudgetActions.ImportResult? = null
         val ok = act {
@@ -398,7 +419,7 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
             // 0.12.3: what runs on new transactions after an import, as on the phone (history labels, bill payments, receipts)
             store()?.let { st -> net.darkrelay.deaddropfinance.domain.Arrivals(st, this, { today() }).landed(r.newIds, autoApprove = false) }
         }
-        result?.let { r -> message = "Imported ${r.imported} transaction${if (r.imported == 1) "" else "s"} into To sort; ${r.skipped} already here, ${r.bad} unreadable." to false }
+        result?.let { r -> message = "Imported ${r.imported} transaction${if (r.imported == 1) "" else "s"} into To sort; ${r.skipped} already here, ${r.pending} pending not added, ${r.bad} unreadable." to false }
         return ok
     }
 

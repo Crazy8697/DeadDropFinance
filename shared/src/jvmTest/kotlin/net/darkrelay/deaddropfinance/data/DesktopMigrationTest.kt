@@ -44,6 +44,8 @@ class DesktopMigrationTest {
             c.execSQL("ALTER TABLE `envelope` DROP COLUMN `interest_rate`")
             c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `tax_letter`")
             c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `price_with_tax`")
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `original_description`")
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `import_id`")
             c.execSQL("PRAGMA user_version = 12")
         }
         counts
@@ -58,7 +60,7 @@ class DesktopMigrationTest {
         val counts = listOf("account", "envelope", "txn", "txn_line", "category", "change_log").associateWith { t -> o.store.raw { it.query("SELECT count(*) FROM `$t`").single()[0] as Long } }
         assertEquals(before, counts, "every row is kept")
         val version = o.store.raw { it.query("PRAGMA user_version").single()[0] as Long }
-        assertEquals(14L, version)
+        assertEquals(15L, version)
         val loan = o.store.dao.envelopesNow().first { it.name == "Sample Loan" }
         assertNull(loan.interestRate, "no rate until one is given")
         assertEquals(900_00L, loan.debtOwed)
@@ -83,10 +85,12 @@ class DesktopMigrationTest {
         CipherDriver { key.copyOf() }.open(File(dir, "budget.db").absolutePath).use { c ->
             c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `tax_letter`")
             c.execSQL("ALTER TABLE `receipt_item` DROP COLUMN `price_with_tax`")
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `original_description`")
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `import_id`")
             c.execSQL("PRAGMA user_version = 13")
         }
         val n = ok(DesktopDatabase.open(dir, clock = { 2_000L }))
-        assertEquals(14L, n.store.raw { it.query("PRAGMA user_version").single()[0] as Long })
+        assertEquals(15L, n.store.raw { it.query("PRAGMA user_version").single()[0] as Long })
         val item = n.store.dao.itemsOf(n.store.dao.receiptsNow().single().id).single()
         assertEquals("MILK", item.text); assertEquals(3_00L, item.amount)
         assertEquals("", item.taxLetter, "no letter until one is read")
@@ -95,6 +99,32 @@ class DesktopMigrationTest {
         // and it takes a letter and a price with tax
         n.store.write { put(item, item.copy(taxLetter = "A", priceWithTax = 3_18, updatedAt = now)) }
         assertEquals(3_18L, n.store.dao.itemsOf(item.receiptId).single().paid)
+        n.store.db.close()
+    }
+
+    /** A schema 14 budget as 0.15.9 left it (an import's transactions in it, no new columns): every row kept, the columns empty. */
+    @Test fun aSchema14BudgetGetsTheImportColumnsAndKeepsEveryTransaction() = runBlocking<Unit> {
+        val dir = tmp.newFolder("DeadDropFinance")
+        val o = ok(DesktopDatabase.open(dir, clock = { 1_000L }))
+        val acct = o.store.write { put(null, net.darkrelay.deaddropfinance.data.AccountEntity(name = "Sample Checking", type = net.darkrelay.deaddropfinance.data.AccountType.BANK, startDate = java.time.LocalDate.of(2030, 1, 1), createdAt = now, updatedAt = now)) }
+        o.store.write {
+            for (a in listOf(-40_00L, -3_00L)) put(null, net.darkrelay.deaddropfinance.data.TransactionEntity(accountId = acct.id, date = java.time.LocalDate.of(2030, 11, 3), payee = "Sample", amount = a,
+                source = net.darkrelay.deaddropfinance.data.TransactionSource.CSV, importDescription = "SAMPLE", createdAt = now, updatedAt = now))
+        }
+        o.store.db.close()
+        val key = assertIs<DesktopKey.Result.Ok>(DesktopKey(File(dir, "budget.key")).load()).key
+        CipherDriver { key.copyOf() }.open(File(dir, "budget.db").absolutePath).use { c ->
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `original_description`")
+            c.execSQL("ALTER TABLE `txn` DROP COLUMN `import_id`")
+            c.execSQL("PRAGMA user_version = 14")
+        }
+        val n = ok(DesktopDatabase.open(dir, clock = { 2_000L }))
+        assertEquals(15L, n.store.raw { it.query("PRAGMA user_version").single()[0] as Long })
+        val txs = n.store.dao.transactionsNow()
+        assertEquals(2, txs.size)
+        assertTrue(txs.all { it.originalDescription == null && it.importId == null && it.importDescription == "SAMPLE" })
+        // the import they came from is still found, by its one write
+        assertEquals(2, net.darkrelay.deaddropfinance.domain.CsvImport.lastImport(txs, acct.id)!!.size)
         n.store.db.close()
     }
 }

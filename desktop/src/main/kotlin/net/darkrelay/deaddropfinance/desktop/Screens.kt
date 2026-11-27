@@ -44,6 +44,7 @@ import net.darkrelay.deaddropfinance.data.LineBucket
 import net.darkrelay.deaddropfinance.data.SortedBy
 import net.darkrelay.deaddropfinance.data.TransactionEntity
 import net.darkrelay.deaddropfinance.data.TransactionKind
+import net.darkrelay.deaddropfinance.domain.CsvImport
 import net.darkrelay.deaddropfinance.domain.Budget
 
 @Composable
@@ -343,6 +344,10 @@ fun ActivityScreen(model: AppModel, shell: Shell) {
                 val f = shell.pickCsv() ?: return@Btn
                 shell.run { model.planImport(id, f.name, f.readText()) }
             }, ghost = true, small = true, enabled = !all, tag = "importCsv")
+            // 0.15.10: Undo last import, beside Import CSV while this account has an import to undo
+            selected?.let { a -> CsvImport.lastImport(b.transactions, a.id) }?.let { batch ->
+                Btn("Undo last import", { model.dialog = Dialog.UndoImport(batch) }, ghost = true, small = true, tag = "undoImport")
+            }
             // 0.13.0: Export CSV, what this tab shows for the budget month above (the moves too, on All), where the user saves it
             Btn("Export CSV", { model.exportCsv(shell) }, ghost = true, small = true, tag = "exportCsv")
             // 0.13.0: the phone's Activity, with To sort, approving, recently sorted and what sorting learned

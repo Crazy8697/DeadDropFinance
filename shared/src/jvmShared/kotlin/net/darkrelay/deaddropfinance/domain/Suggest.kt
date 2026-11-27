@@ -50,6 +50,27 @@ object Suggest {
     fun forTx(b: Budget, rules: List<RuleEntity>, t: TransactionEntity): Suggestion? =
         if (b.toSort.none { it.id == t.id }) null else Context(b, rules).forTx(t)
 
+    /**
+     * 1.9.7: what each of [rows] would be sorted into once imported into [accountId] (the import preview's envelope
+     * guess): the envelope's name, "Ready to assign", "Transfer", "Split", or null for none. Nothing is saved.
+     */
+    fun guesses(b: Budget, rules: List<RuleEntity>, accountId: String, rows: List<CsvImport.Row>): Map<Int, String?> {
+        val ctx = Context(b, rules)
+        val names = b.envelopes.associate { it.id to it.name }
+        return rows.associate { r ->
+            val t = TransactionEntity(id = "preview-${r.rowNumber}", accountId = accountId, date = r.date, payee = r.description, amount = r.amount,
+                importDescription = r.description, originalDescription = r.original, source = net.darkrelay.deaddropfinance.data.TransactionSource.CSV, createdAt = 0, updatedAt = 0)
+            val lines = runCatching { ctx.forTx(t)?.lines }.getOrNull()
+            r.rowNumber to when {
+                lines.isNullOrEmpty() -> null
+                lines.size > 1 -> "Split"
+                lines[0].toReadyToAssign -> "Ready to assign"
+                lines[0].transfer -> "Transfer"
+                else -> lines[0].envelopeId?.let { names[it] }
+            }
+        }
+    }
+
     /** The first rule (in priority order) that matches [t] and can apply. */
     fun ruleFor(b: Budget, rules: List<RuleEntity>, t: TransactionEntity): RuleEntity? = Context(b, rules).ruleFor(t)?.first
 

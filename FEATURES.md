@@ -65,11 +65,15 @@ How the app behaves. Each section names the stage that builds it. Everything run
 ## Transactions (Stage 6)
 - One transaction can be split across several envelopes (for example one store run that is part groceries, part household; or one bill payment that is part current charge, part past-due debt).
 - Pending and posted versions of the same transaction are matched, never double counted.
-- Old School CSV import handles bank exports and payment app statement exports, with duplicate detection:
-  - Two rows are the same when they have the same account, date, amount in cents and normalized description.
-  - Against what the account already holds, matching is counted. If the file has N rows with a key and the account holds M, min(N, M) rows are "already here" and skipped, and the rest are new. Three identical rows in the file with one already in the app imports two.
-  - Identical rows inside one file are never skipped automatically, since two real purchases or transfers can look the same. The preview lists them under "Possible duplicates in this file", grouped, with the row numbers. Each row has an import or skip choice, import by default. The counts at the top (to import, already here, possible duplicates, skipped by you, bad) update as the choices change.
-  - A row that is the posted version of a pending transaction (same amount, within 5 days) posts that transaction instead of adding a second one.
+- Old School CSV import handles bank exports and payment app statement exports, with duplicate detection (1.9.7, program 0.15.10):
+  - Each imported transaction keeps the bank's own original description (USAA's "Original Description" column, else the row's description). Renaming its payee never changes it.
+  - A row is already in when a transaction on that account has the same amount, the same date and the same stored original description.
+  - A transaction with no stored original description (entered by hand, or imported before 1.9.7) is matched by amount. On the same day, matching is counted: three identical $3.00 rows in the file against three in the app are all already in; against two, one is new. More such transactions on the day than rows, or one with the same amount within 3 days but not on the same day, makes the row unsure, with that transaction shown beside it.
+  - An existing transaction is matched once at most. Identical rows inside one file are separate rows.
+  - Rows the bank lists as Pending (a Status column) are never added: they're listed under "Pending, not added" and come in posted with a later file.
+  - A row that is the posted version of a pending transaction entered by hand (same amount, within 5 days) posts that transaction instead of adding a second one.
+  - Before anything is saved a preview dialog shows "N new, N already in, N unsure, N pending": the new rows ticked and the unsure ones not, each with its date, payee, amount and envelope guess (an unsure one with the transaction it may be), the rows already in under a count that opens, and the pending rows. Only its Import writes anything.
+  - Every import gives its transactions one import id. Activity's account tab has Undo last import beside Import CSV while the account has an import to undo: after a red confirm ("Undo the import from <date time>? This removes the N transactions it added. Nothing else changes.") it deletes those transactions as a delete by hand would, so it syncs and stays in the history. An import made before 1.9.7 is the CSV transactions saved in its one write (they share its saved-at time to the millisecond), so it can be undone too.
 
 ## Setup (Stage 7)
 - A setup wizard on first start: app lock, how transactions get in (Old School: CSV import, or entering things by hand), optional starter envelopes, finish. Installs that already have accounts get a Finish setup card on Home instead. Setup can be rerun from More.
