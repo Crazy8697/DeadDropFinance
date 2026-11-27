@@ -10,6 +10,7 @@ import net.darkrelay.deaddropfinance.domain.BudgetActions.LineDraft
 import net.darkrelay.deaddropfinance.domain.BudgetActions.TransactionDraft
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -40,7 +41,7 @@ class ProgramBillsTest : ProgramScreensBase() {
         compose.waitUntil(5_000) { bills().any { it.name == "Sample Water" && it.amountDue == 35_00L } }
         // its detail: Mark paid records the payment
         compose.waitUntil(5_000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("bill.Sample Water"), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
-        // this cycle and the next are both within 45 days: the first row
+        // this cycle and the next can both be before the next payday: the first row
         compose.onAllNodes(androidx.compose.ui.test.hasTestTag("bill.Sample Water"), useUnmergedTree = true)[0].performClick()
         compose.waitForIdle()
         until("Mark paid")
@@ -107,19 +108,22 @@ class ProgramBillsTest : ProgramScreensBase() {
             .config[androidx.compose.ui.semantics.SemanticsProperties.Text].joinToString { it.text })
     }
 
-    @Test fun theNextPaydayIsChangedByHandAndBackToThePrediction() {
+    /** 0.15.11: Change payday opens the Payday schedule popup; saved, the schedule decides the next payday (no two-week guess). */
+    @Test fun changePaydayOpensThePayScheduleAndSaveSetsIt() {
         show()
         click("nav.BILLS")
-        until("Guessed from one payday")
+        until("No pay schedule yet. Set one with Change payday.")
+        assertTrue(!shows("Guessed"))
         click("bills.payday")
-        until("When you expect the deposit.")
-        tag("f.payday").performTextClearance(); tag("f.payday").performTextInput(today.plusDays(9).toString()); compose.waitForIdle()
+        until("Payday schedule")
+        assertTrue(shows("Next three paydays:"))
         click("dialog.save")
-        until("Set by you")
-        assertEquals(today.plusDays(9), runBlocking { BillActions(store(), a()) { today }.paydayCorrection() })
-        click("bills.payday")
-        click("payday.predicted")
-        compose.waitUntil(5_000) { runBlocking { BillActions(store(), a()) { today }.paydayCorrection() } == null }
+        until("Monthly, the ")
+        val s = assertNotNull(runBlocking { BillActions(store(), a()) { today }.paySchedule() })
+        assertEquals(net.darkrelay.deaddropfinance.domain.PaySchedule.Kind.MONTHLY, s.kind)
+        val p = runBlocking { BillActions(store(), a()) { today }.prediction() }
+        assertEquals(s, p.schedule)
+        assertTrue(!p.guessed)
     }
 
     @Test fun aBillDueBeforePaydayIsInBillsWithItsDueDate() {

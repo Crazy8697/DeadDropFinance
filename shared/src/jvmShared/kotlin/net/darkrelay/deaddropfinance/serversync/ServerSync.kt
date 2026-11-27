@@ -483,6 +483,8 @@ class ServerSync(
         store.budgetStart()?.let { meta += Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_BUDGET_START, "UPDATE", JSONObject().put("value", it.toString()), t) }
         // the currency (1.7.0), when one was chosen (a budget without one is USD everywhere)
         store.dao.meta(BudgetStore.META_CURRENCY)?.let { meta += Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_CURRENCY, "UPDATE", JSONObject().put("value", it), t) }
+        // the pay schedule (1.9.8), when one was saved
+        store.paySchedule()?.let { meta += Change(newId(), BudgetStore.META_ENTITY, BudgetStore.META_PAY_SCHEDULE, "UPDATE", JSONObject().put("value", it), t) }
         return out + meta
     }
 
@@ -803,6 +805,7 @@ class ServerSync(
             if (key !in BudgetStore.SYNCED_META) return
             val v = data.optStringOrNull("value") ?: return
             if (key == BudgetStore.META_CURRENCY && !net.darkrelay.deaddropfinance.domain.Currencies.isKnown(v)) return
+            if (key == BudgetStore.META_PAY_SCHEDULE && net.darkrelay.deaddropfinance.domain.PaySchedule.fromJson(v) == null) return
             raw.exec("INSERT OR REPLACE INTO meta (`key`, value) VALUES (?, ?)", listOf(key, v))
         }
 

@@ -37,6 +37,8 @@ data class ImportState(
     val choices: Map<Int, Boolean> = emptyMap(),
     /** 1.9.7: the preview dialog is open. Nothing is written until its Import is pressed. */
     val previewing: Boolean = false,
+    /** 1.9.8: the bank balance typed in the preview; null: the file's own ending balance, when it has one. */
+    val bankBalance: String? = null,
     val result: BudgetActions.ImportResult? = null,
     val error: String? = null,
 )
@@ -71,6 +73,7 @@ fun ImportScreen(
     onChoice: (Int, Boolean) -> Unit = { _, _ -> },
     onPreview: (Boolean) -> Unit = {},
     rules: List<net.darkrelay.deaddropfinance.data.RuleEntity> = emptyList(),
+    onBankBalance: (String) -> Unit = {},
 ) {
     ScrollColumn(Modifier.fillMaxWidth(), rememberScrollState(), Modifier.padding(horizontal = 16.dp)) {
         ScreenTitle("Import CSV", onBack)
@@ -95,14 +98,19 @@ fun ImportScreen(
         val layout = s.layout ?: return@ScrollColumn
         s.fileName?.let { Text(it, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall) }
         Picker("Into account", budget.accounts.filter { !it.archived }.map { it.id to it.name }, s.accountId, onAccount)
-        SectionTitle("Columns")
-        layout.headers.forEachIndexed { i, h ->
-            Picker(h.ifBlank { "Column ${i + 1}" }, CsvImport.Role.entries.map { it to roleName(it) }, layout.roles[i], { r ->
-                onLayout(layout.copy(roles = layout.roles.toMutableList().also { it[i] = r }))
-            })
+        if (layout.venmo) {
+            // 1.9.8: a Venmo statement is read by its own columns
+            Text("A Venmo statement: read by its own columns.", color = DdfColors.Muted, modifier = Modifier.padding(vertical = 8.dp).testTag("import.venmo"))
+        } else {
+            SectionTitle("Columns")
+            layout.headers.forEachIndexed { i, h ->
+                Picker(h.ifBlank { "Column ${i + 1}" }, CsvImport.Role.entries.map { it to roleName(it) }, layout.roles[i], { r ->
+                    onLayout(layout.copy(roles = layout.roles.toMutableList().also { it[i] = r }))
+                })
+            }
+            Picker("Date format", CsvImport.DATE_FORMATS.map { it to it }, layout.dateFormat, { onLayout(layout.copy(dateFormat = it, dateAmbiguous = false)) })
+            if (layout.dateAmbiguous) Text("These dates read both month-first and day-first. Check the format.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         }
-        Picker("Date format", CsvImport.DATE_FORMATS.map { it to it }, layout.dateFormat, { onLayout(layout.copy(dateFormat = it, dateAmbiguous = false)) })
-        if (layout.dateAmbiguous) Text("These dates read both month-first and day-first. Check the format.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
         val account = s.accountId ?: return@ScrollColumn
         val read = CsvImport.read(text, layout)
         val plan = CsvImport.plan(read, account, budget.transactions, s.choices)
@@ -119,8 +127,25 @@ fun ImportScreen(
         Gap(24)
         if (s.previewing) {
             val guesses = remember(plan, budget, rules) { net.darkrelay.deaddropfinance.domain.Suggest.guesses(budget, rules, account, plan.new + plan.unsure.map { it.row }) }
-            ImportPreviewDialog(plan, guesses, s.choices, onChoice, onCancel = { onPreview(false) }, onImport = { onImport(plan) })
+            val bank = s.bankBalance ?: read.endingBalance?.let { Money.plain(it) } ?: ""
+            ImportPreviewDialog(
+                plan, guesses, s.choices, onChoice, onCancel = { onPreview(false) }, onImport = { onImport(plan) },
+                after = CsvImport.balanceAfter(budget, account, plan), bankText = bank, onBankText = onBankBalance,
+            )
         }
+    }
+}
+
+/**
+ * The import preview's balance check (1.9.8), the phone's and the program's: the account's balance once the ticked rows
+ * are in, against the bank's (typed, or the file's own ending balance). [off] is null when they match or there's none.
+ */
+class ImportBalance(val after: Long, val bank: Long?) {
+    val line: String get() = if (bank == null) "After import: ${Money.format(after)}." else "After import: ${Money.format(after)}. Bank says: ${Money.format(bank)}."
+    val off: String? get() = bank?.takeIf { it != after }?.let { "Off by ${Money.format(kotlin.math.abs(after - it))}" }
+
+    companion object {
+        const val FIELD = "Bank balance now (posted, without pending)"
     }
 }
 
@@ -140,9 +165,21 @@ fun importAction(plan: CsvImport.Plan) = "Import ${plan.toImport.size}"
 fun ImportPreviewDialog(
     plan: CsvImport.Plan, guesses: Map<Int, String?>, choices: Map<Int, Boolean>,
     onChoice: (Int, Boolean) -> Unit, onCancel: () -> Unit, onImport: () -> Unit,
+    after: Long? = null, bankText: String = "", onBankText: (String) -> Unit = {},
 ) {
     var showAlready by remember { mutableStateOf(false) }
+    var confirmOff by remember { mutableStateOf(false) }
     val canImport = plan.toImport.isNotEmpty() || plan.matchedPending.isNotEmpty()
+    val check = after?.let { ImportBalance(it, Money.parse(bankText)) }
+    // 1.9.8: on a mismatch, Import asks first
+    val go = { if (check?.off != null) confirmOff = true else onImport() }
+    if (confirmOff && check != null) {
+        ConfirmDialog(
+            "The balance won't match", "${check.line} ${check.off}. Import anyway?", "Import anyway",
+            onCancel = { confirmOff = false }, onConfirm = { confirmOff = false; onImport() },
+            tag = "import.offConfirm", cancelTag = "import.offCancel", actionTag = "import.offGo", textTag = "import.offText",
+        )
+    }
     val rows: @Composable ColumnScope.() -> Unit = {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             if (plan.matchedPending.isNotEmpty()) Text("${plan.matchedPending.size} of the ones already in post a pending transaction you entered.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
@@ -171,7 +208,20 @@ fun ImportPreviewDialog(
                 PreviewHead("Pending, not added")
                 plan.pending.forEach { r -> PlainRow(r) }
             }
+            if (plan.notAdded.isNotEmpty()) {
+                PreviewHead("Not added")
+                plan.notAdded.forEach { l ->
+                    Text("${l.date ?: ""}  ${l.description}  ${l.amount?.let { Money.format(it) } ?: ""}", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 12.dp))
+                    Text(l.reason, color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 24.dp, bottom = 4.dp).testTag("import.left.${l.rowNumber}"))
+                }
+            }
             if (plan.bad.isNotEmpty()) Text("${plan.bad.size} row${if (plan.bad.size == 1) "" else "s"} can't be read, skipped.", color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall)
+        }
+        if (check != null) {
+            Gap(8)
+            TextFieldRow(ImportBalance.FIELD, bankText, onBankText, Modifier.testTag("import.bank"))
+            Text(check.line, modifier = Modifier.testTag("import.after"), color = if (check.off != null) DdfColors.Warning else DdfColors.Text)
+            check.off?.let { Text(it, color = DdfColors.Warning, modifier = Modifier.testTag("import.off")) }
         }
     }
     if (LocalProgramStyle.current || LocalConfirmHost.current != null) {
@@ -180,7 +230,7 @@ fun ImportPreviewDialog(
             "Check the import", onCancel,
             listOf(
                 DialogAction("Cancel", onCancel, tag = "import.cancel"),
-                DialogAction(importAction(plan), onImport, filled = true, enabled = canImport, tag = "import.go"),
+                DialogAction(importAction(plan), go, filled = true, enabled = canImport, tag = "import.go"),
             ),
             tag = "import.dialog", width = 560.dp,
         ) {
@@ -190,7 +240,7 @@ fun ImportPreviewDialog(
     } else {
         // the phone: the shared confirm's own look (Cancel quiet on the left, Import filled on the right)
         ConfirmDialog(
-            "Check the import", importCounts(plan), importAction(plan), onCancel = onCancel, onConfirm = onImport, enabled = canImport,
+            "Check the import", importCounts(plan), importAction(plan), onCancel = onCancel, onConfirm = go, enabled = canImport,
             tag = "import.dialog", cancelTag = "import.cancel", actionTag = "import.go", textTag = "import.counts", extra = rows,
         )
     }

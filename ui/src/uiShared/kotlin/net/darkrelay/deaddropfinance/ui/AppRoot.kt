@@ -558,7 +558,10 @@ fun AppRoot(
     val hasAccounts = b.accounts.any { !it.archived }
     val suggestions = remember(b, rules) { Suggest.all(b, rules) }
     val correction by produceState<LocalDate?>(null, planTick) { value = billActions.paydayCorrection() }
-    val prediction = remember(b.paydayDates, correction, today) { net.darkrelay.deaddropfinance.domain.Paydays.predict(b.paydayDates, today, correction) }
+    // 1.9.8: the pay schedule decides the next payday once saved (set here, or brought by another device)
+    val scheduleJson by remember(store) { store.dao.metaFlow(BudgetStore.META_PAY_SCHEDULE) }.collectAsState(initial = null)
+    val schedule = remember(scheduleJson) { net.darkrelay.deaddropfinance.domain.PaySchedule.fromJson(scheduleJson) }
+    val prediction = remember(b.paydayDates, correction, today, schedule) { net.darkrelay.deaddropfinance.domain.Paydays.predict(b.paydayDates, today, correction, schedule) }
     val nextPayday = prediction.effectiveNext(today)
     val series = remember(b, subscriptions) { net.darkrelay.deaddropfinance.domain.Recurring.detect(b.transactions, subscriptions) }
     val forecast = remember(b, series, nextPayday) { nextPayday?.let { net.darkrelay.deaddropfinance.domain.Forecast.build(b, series, today, it) } }
@@ -999,7 +1002,7 @@ fun AppRoot(
             }
             Nav.Bills -> BillsScreen(
                 b, today, prediction, series, onBill = { go(Nav.Bill(it)) }, onEnvelope = { go(Nav.Envelope(it)) }, onAdd = { go(Nav.BillEdit(null)) },
-                onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { d -> run(scope) { billActions.correctPayday(d); planTick++ } },
+                onSubscriptions = { go(Nav.Subscriptions) }, onPayday = { s -> run(scope) { billActions.savePaySchedule(s); planTick++ } },
             )
             is Nav.Bill -> {
                 val bill = b.bills.firstOrNull { it.id == top.id }
@@ -1360,6 +1363,7 @@ fun AppRoot(
                 onAccount = { importState = importState.copy(accountId = it, choices = emptyMap()) },
                 onChoice = { n, on -> importState = importState.copy(choices = importState.choices + (n to on)) },
                 onPreview = { importState = importState.copy(previewing = it) },
+                onBankBalance = { importState = importState.copy(bankBalance = it) },
                 rules = rules,
                 onImport = { plan ->
                     val acct = importState.accountId ?: return@ImportScreen

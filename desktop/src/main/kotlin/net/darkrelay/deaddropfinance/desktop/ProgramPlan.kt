@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -34,6 +35,7 @@ import net.darkrelay.deaddropfinance.domain.Forecast
 import net.darkrelay.deaddropfinance.domain.Paydays
 import net.darkrelay.deaddropfinance.domain.Recurring
 import net.darkrelay.deaddropfinance.ui.Nav
+import net.darkrelay.deaddropfinance.ui.NO_PAYDAY_DAYS
 import net.darkrelay.deaddropfinance.ui.comingUp
 import net.darkrelay.deaddropfinance.ui.dayText
 import net.darkrelay.deaddropfinance.ui.ordinal
@@ -57,8 +59,9 @@ class ProgramPlan(
             val store = model.store() ?: return@withContext null
             val actions = model.actions ?: return@withContext null
             val today = model.today()
-            val correction = BillActions(store, actions) { today }.paydayCorrection()
-            val prediction = Paydays.predict(b.paydayDates, today, correction)
+            val bills = BillActions(store, actions) { today }
+            // 0.15.11: the pay schedule, once saved, decides the next payday
+            val prediction = Paydays.predict(b.paydayDates, today, bills.paydayCorrection(), bills.paySchedule())
             val next = prediction.effectiveNext(today)
             val series = Recurring.detect(b.transactions, store.dao.subscriptionsNow())
             val forecast = next?.let { Forecast.build(b, series, today, it) }
@@ -71,18 +74,15 @@ class ProgramPlan(
 /** The plan for the budget shown, worked out again whenever the budget changes. */
 @Composable
 fun rememberPlan(model: AppModel, b: Budget): ProgramPlan? {
-    val plan by produceState<ProgramPlan?>(null, b, model.planTick) { value = ProgramPlan.of(model, b) }
+    // a schedule brought by another device redraws it too
+    val schedule by remember(model.store()) { model.store()?.dao?.metaFlow(net.darkrelay.deaddropfinance.data.BudgetStore.META_PAY_SCHEDULE) ?: kotlinx.coroutines.flow.flowOf(null) }
+        .collectAsState(initial = null)
+    val plan by produceState<ProgramPlan?>(null, b, model.planTick, schedule) { value = ProgramPlan.of(model, b) }
     return plan
 }
 
 /** "Predicted: every 14 days", as the phone's payday line says it. */
-fun paydayWhy(p: Paydays.Prediction): String = when {
-    p.next == null -> "Payday is the deposit landing, never a date on the calendar."
-    p.corrected -> "Set by you"
-    p.guessed -> "Guessed from one payday (two weeks). Correct it if it's different."
-    p.monthlyDay != null -> "Predicted: monthly, around the ${ordinal(p.monthlyDay!!)}"
-    else -> "Predicted: every ${p.intervalDays} days"
-}
+fun paydayWhy(p: Paydays.Prediction): String = net.darkrelay.deaddropfinance.ui.paydayWhyText(p)
 
 private fun lateNote(expected: LocalDate) =
     "Payday was expected ${dayText(expected)} and hasn't landed yet. When the deposit is in, mark it as payday; the forecast counts it as tomorrow until then."
@@ -91,7 +91,7 @@ private fun lateNote(expected: LocalDate) =
 
 /**
  * Bills in the program's own layout, the phone's Bills tab's data and actions: the next payday (Change), the autopay
- * checks, what's coming up in the next 45 days, and the repeating charges. A bill opens the phone's bill screen (Mark
+ * checks, what's coming up before the next payday, and the repeating charges. A bill opens the phone's bill screen (Mark
  * paid, Paid in cash, edit, delete), a debt envelope its drawer; Add bill and Subscriptions open the phone's screens.
  */
 @Composable
@@ -100,12 +100,14 @@ fun ProgramBillsScreen(model: AppModel) {
     val plan = rememberPlan(model, b)
     val today = model.today()
     Body {
-        val items = comingUp(b, today)
+        // 0.15.11: this budget month's unpaid bills (before the next payday), and anything overdue
+        val payday = plan?.nextPayday
+        val items = comingUp(b, today, payday)
         val live = plan?.series.orEmpty().filter { !it.dismissed }
         CardRow {
             val next = plan?.prediction?.next
             StatCard("Next payday", next?.let { dayText(it) } ?: "Not yet", plan?.prediction?.let { paydayWhy(it) } ?: "", Modifier.weight(1f), hi = true, cyan = true, tag = "card.nextPayday")
-            StatCard("Coming up", net.darkrelay.deaddropfinance.desktop.money(items.sumOf { it.amount }), "${items.size} unpaid in the next 45 days", Modifier.weight(1f), tag = "card.comingUp")
+            StatCard("Coming up", net.darkrelay.deaddropfinance.desktop.money(items.sumOf { it.amount }), if (payday != null) "${items.size} unpaid before payday" else "${items.size} unpaid in the next $NO_PAYDAY_DAYS days", Modifier.weight(1f), tag = "card.comingUp")
             StatCard("Subscriptions", "${net.darkrelay.deaddropfinance.desktop.money(Recurring.monthlyTotal(live))}/mo",
                 "${live.size} repeating charge${if (live.size == 1) "" else "s"}" + live.count { it.isNew }.let { if (it > 0) ", $it new" else "" },
                 Modifier.weight(1f), tag = "card.subscriptions")
@@ -131,13 +133,13 @@ fun ProgramBillsScreen(model: AppModel) {
             Spacer(Modifier.height(18.dp))
         }
         RowHead("Coming up") {
-            Btn("Change payday", { model.dialog = Dialog.NextPayday }, ghost = true, small = true, enabled = plan?.prediction?.next != null, tag = "bills.payday")
+            Btn("Change payday", { model.dialog = Dialog.NextPayday }, ghost = true, small = true, enabled = plan != null, tag = "bills.payday")
             Btn("Subscriptions", { model.openPhone(Nav.Subscriptions) }, ghost = true, small = true, tag = "bills.subscriptions")
             Btn("Add bill", { model.openPhone(Nav.BillEdit(null)) }, small = true, tag = "bills.add")
         }
         Table(listOf(Col("Bill", 0.40f), Col("Due", 0.24f), Col("Paid so far", 0.16f, true), Col("Amount", 0.20f, true))) {
             if (b.bills.isEmpty() && items.isEmpty()) EmptyRow("No bills yet. Add one, or make one from a repeating charge in Subscriptions.")
-            else if (items.isEmpty()) EmptyRow("Nothing unpaid in the next 45 days.")
+            else if (items.isEmpty()) EmptyRow(if (payday != null) "Nothing unpaid before payday." else "Nothing unpaid in the next $NO_PAYDAY_DAYS days.")
             items.forEach { i ->
                 val open = { if (i.billId != null) model.openPhone(Nav.Bill(i.billId!!)) else i.envelopeId?.let { model.drawerEnvelope = it } }
                 TRow(onClick = { open() }, tag = "bill.${i.name}") {
@@ -162,32 +164,49 @@ fun ProgramBillsScreen(model: AppModel) {
     }
 }
 
-/** Change the next payday, as the phone's payday line: Set, Use the prediction (once set by hand), Cancel. */
+/**
+ * The Payday schedule popup (0.15.11), in the program's dialog frame: how often; monthly, the day of the month, the days
+ * early and the weekend or holiday choice; every two weeks, the next payday. The next three paydays follow what's
+ * entered. Save makes it the schedule (synced), which decides the next payday from then on.
+ */
 @Composable
 fun NextPaydayDialog(model: AppModel, shell: Shell, b: Budget) {
-    val plan = rememberPlan(model, b)
-    val p = plan?.prediction
-    var text by remember(p?.next) { mutableStateOf(p?.next?.toString() ?: "") }
+    // the form starts from the saved schedule (or the predicted next payday) once the plan is worked out
+    val p = rememberPlan(model, b)?.prediction ?: return
+    val today = model.today()
+    val form = remember { net.darkrelay.deaddropfinance.ui.PayScheduleForm(p.schedule, p.next, today) }
+    val entered = form.schedule()
     val close = { model.dialog = null }
-    fun save(d: LocalDate?) = shell.run {
-        val store = model.store() ?: return@run
-        val actions = model.actions ?: return@run
-        BillActions(store, actions) { model.today() }.correctPayday(d)
-        model.planTick++
-        model.refresh()
-        model.dialog = null
-    }
-    Modal("Next payday", 420.dp, close, "dialog.payday", footer = {
-        if (p?.corrected == true) Btn("Use the prediction", { save(null) }, ghost = true, tag = "payday.predicted")
+    val choices = net.darkrelay.deaddropfinance.ui.PayScheduleChoices
+    Modal("Payday schedule", 440.dp, close, "dialog.payday", footer = {
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-        Btn("Set", {
-            val d = runCatching { LocalDate.parse(text.trim()) }.getOrNull()
-            if (d == null) model.message = "The date must look like 2030-01-31." to true else save(d)
-        }, tag = "dialog.save")
+        Btn("Save", {
+            val s = entered
+            if (s == null) model.message = "The next payday must look like 2030-01-31." to true
+            else shell.run {
+                val store = model.store() ?: return@run
+                val actions = model.actions ?: return@run
+                BillActions(store, actions) { model.today() }.savePaySchedule(s)
+                model.planTick++
+                model.refresh()
+                model.dialog = null
+            }
+        }, enabled = entered != null, tag = "dialog.save")
     }) {
-        Field("Next payday", text, { text = it }, placeholder = "2030-01-31", tag = "f.payday")
-        T("When you expect the deposit. Payday starts when you mark the deposit as payday.", 11.5.sp, C.Dim2)
-        if (p != null) T(paydayWhy(p), 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 4.dp))
+        Select("How often", choices.often, form.kind, { form.kind = it }, tag = "f.often")
+        if (form.kind == net.darkrelay.deaddropfinance.domain.PaySchedule.Kind.MONTHLY) {
+            Two { m ->
+                Select("Day of the month", choices.days, form.day, { form.day = it }, m, tag = "f.day")
+                Column(m) {
+                    Select("Days early", choices.early, form.early, { form.early = it }, tag = "f.early")
+                    T(choices.EARLY_HINT, 11.5.sp, C.Dim2, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        } else {
+            Field("Next payday", form.next, { form.next = it }, placeholder = "2030-01-31", tag = "f.payday")
+        }
+        Select(choices.MOVE_LABEL, choices.move, form.later, { form.later = it }, tag = "f.move")
+        T(net.darkrelay.deaddropfinance.ui.nextThreePaydays(entered, today), 13.5.sp, C.Cyan, modifier = Modifier.padding(top = 4.dp).testTag("payday.nextThree"))
     }
 }
 

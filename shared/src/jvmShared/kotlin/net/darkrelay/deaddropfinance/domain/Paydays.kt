@@ -23,6 +23,8 @@ object Paydays {
         val corrected: Boolean,
         /** The expected date has passed and the deposit isn't in. */
         val late: Boolean,
+        /** 1.9.8: the user's pay schedule, which decided [next] (no guessing from gaps while there is one). */
+        val schedule: PaySchedule? = null,
     ) {
         /** The day the money is counted on: the next payday, or tomorrow while it's late. */
         fun effectiveNext(today: LocalDate): LocalDate? = next?.let { if (late) today.plusDays(1) else it }
@@ -31,8 +33,24 @@ object Paydays {
     /** Gaps around this many days are monthly (on a day of the month); others are a fixed number of days. */
     private val monthly = 27L..32L
 
-    fun predict(paydays: List<LocalDate>, today: LocalDate, correction: LocalDate? = null): Prediction {
+    /** A scheduled payday this many days or fewer from the last payday marked is that payday (a deposit a day or two off). */
+    const val SAME_PAYDAY_DAYS = 5L
+
+    /**
+     * 1.9.8: with a [schedule] the next payday is the schedule's first date after the last payday marked (or from
+     * [today] before the first one); the gaps between paydays and [correction] are no longer used.
+     */
+    fun predict(paydays: List<LocalDate>, today: LocalDate, correction: LocalDate? = null, schedule: PaySchedule? = null): Prediction {
         val dates = paydays.distinct().sorted()
+        if (schedule != null) {
+            val last = dates.lastOrNull()
+            val next = schedule.next(last?.plusDays(SAME_PAYDAY_DAYS + 1) ?: today)
+            return Prediction(
+                last, next, if (schedule.kind == PaySchedule.Kind.BIWEEKLY) 14 else null,
+                if (schedule.kind == PaySchedule.Kind.MONTHLY) schedule.dayOfMonth else null,
+                guessed = false, corrected = false, late = last != null && today.isAfter(next), schedule = schedule,
+            )
+        }
         val last = dates.lastOrNull() ?: return Prediction(null, null, null, null, guessed = false, corrected = false, late = false)
         val gaps = dates.takeLast(7).zipWithNext { a, b -> ChronoUnit.DAYS.between(a, b) }.filter { it > 0 }
         val median = gaps.sorted().let { if (it.isEmpty()) null else it[it.size / 2] }

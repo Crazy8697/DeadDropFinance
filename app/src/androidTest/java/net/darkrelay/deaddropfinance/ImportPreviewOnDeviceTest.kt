@@ -149,4 +149,71 @@ class ImportPreviewOnDeviceTest {
             assertEquals("the action is filled red", 0xFFE2574C.toInt(), bmp.getPixel(go.left + 10, go.centerY()))
         }
     }
+
+    private val blank = List(21) { "" }
+    private fun vline(vararg cells: Pair<Int, String>): String = blank.toMutableList().also { l -> cells.forEach { (i, v) -> l[i] = v } }
+        .joinToString(",") { if (it.contains(',')) "\"$it\"" else it }
+
+    /** An invented Venmo statement in Venmo's own layout: $120.00 at the start, $96.84 at the end (the repayment doesn't move it). */
+    private val venmo = listOf(
+        vline(0 to "Account Statement - (@Sample-User)"), vline(0 to "Account Activity"),
+        "ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer",
+        vline(15 to "$120.00"),
+        vline(0 to "4100000001", 1 to "2030-10-20T10:15:00", 2 to "Payment", 3 to "Complete", 4 to "Lunch", 5 to "Sample Friend", 6 to "Sample User", 7 to "+ $25.00"),
+        vline(0 to "4100000002", 1 to "2030-10-22T18:30:00", 2 to "Venmo Card Transaction", 3 to "Complete", 5 to "Sample User", 6 to "Sample Cafe", 7 to "- $8.16"),
+        vline(0 to "4100000003", 1 to "2030-10-24T12:00:00", 2 to "Instant Transfer", 3 to "Issued", 7 to "- $40.00", 10 to "- $0.40"),
+        vline(0 to "4100000004", 1 to "2030-10-25T08:00:00", 2 to "Venmo account repayment", 3 to "Complete", 5 to "Sample User", 7 to "+ $30.00"),
+        vline(16 to "$96.84", 17 to "$0.40", 19 to "$0.40", 20 to "An invented disclaimer, with commas, for a test."),
+    ).joinToString("\n") + "\n"
+
+    private fun waitFor(text: String) {
+        val deadline = SystemClock.uptimeMillis() + 8_000
+        while (all(text).isEmpty() && SystemClock.uptimeMillis() < deadline) Thread.sleep(200)
+        assertTrue("shows: $text", all(text).isNotEmpty())
+        Thread.sleep(600)
+    }
+
+    /** 1.9.8: the balance check (matching, and off) and a Venmo statement, on the phone. */
+    @Test fun theImportBalanceAndAVenmoStatementDrawOnThePhone() {
+        dir.deleteRecursively(); dir.mkdirs()
+        val account = AccountEntity(id = "chk", name = "Sample Checking", type = AccountType.BANK, startingBalance = 400_00, startDate = day.minusDays(60), createdAt = 1, updatedAt = 1)
+        val venmoAcct = AccountEntity(id = "ven", name = "Venmo", type = AccountType.PAYMENT_APP, startingBalance = 120_00, startDate = LocalDate.of(2030, 10, 1), sortOrder = 1, createdAt = 1, updatedAt = 1)
+        val handTx = listOf(hand("h1", day.minusDays(3), 1850_00, "My payroll"), hand("h2", day.minusDays(6), -58_00, "Electric"), hand("h3", day.minusDays(1), -40_00, "Fuel Stop 12"))
+        val budget = Budget(listOf(account, venmoAcct), emptyList(), handTx, handTx.map { line(it.id, it.amount) }, emptyList())
+        val layout = CsvImport.detect(file)
+        val plan = CsvImport.plan(CsvImport.read(file, layout), "chk", budget.transactions)
+        val after = CsvImport.balanceAfter(budget, "chk", plan)
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            scenario.onActivity { a ->
+                a.setContent {
+                    DdfTheme {
+                        androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = DdfColors.Background) {
+                            androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) { screen?.invoke() }
+                        }
+                    }
+                }
+            }
+            val money = { c: Long -> net.darkrelay.deaddropfinance.domain.Money.format(c) }
+            scenario.onActivity { screen = { androidx.compose.runtime.key("match") { ImportScreen(budget, ImportState("sample-usaa.csv", file, layout, "chk", previewing = true, bankBalance = net.darkrelay.deaddropfinance.domain.Money.plain(after)), {}, {}, {}, {}, {}) } } }
+            waitFor("After import: ${money(after)}. Bank says: ${money(after)}.")
+            shot("phone-import-balance-match")
+            var imported = 0
+            scenario.onActivity { screen = { androidx.compose.runtime.key("off") { ImportScreen(budget, ImportState("sample-usaa.csv", file, layout, "chk", previewing = true, bankBalance = net.darkrelay.deaddropfinance.domain.Money.plain(after + 10_00)), {}, {}, {}, {}, { imported++ }) } } }
+            waitFor("Off by ${money(10_00)}")
+            shot("phone-import-balance-mismatch")
+            // a mismatch asks first (the shared confirm); Import anyway imports
+            tap("Import 2")
+            waitFor("Import anyway")
+            assertEquals(0, imported)
+            shot("phone-import-balance-confirm")
+            tap("Import anyway")
+            assertEquals(1, imported)
+            val vl = CsvImport.detect(venmo)
+            assertTrue(vl.venmo)
+            scenario.onActivity { screen = { androidx.compose.runtime.key("venmo") { ImportScreen(budget, ImportState("VenmoStatement_October_2030.csv", venmo, vl, "ven", previewing = true), {}, {}, {}, {}, {}) } } }
+            waitFor("After import: ${money(96_84)}. Bank says: ${money(96_84)}.")
+            assertTrue(all("3 new, 0 already in, 0 unsure, 0 pending").isNotEmpty())
+            shot("phone-import-venmo")
+        }
+    }
 }

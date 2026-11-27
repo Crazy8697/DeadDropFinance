@@ -44,6 +44,8 @@ sealed class Dialog {
     data class ImportCsv(
         val accountId: String, val fileName: String, val plan: CsvImport.Plan,
         val read: CsvImport.Read = CsvImport.Read(emptyList(), emptyList()), val choices: Map<Int, Boolean> = emptyMap(),
+        /** 0.15.11: the bank balance typed; null: the file's own ending balance, when it has one. */
+        val bankBalance: String? = null,
     ) : Dialog()
     /** 0.15.10: Undo last import's confirm for that import. */
     data class UndoImport(val batch: CsvImport.Batch) : Dialog()
@@ -384,7 +386,7 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
         return try {
             val layout = CsvImport.detect(text)
             val read = CsvImport.read(text, layout)
-            if (read.rows.isEmpty()) throw BudgetRuleException("No transactions found in $fileName.")
+            if (read.rows.isEmpty() && read.notAdded.isEmpty()) throw BudgetRuleException("No transactions found in $fileName.")
             dialog = Dialog.ImportCsv(accountId, fileName, CsvImport.plan(read, accountId, b.transactions), read)
             true
         } catch (e: BudgetRuleException) {
@@ -399,8 +401,9 @@ class AppModel(val engine: Engine?, val today: () -> LocalDate = LocalDate::now)
     /** A tick in the import preview: the plan is worked out again with it. */
     fun chooseImportRow(d: Dialog.ImportCsv, row: Int, on: Boolean) {
         val b = budget ?: return
-        val choices = d.choices + (row to on)
-        dialog = d.copy(choices = choices, plan = CsvImport.plan(d.read, d.accountId, b.transactions, choices))
+        val current = dialog as? Dialog.ImportCsv ?: d
+        val choices = current.choices + (row to on)
+        dialog = current.copy(choices = choices, plan = CsvImport.plan(current.read, current.accountId, b.transactions, choices))
     }
 
     /** Undo last import (0.15.10): the transactions it added are deleted (soft, so they sync), nothing else. */

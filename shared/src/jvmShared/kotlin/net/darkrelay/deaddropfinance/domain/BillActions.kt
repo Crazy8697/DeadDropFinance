@@ -189,7 +189,13 @@ class BillActions(
     /** The user's own date for the next payday (null: back to the prediction). */
     suspend fun correctPayday(date: LocalDate?) = dao.putMeta(MetaEntity(META_PAYDAY, date?.toString() ?: ""))
 
-    suspend fun prediction(): Paydays.Prediction = Paydays.predict(actions.snapshot().paydayDates, today(), paydayCorrection())
+    /** The pay schedule (1.9.8), or null before one is saved. */
+    suspend fun paySchedule(): PaySchedule? = PaySchedule.fromJson(store.paySchedule())
+
+    /** Saves the pay schedule: from now on it decides the next payday (synced to the account's other devices). */
+    suspend fun savePaySchedule(s: PaySchedule) = store.setPaySchedule(s.toJson())
+
+    suspend fun prediction(): Paydays.Prediction = Paydays.predict(actions.snapshot().paydayDates, today(), paydayCorrection(), paySchedule())
 
     // ---- subscriptions ----------------------------------------------------------------------------------------------
 

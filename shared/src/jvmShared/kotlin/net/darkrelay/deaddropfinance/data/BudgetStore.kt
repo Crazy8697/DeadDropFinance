@@ -219,15 +219,40 @@ class BudgetStore(
         onWrite?.invoke()
     }
 
+    /**
+     * The pay schedule (1.9.8), as PaySchedule JSON; null: none saved. Logged as a change of the "meta" entity
+     * pay_schedule, so server sync carries it like the budget start and the currency. Older devices don't know the key
+     * and leave it alone.
+     */
+    suspend fun paySchedule(): String? = dao.meta(META_PAY_SCHEDULE)?.takeIf { it.isNotBlank() }
+
+    suspend fun setPaySchedule(json: String) {
+        if (dao.meta(META_PAY_SCHEDULE) == json) return
+        checkGuard()
+        db.atomically {
+            dao.putMeta(MetaEntity(META_PAY_SCHEDULE, json))
+            dao.insertChange(
+                ChangeLogEntity(
+                    entityType = META_ENTITY, entityId = META_PAY_SCHEDULE, operation = ChangeOperation.UPDATE,
+                    changedFields = JSONObject().put("value", json).toString(), timestamp = clock(), deviceId = deviceId(),
+                    seq = dao.lastSeq() + 1,
+                ),
+            )
+        }
+        onWrite?.invoke()
+    }
+
     companion object {
         const val META_DEVICE_ID = "device_id"
+        /** The pay schedule (1.9.8), synced as a meta value. */
+        const val META_PAY_SCHEDULE = "pay_schedule"
         const val META_BUDGET_START = "budget_start"
         /** The budget's currency (1.7.0), synced as a meta value like the budget start. */
         const val META_CURRENCY = "currency"
         /** The change log's entity type for a synced meta value (budget_start, currency). */
         const val META_ENTITY = "meta"
         /** The meta values that sync. */
-        val SYNCED_META = setOf(META_BUDGET_START, META_CURRENCY)
+        val SYNCED_META = setOf(META_BUDGET_START, META_CURRENCY, META_PAY_SCHEDULE)
 
         fun entityType(e: Synced): String = when (e) {
             is AccountEntity -> "account"

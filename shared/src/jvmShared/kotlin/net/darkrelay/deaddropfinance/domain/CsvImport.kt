@@ -86,6 +86,8 @@ object CsvImport {
         /** True when the dates read correctly both day-first and month-first, so the user should confirm. */
         val dateAmbiguous: Boolean,
         val decimalComma: Boolean,
+        /** 1.9.8: a Venmo statement, read by its own columns ([Venmo]); the mapping above is not used. */
+        val venmo: Boolean = false,
     )
 
     private val HEADER_WORDS = mapOf(
@@ -111,6 +113,7 @@ object CsvImport {
 
     /** Guesses everything about the file. The user confirms or changes it on the mapping screen. */
     fun detect(text: String): Layout {
+        Venmo.layout(text)?.let { return it }
         val d = detectDelimiter(text)
         val rows = parse(text, d)
         val width = rows.map { it.size }.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: 0
@@ -224,7 +227,18 @@ object CsvImport {
         val original: String = description, val pending: Boolean = false,
     )
     data class BadRow(val rowNumber: Int, val reason: String)
-    data class Read(val rows: List<Row>, val bad: List<BadRow>)
+
+    /** 1.9.8: a transaction row of the file the importer leaves out on purpose, and why (listed under "Not added"). */
+    data class Left(val rowNumber: Int, val date: LocalDate?, val description: String, val amount: Long?, val reason: String)
+
+    data class Read(
+        val rows: List<Row>, val bad: List<BadRow>,
+        /** 1.9.8: rows left out on purpose (a Venmo repayment that doesn't change the balance), with why. */
+        val notAdded: List<Left> = emptyList(),
+        /** 1.9.8: the balances the file itself states (a Venmo statement's beginning and ending balance), when it does. */
+        val beginningBalance: Long? = null,
+        val endingBalance: Long? = null,
+    )
 
     /**
      * The rows as they'll import, with the user's (or the guessed) layout. Row numbers are the file's line numbers
@@ -232,6 +246,7 @@ object CsvImport {
      * rest.
      */
     fun read(text: String, layout: Layout): Read {
+        if (layout.venmo) return Venmo.read(text)
         val all = parseNumbered(text, layout.delimiter)
         val rows = mutableListOf<Row>()
         val bad = mutableListOf<BadRow>()
@@ -281,7 +296,7 @@ object CsvImport {
     fun dupKey(accountId: String, date: LocalDate, amount: Long, description: String) = "$accountId|$date|$amount|${normalize(description)}"
 
     /** Why a row is listed as unsure: the transaction already here it may be, and how many days apart they are. */
-    data class Unsure(val row: Row, val maybe: TransactionEntity) {
+    data class Unsure(val row: Row, val maybe: TransactionEntity, val others: List<TransactionEntity> = emptyList()) {
         val daysApart: Long get() = kotlin.math.abs(ChronoUnit.DAYS.between(maybe.date, row.date))
     }
 
@@ -301,8 +316,12 @@ object CsvImport {
         val pending: List<Row> = emptyList(),
         /** What each "already here" row matched, in the same order as [alreadyHere]. */
         val matches: List<TransactionEntity> = emptyList(),
+        /** 1.9.8: rows left out on purpose, with why ([Read.notAdded]). */
+        val notAdded: List<Left> = emptyList(),
+        /** 1.9.8: the "already here" rows matched by several transactions together (a purchase entered as one per envelope), by row number. */
+        val groups: Map<Int, List<TransactionEntity>> = emptyMap(),
     ) {
-        val total get() = new.size + unsure.size + alreadyHere.size + matchedPending.size + pending.size + bad.size
+        val total get() = new.size + unsure.size + alreadyHere.size + matchedPending.size + pending.size + bad.size + notAdded.size
         /** Already here: matched rows and rows posting a pending transaction. */
         val alreadyCount get() = alreadyHere.size + matchedPending.size
     }
@@ -327,7 +346,10 @@ object CsvImport {
      * ticks by row number: a new row is imported unless it's false, an unsure row only when it's true.
      */
     fun plan(read: Read, accountId: String, existing: List<TransactionEntity>, choices: Map<Int, Boolean> = emptyMap()): Plan {
-        val inAccount = existing.filter { it.accountId == accountId && it.kind == TransactionKind.NORMAL && !it.deleted }
+        // 1.9.8: a transfer to or from the account is a leg of it, signed as the bank sees it (out: minus)
+        val legs = existing.filter { it.kind == TransactionKind.TRANSFER && !it.deleted && (it.accountId == accountId || it.transferAccountId == accountId) }
+            .map { t -> t.copy(accountId = accountId, amount = if (t.accountId == accountId) -t.amount else t.amount, payee = t.payee.ifBlank { "Transfer" }) }
+        val inAccount = existing.filter { it.accountId == accountId && it.kind == TransactionKind.NORMAL && !it.deleted } + legs
         val withOriginal = inAccount.filter { !it.pending && !it.originalDescription.isNullOrBlank() }
         val handPending = inAccount.filter { it.pending }.toMutableList()
         val legacy = inAccount.filter { !it.pending && it.originalDescription.isNullOrBlank() }.toMutableList()
@@ -365,8 +387,22 @@ object CsvImport {
                 else -> group.zip(here).forEach { (r, t) -> unsure += Unsure(r, t); legacy.remove(t) }
             }
         }
-        // 3. the same amount a few days apart; 4. new
+        // 2b (1.9.8). one purchase entered as several transactions on its day (one per envelope): 2 to 4 of them, the
+        // same day, that add up to the row exactly. All the same payee: already here; otherwise, or more than one way to
+        // make it up: unsure, with them beside it
+        val groups = mutableMapOf<Int, List<TransactionEntity>>()
+        val after2b = mutableListOf<Row>()
         for (r in after2.sortedBy { it.rowNumber }) {
+            val day = legacy.filter { it.date == r.date && it.kind == TransactionKind.NORMAL && (it.amount < 0) == (r.amount < 0) }.sortedBy { it.createdAt }.take(MAX_GROUP_POOL)
+            val found = subsets(day, r.amount)
+            val g = found.firstOrNull()
+            if (g == null) { after2b += r; continue }
+            legacy.removeAll(g.toSet())
+            val samePayee = g.map { Payees.clean(it.payee) }.distinct().size == 1
+            if (found.size == 1 && samePayee) { already += r to g.first(); groups[r.rowNumber] = g } else unsure += Unsure(r, g.first(), g.drop(1))
+        }
+        // 3. the same amount a few days apart; 4. new
+        for (r in after2b.sortedBy { it.rowNumber }) {
             val near = legacy.filter { it.amount == r.amount && kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) <= NEAR_DAYS }
                 .minWithOrNull(compareBy<TransactionEntity> { kotlin.math.abs(ChronoUnit.DAYS.between(it.date, r.date)) }.thenBy { it.createdAt })
             if (near != null) { unsure += Unsure(r, near); legacy.remove(near) } else fresh += r
@@ -379,8 +415,35 @@ object CsvImport {
         val toImport = (newRows.filter { choices[it.rowNumber] != false } + sortedUnsure.map { it.row }.filter { choices[it.rowNumber] == true }).sortedWith(byRow)
         return Plan(
             toImport, sortedAlready.map { it.first }, matchedPending.sortedWith(compareBy { it.first.rowNumber }), read.bad,
-            newRows, sortedUnsure, bankPending.sortedWith(byRow), sortedAlready.map { it.second },
+            newRows, sortedUnsure, bankPending.sortedWith(byRow), sortedAlready.map { it.second }, read.notAdded, groups,
         )
+    }
+
+    /** The most transactions of one day looked at for a group, and the most in a group. */
+    private const val MAX_GROUP_POOL = 14
+    private const val MAX_GROUP = 4
+
+    /** The sets of 2 to [MAX_GROUP] of [pool] that add up to [amount] exactly (at most two: one, or "more than one"). */
+    private fun subsets(pool: List<TransactionEntity>, amount: Long): List<List<TransactionEntity>> {
+        val out = mutableListOf<List<TransactionEntity>>()
+        fun go(start: Int, picked: List<TransactionEntity>, sum: Long) {
+            if (out.size >= 2) return
+            if (picked.size >= 2 && sum == amount) { out += picked; return }
+            if (picked.size == MAX_GROUP) return
+            for (i in start until pool.size) go(i + 1, picked + pool[i], sum + pool[i].amount)
+        }
+        go(0, emptyList(), 0)
+        return out
+    }
+
+    /**
+     * The account's balance once [plan] is imported, as the bank shows it (posted, without pending): today's balance in
+     * the app, less the pending transactions entered by hand that this import doesn't post, plus what it adds (1.9.8).
+     */
+    fun balanceAfter(budget: Budget, accountId: String, plan: Plan): Long {
+        val posted = plan.matchedPending.map { it.second.id }.toSet()
+        val stillPending = budget.transactions.filter { it.accountId == accountId && it.pending && it.kind == TransactionKind.NORMAL && it.id !in posted }.sumOf { it.amount }
+        return budget.accountBalance(accountId) - stillPending + plan.toImport.sumOf { it.amount }
     }
 
     /**
@@ -403,6 +466,79 @@ object CsvImport {
         val (key, rows) = groups.entries.maxBy { e -> e.value.maxOf { it.createdAt } }
         val withId = rows.firstOrNull { it.importId != null }?.importId
         return Batch(accountId, withId, rows.minOf { it.createdAt }, rows.sortedBy { it.id }.map { it.id }).takeIf { key.isNotEmpty() }
+    }
+
+    /**
+     * A Venmo statement (1.9.8, "VenmoStatement_<Month>_<Year>.csv"): a title line and an "Account Activity" line,
+     * then the header row (ID, Datetime, Type, Status, Note, From, To, Amount (total), ... Beginning Balance, Ending
+     * Balance, ... Disclaimer), a row with only the beginning balance, the transactions, and a closing row with the
+     * ending balance, the fees and the disclaimer. Found by its header row wherever it sits. Amounts are "+ $100.00" and
+     * "- $8.16"; the payee is From for money in and To for money out; the note is the memo; the ID is the original
+     * description, so the same statement imported twice adds nothing. An Instant Transfer is one row for its total
+     * (the fee included). A Venmo account repayment is added only when the statement's balances show it moving the
+     * balance; otherwise it's left out and says why.
+     */
+    object Venmo {
+        private val must = listOf("id", "datetime", "type", "status", "note", "from", "to", "amount (total)")
+
+        private fun headerAt(rows: List<Pair<Int, List<String>>>) = rows.indexOfFirst { (_, r) -> r.map { it.trim().lowercase(Locale.ROOT) }.containsAll(must) }
+
+        fun layout(text: String): Layout? {
+            val rows = parseNumbered(text, ',')
+            val at = headerAt(rows)
+            if (at < 0) return null
+            val headers = rows[at].second
+            return Layout(',', at, headers, headers.map { Role.IGNORE }, "yyyy-MM-dd", dateAmbiguous = false, decimalComma = false, venmo = true)
+        }
+
+        fun read(text: String): Read {
+            val all = parseNumbered(text, ',')
+            val at = headerAt(all)
+            if (at < 0) return Read(emptyList(), listOf(BadRow(1, "no Venmo header row")))
+            val names = all[at].second.map { it.trim().lowercase(Locale.ROOT) }
+            fun List<String>.of(name: String) = names.indexOf(name).let { if (it < 0) "" else getOrElse(it) { "" }.trim() }
+            val rows = mutableListOf<Row>()
+            val bad = mutableListOf<BadRow>()
+            val left = mutableListOf<Left>()
+            val repayments = mutableListOf<Row>()
+            var beginning: Long? = null
+            var ending: Long? = null
+            for ((n, r) in all.drop(at + 1)) {
+                val id = r.of("id")
+                if (id.isEmpty()) {
+                    // the beginning balance row, and the closing row (ending balance, fees, the disclaimer)
+                    r.of("beginning balance").takeIf { it.isNotEmpty() }?.let { v -> if (beginning == null) beginning = parseCents(v, false) }
+                    r.of("ending balance").takeIf { it.isNotEmpty() }?.let { v -> ending = parseCents(v, false) ?: ending }
+                    continue
+                }
+                val date = r.of("datetime").take(10).let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val amount = parseCents(r.of("amount (total)"), false)
+                val type = r.of("type")
+                if (date == null) { bad += BadRow(n, "the date \"${r.of("datetime")}\" doesn't read"); continue }
+                if (amount == null || amount == 0L) { bad += BadRow(n, "no readable amount"); continue }
+                val payee = (if (amount > 0) r.of("from") else r.of("to")).ifBlank { type.ifBlank { "Venmo" } }
+                val status = r.of("status").lowercase(Locale.ROOT)
+                if (status.isNotEmpty() && status !in setOf("complete", "completed", "issued", "pending")) {
+                    left += Left(n, date, payee, amount, "Venmo lists it as ${r.of("status")}")
+                    continue
+                }
+                val row = Row(n, date, payee, amount, r.of("note"), original = id, pending = status == "pending")
+                if (type.equals("Venmo account repayment", ignoreCase = true)) repayments += row else rows += row
+            }
+            if (repayments.isNotEmpty()) {
+                val b = beginning
+                val e = ending
+                val base = rows.filter { !it.pending }.sumOf { it.amount }
+                val moves = b != null && e != null && b + base + repayments.sumOf { it.amount } == e && b + base != e
+                if (moves) rows += repayments
+                else repayments.forEach {
+                    left += Left(it.rowNumber, it.date, it.description, it.amount,
+                        if (b == null || e == null) "a Venmo account repayment, and the statement has no balances to show it changes yours"
+                        else "a Venmo account repayment that doesn't change the Venmo balance")
+                }
+            }
+            return Read(rows.sortedBy { it.rowNumber }, bad, left.sortedBy { it.rowNumber }, beginning, ending)
+        }
     }
 
     /** ATM fees are tagged automatically; a rebate of one offsets it. */

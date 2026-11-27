@@ -471,9 +471,21 @@ private fun ImportDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Imp
     val rules by remember(store) { store?.dao?.rules() ?: kotlinx.coroutines.flow.flowOf(emptyList()) }.collectAsState(emptyList())
     val guesses = remember(plan, b, rules) { net.darkrelay.deaddropfinance.domain.Suggest.guesses(b, rules, d.accountId, plan.new + plan.unsure.map { it.row }) }
     var showAlready by remember(d.fileName) { mutableStateOf(false) }
+    var confirmOff by remember(d.fileName) { mutableStateOf(false) }
+    // 0.15.11: the balance check, against what's typed or the file's own ending balance
+    val bankText = d.bankBalance ?: d.read.endingBalance?.let { net.darkrelay.deaddropfinance.domain.Money.plain(it) } ?: ""
+    val check = net.darkrelay.deaddropfinance.ui.ImportBalance(CsvImport.balanceAfter(b, d.accountId, plan), net.darkrelay.deaddropfinance.domain.Money.parse(bankText))
+    val doImport = { shell.run { if (model.importCsv(d)) model.dialog = null } }
+    if (confirmOff) {
+        net.darkrelay.deaddropfinance.ui.ConfirmDialog(
+            "The balance won't match", "${check.line} ${check.off}. Import anyway?", "Import anyway",
+            onCancel = { confirmOff = false }, onConfirm = { confirmOff = false; doImport() },
+            tag = "import.offConfirm", cancelTag = "import.offCancel", actionTag = "import.offGo", textTag = "import.offText",
+        )
+    }
     Modal("Check the import", 620.dp, close, "dialog.import", footer = {
         Btn("Cancel", close, ghost = true, tag = "dialog.cancel")
-        Btn(net.darkrelay.deaddropfinance.ui.importAction(plan), { shell.run { if (model.importCsv(d)) model.dialog = null } },
+        Btn(net.darkrelay.deaddropfinance.ui.importAction(plan), { if (check.off != null) confirmOff = true else doImport() },
             enabled = plan.toImport.isNotEmpty() || plan.matchedPending.isNotEmpty(), tag = "dialog.save")
     }) {
         T("${d.fileName} into $name", 13.sp, C.Dim)
@@ -512,7 +524,20 @@ private fun ImportDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Imp
             Label("PENDING, NOT ADDED")
             plan.pending.forEach { plain(it) }
         }
+        if (plan.notAdded.isNotEmpty()) {
+            Label("NOT ADDED")
+            plan.notAdded.forEach { l ->
+                Row(Modifier.fillMaxWidth().padding(start = 26.dp)) {
+                    T("${l.date ?: ""}  ${l.description}", 12.sp, C.Dim, modifier = Modifier.weight(1f))
+                    T(l.amount?.let { money(it) } ?: "", 12.sp, C.Dim)
+                }
+                T(l.reason, 11.5.sp, C.Dim2, modifier = Modifier.padding(start = 40.dp).testTag("import.left.${l.rowNumber}"))
+            }
+        }
         if (plan.bad.isNotEmpty()) T("${plan.bad.size} row${if (plan.bad.size == 1) "" else "s"} can't be read, skipped.", 13.sp, C.Warn)
+        Field(net.darkrelay.deaddropfinance.ui.ImportBalance.FIELD, bankText, { model.dialog = d.copy(bankBalance = it) }, placeholder = "Optional", tag = "import.bank")
+        T(check.line, 13.5.sp, if (check.off != null) C.Warn else C.Text, modifier = Modifier.testTag("import.after"))
+        check.off?.let { T(it, 13.sp, C.Warn, weight = FontWeight.SemiBold, modifier = Modifier.testTag("import.off")) }
     }
 }
 

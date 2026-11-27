@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.unit.dp
@@ -48,11 +49,19 @@ fun dayText(d: LocalDate): String = d.format(dayFormat)
 
 // ---- Bills tab ------------------------------------------------------------------------------------------------------
 
+/** Coming up's window before there's a next payday at all (no payday marked and no pay schedule saved). */
+const val NO_PAYDAY_DAYS = 45L
+
 /** One line in Coming up: a bill's unpaid cycle, or a debt envelope's payment due. */
 data class DueItem(val name: String, val due: LocalDate, val amount: Long, val autopay: Boolean, val reminder: Boolean, val partialPaid: Long, val billId: String?, val envelopeId: String?)
 
-fun comingUp(b: Budget, today: LocalDate): List<DueItem> {
-    val until = today.plusDays(45)
+/**
+ * Coming up (1.9.8, program 0.15.11): this budget month's unpaid bills, due before [nextPayday] (from the pay schedule,
+ * or the next payday the app works out without one), and every unpaid one from before, overdue. Before there's any
+ * next payday at all (no payday marked, no schedule), the next [NO_PAYDAY_DAYS] days.
+ */
+fun comingUp(b: Budget, today: LocalDate, nextPayday: LocalDate?): List<DueItem> {
+    val until = nextPayday?.minusDays(1) ?: today.plusDays(NO_PAYDAY_DAYS)
     val bills = Bills.comingUp(b.bills, b.billPayments, until).map { c ->
         DueItem(c.bill.name, c.due, c.remaining, c.bill.autopay, c.bill.reminder, c.paid, c.bill.id, c.bill.envelopeId)
     }
@@ -65,7 +74,7 @@ fun comingUp(b: Budget, today: LocalDate): List<DueItem> {
 @Composable
 fun BillsScreen(
     budget: Budget, today: LocalDate, prediction: Paydays.Prediction, series: List<Recurring.Series>,
-    onBill: (String) -> Unit, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onSubscriptions: () -> Unit, onPayday: (LocalDate?) -> Unit,
+    onBill: (String) -> Unit, onEnvelope: (String) -> Unit, onAdd: () -> Unit, onSubscriptions: () -> Unit, onPayday: (net.darkrelay.deaddropfinance.domain.PaySchedule) -> Unit,
     editingPayday: Boolean = false,
 ) {
     val next = prediction.effectiveNext(today)
@@ -94,10 +103,10 @@ fun BillsScreen(
             }
         }
         SectionTitle("Coming up")
-        val items = comingUp(budget, today)
+        val items = comingUp(budget, today, next)
         if (budget.bills.isEmpty()) {
             EmptyState("No bills yet. Add one, or make one from a repeating charge in Subscriptions.")
-        } else if (items.isEmpty()) Text("Nothing unpaid in the next 45 days.", color = DdfColors.Muted)
+        } else if (items.isEmpty()) Text(if (next != null) "Nothing unpaid before payday." else "Nothing unpaid in the next $NO_PAYDAY_DAYS days.", color = DdfColors.Muted)
         items.forEach { i ->
             ListRow(onClick = { i.billId?.let(onBill) ?: i.envelopeId?.let(onEnvelope) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -133,36 +142,23 @@ fun BillsScreen(
     }
 }
 
-/** The next payday line: predicted (or set by the user), with Change (right here), and a quiet note when it's late. */
+/**
+ * The next payday line: from the pay schedule (1.9.8), or predicted (or set by the user) before one is saved, with
+ * Change, which opens the Payday schedule popup; and a quiet note when it's late.
+ */
 @Composable
-fun PaydayLine(p: Paydays.Prediction, today: LocalDate, onChange: (LocalDate?) -> Unit, editing: Boolean = false) {
+fun PaydayLine(p: Paydays.Prediction, today: LocalDate, onSchedule: (net.darkrelay.deaddropfinance.domain.PaySchedule) -> Unit, editing: Boolean = false) {
     val next = p.next
     var edit by remember { mutableStateOf(editing) }
-    var text by remember(next) { mutableStateOf(next?.toString() ?: "") }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
         Column(Modifier.weight(1f)) {
-            Text(if (next == null) "Next payday: mark a deposit as payday first" else "Next payday: ${dayText(next)}")
-            Text(
-                when {
-                    next == null -> "Payday is the deposit landing, never a date on the calendar."
-                    p.corrected -> "Set by you"
-                    p.guessed -> "Guessed from one payday (two weeks). Correct it if it's different."
-                    p.monthlyDay != null -> "Predicted: monthly, around the ${ordinal(p.monthlyDay!!)}"
-                    else -> "Predicted: every ${p.intervalDays} days"
-                },
-                color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall,
-            )
+            Text(if (next == null) "Next payday: mark a deposit as payday first" else "Next payday: ${dayText(next)}", modifier = Modifier.testTag("payday.line"))
+            Text(paydayWhyText(p), color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("payday.why"))
         }
-        if (next != null && !edit) TextButton(onClick = { edit = true }) { Text("Change") }
+        TextButton(onClick = { edit = true }, modifier = Modifier.testTag("payday.change")) { Text("Change") }
     }
     if (edit) {
-        DateField("Next payday", text, { text = it })
-        Text("When you expect the deposit. Payday starts when you mark the deposit as payday.", color = DdfColors.Muted, style = MaterialTheme.typography.bodySmall)
-        Row {
-            TextButton(onClick = { parseDateOrNull(text)?.let { onChange(it); edit = false } }) { Text("Set") }
-            if (p.corrected) TextButton(onClick = { onChange(null); edit = false }) { Text("Use the prediction") }
-            TextButton(onClick = { edit = false }) { Text("Cancel") }
-        }
+        PayScheduleDialog(p.schedule, next, today, onCancel = { edit = false }, onSave = { onSchedule(it); edit = false })
     }
     if (p.late && next != null) LatePaydayNote(next, today)
 }
