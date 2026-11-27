@@ -104,19 +104,25 @@ fun PaydayPopup(budget: Budget, today: LocalDate, onClose: () -> Unit, onRun: su
     val fields: @Composable ColumnScope.() -> Unit = {
         Column {
             Picker("Account", accounts.map { it.id to it.name }, account, { account = it }, Modifier.testTag("payday.account"))
-            TextFieldRow("Balance now, after payday", text, { text = it }, Modifier.testTag("payday.balance"))
+            // 1.9.10 (program 0.15.13): the hint and the line under it in the palette's secondary color, readable
+            TextFieldRow("Balance now, after payday", text, { text = it }, Modifier.testTag("payday.balance"), colors = paletteFieldColors())
             if (acct != null) {
                 val app = PaydayButton.appBalance(budget, acct)
                 Text(
                     if (bank == null) "App shows ${Money.format(app)}." else "App shows ${Money.format(app)}. Difference ${Money.format(bank - app)}.",
-                    modifier = Modifier.testTag("payday.diff"), style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("payday.diff"), style = MaterialTheme.typography.bodyMedium, color = DdfColors.Muted,
                 )
             }
             check?.problem?.let { Text(it, color = DdfColors.Warning, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp).testTag("payday.problem")) }
             error?.let { Text(it, color = DdfColors.Error, style = MaterialTheme.typography.bodySmall) }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
-                Checkbox(cleanUp, { cleanUp = it }, modifier = Modifier.testTag("payday.cleanUp"))
-                Text("Clean up")
+                Checkbox(
+                    cleanUp, { cleanUp = it }, modifier = Modifier.testTag("payday.cleanUp"),
+                    // its outline clearly visible unticked
+                    colors = androidx.compose.material3.CheckboxDefaults.colors(uncheckedColor = DdfColors.Muted, checkedColor = DdfColors.Teal, checkmarkColor = DdfColors.Text),
+                )
+                // the normal text color, as row text everywhere else
+                Text("Clean up", color = DdfColors.Text, modifier = Modifier.testTag("payday.cleanUpLabel"))
                 val hover = remember { MutableInteractionSource() }
                 val hovered by hover.collectIsHoveredAsState()
                 Text(

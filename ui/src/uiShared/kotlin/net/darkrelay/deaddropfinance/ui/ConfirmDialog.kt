@@ -111,7 +111,9 @@ fun ConfirmDialog(
                         OutlinedButton(onClick = onCancel, modifier = Modifier.tagged(cancelTag ?: "confirm.cancel")) { Text("Cancel") }
                         Button(
                             onClick = onConfirm, enabled = enabled, modifier = Modifier.tagged(actionTag ?: "confirm.action"),
-                            colors = if (destructive) ButtonDefaults.buttonColors(containerColor = ConfirmRed, contentColor = ConfirmOnFill) else ButtonDefaults.buttonColors(),
+                            // 1.9.10: disabled, the palette's secondary text on a flat grey, readable
+                            colors = if (destructive) ButtonDefaults.buttonColors(containerColor = ConfirmRed, contentColor = ConfirmOnFill, disabledContainerColor = DdfColors.Outline, disabledContentColor = DdfColors.Muted)
+                            else ButtonDefaults.buttonColors(disabledContainerColor = DdfColors.Outline, disabledContentColor = DdfColors.Muted),
                         ) { Text(action) }
                     }
                 }
@@ -163,7 +165,10 @@ fun FormDialog(
         val main = actions.lastOrNull { it.filled } ?: actions.last()
         val rest = actions - main
         @Composable fun phoneButton(a: DialogAction) =
-            TextButton(onClick = a.onClick, enabled = a.enabled, modifier = Modifier.tagged(a.tag)) { if (a.destructive) Text(a.label, color = DdfColors.Error) else Text(a.label) }
+            androidx.compose.material3.TextButton(
+                onClick = a.onClick, enabled = a.enabled, modifier = Modifier.tagged(a.tag),
+                colors = ButtonDefaults.textButtonColors(disabledContentColor = DdfColors.Muted),
+            ) { if (a.destructive && a.enabled) Text(a.label, color = DdfColors.Error) else Text(a.label) }
         AlertDialog(
             onDismissRequest = { if (dismissible) onDismiss() },
             modifier = Modifier.tagged(tag),
@@ -250,6 +255,12 @@ val ProgramScrim = Color(0xB8030609)
 
 private fun Modifier.tagged(tag: String?) = if (tag != null) testTag(tag) else this
 
+/**
+ * 0.15.13: true inside the program's dialog card. The program's own hint color reads it, so a dialog's secondary text
+ * is the palette's secondary color, never the dimmer one the program's screens use for column heads.
+ */
+val LocalProgramDialog = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @Composable
 private fun ProgramDialogCard(
     title: String?, onCancel: (() -> Unit)?, tag: String?, width: Dp?, initialFocus: FocusRequester?, scrollBody: Boolean,
@@ -280,10 +291,16 @@ private fun ProgramDialogCard(
                 Text(title, style = TextStyle(fontFamily = ProgramType.family, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold, color = p.text), modifier = Modifier.testTag("confirm.title"))
                 Spacer(Modifier.height(if (scrollBody) 14.dp else 8.dp))
             }
-            if (scrollBody) {
-                ScrollColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(13.dp), content = body)
-            } else {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), content = body)
+            // 0.15.13: text with no color of its own (a checkbox's label, a line of the body) is the palette's text, never
+            // the black Compose falls back to with no Surface around it
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides p.text, LocalProgramDialog provides true,
+            ) {
+                if (scrollBody) {
+                    ScrollColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(13.dp), content = body)
+                } else {
+                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp), content = body)
+                }
             }
             Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically, content = buttons)
         }
@@ -318,19 +335,22 @@ fun DialogButton(
     val focused by src.collectIsFocusedAsState()
     val lit = hover && enabled
     val shape = RoundedCornerShape(7.dp)
+    // 0.15.13: a disabled button is flat grey with the secondary text color (readable), not the whole button faded
     val bg = when {
+        !enabled -> p.outline
         !filled -> if (lit) ConfirmQuietHover else Color.Transparent
         destructive -> if (lit) ConfirmRedHover else ConfirmRed
         else -> if (lit) ConfirmTealHover else p.teal
     }
     val border = when {
+        !enabled -> p.outline
         focused -> p.cyan
         !filled -> if (lit) p.teal else p.outlineHigh
         else -> bg
     }
-    val fg = if (filled) ConfirmOnFill else if (lit || focused) p.text else p.muted
+    val fg = if (!enabled) p.muted else if (filled) ConfirmOnFill else if (lit || focused) p.text else p.muted
     Box(
-        modifier.tagged(tag).alpha(if (enabled) 1f else 0.4f).clip(shape).background(bg).border(1.dp, border, shape)
+        modifier.tagged(tag).clip(shape).background(bg).border(1.dp, border, shape)
             .hoverable(src)
             // a disabled action has no click at all, as the program's own buttons
             .let { if (enabled) it.clickable(interactionSource = src, indication = null, role = Role.Button, onClick = onClick) else it }

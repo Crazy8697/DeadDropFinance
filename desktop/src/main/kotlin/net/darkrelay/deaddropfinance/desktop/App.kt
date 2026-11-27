@@ -94,7 +94,11 @@ class Shell(
 fun DesktopApp(model: AppModel, shell: Shell) {
     // 0.15.6: every confirm (the program's and the app screens' it shows) is drawn last, over the whole window
     val confirms = remember { net.darkrelay.deaddropfinance.ui.ConfirmHost() }
-    remember { net.darkrelay.deaddropfinance.ui.ProgramType.family = Segoe }
+    remember {
+        net.darkrelay.deaddropfinance.ui.ProgramType.family = Segoe
+        // 0.15.13: the shared screens and dialogs the program shows use its palette from the start, not the phone's
+        net.darkrelay.deaddropfinance.ui.DdfColors.palette = net.darkrelay.deaddropfinance.ui.ProgramPalette
+    }
     MaterialTheme(colorScheme = darkColorScheme(primary = C.Cyan, background = C.Bg, surface = C.Panel)) {
       androidx.compose.runtime.CompositionLocalProvider(net.darkrelay.deaddropfinance.ui.LocalConfirmHost provides confirms, net.darkrelay.deaddropfinance.ui.LocalScrollbars provides ProgramScrollbars) {
         Column(Modifier.fillMaxSize().background(C.Bg)) {

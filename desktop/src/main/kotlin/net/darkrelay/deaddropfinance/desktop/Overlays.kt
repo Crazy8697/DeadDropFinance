@@ -500,7 +500,7 @@ private fun ImportDialog(model: AppModel, shell: Shell, b: Budget, d: Dialog.Imp
         @Composable fun row(r: CsvImport.Row, checked: Boolean, tag: String, onChange: (Boolean) -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 CheckRow(r.description.ifBlank { "No description" }, "${r.date}, ${guesses[r.rowNumber] ?: "no envelope guess"}", checked, true, tag, Modifier.weight(1f), onChange)
-                T(money(r.amount), 13.5.sp, moneyColor(r.amount))
+                T(money(r.amount), 13.5.sp, if (r.amount == 0L) C.Dim2 else moneyColor(r.amount))
             }
         }
         @Composable fun plain(r: CsvImport.Row) {

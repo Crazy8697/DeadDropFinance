@@ -64,7 +64,13 @@ object C {
     val Line2 = P.outlineHigh
     val Text = P.text
     val Dim = P.muted
-    val Dim2 = Color(0xFF5F7382)
+    /** The dim hint color of the program's screens (column heads, placeholders, sub lines). */
+    val Dim2Screen = Color(0xFF5F7382)
+    /**
+     * Hints, placeholders and sub lines: [Dim2Screen] on the program's screens; in a dialog (0.15.13) the palette's
+     * secondary text color, [Dim], so no dialog text is drawn darker than that.
+     */
+    val Dim2: Color @Composable get() = if (net.darkrelay.deaddropfinance.ui.LocalProgramDialog.current) Dim else Dim2Screen
     val Cyan = P.cyan
     val Teal = P.teal
     val TealHi = Color(0xFF12899F)
@@ -114,7 +120,7 @@ fun Label(text: String, color: Color = C.Dim2, size: TextUnit = 11.sp, modifier:
     T(text.uppercase(), size, color, FontWeight.SemiBold, modifier, spacing = 0.7.sp)
 
 fun money(cents: Long) = Money.format(cents)
-fun moneyColor(cents: Long) = when { cents > 0 -> C.Good; cents < 0 -> C.Bad; else -> C.Dim2 }
+fun moneyColor(cents: Long) = when { cents > 0 -> C.Good; cents < 0 -> C.Bad; else -> C.Dim2Screen }
 
 @Composable
 fun hovered(source: MutableInteractionSource): Boolean = source.collectIsHoveredAsState().value
@@ -270,19 +276,20 @@ fun <K> Select(label: String, options: List<Pair<K, String>>, selected: K, onSel
 @Composable
 fun CheckRow(title: String, sub: String, checked: Boolean, enabled: Boolean, tag: String, modifier: Modifier = Modifier, onChange: (Boolean) -> Unit) {
     Row(
-        modifier.alpha(if (enabled) 1f else 0.4f)
+        // 0.15.13: greyed when not enabled by its colors (secondary text, a flat box), not faded below readable
+        modifier
             .toggleable(value = checked, enabled = enabled, role = androidx.compose.ui.semantics.Role.Checkbox, onValueChange = onChange)
             .testTag(tag),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val shape = RoundedCornerShape(4.dp)
         Box(
-            Modifier.size(16.dp).clip(shape).background(if (checked) C.Teal else C.Input).border(1.dp, if (checked) C.Cyan else C.Line2, shape),
+            Modifier.size(16.dp).clip(shape).background(if (checked && enabled) C.Teal else if (checked) C.Line2 else C.Input).border(1.dp, if (checked && enabled) C.Cyan else if (enabled) C.Dim else C.Line2, shape),
             contentAlignment = Alignment.Center,
         ) { if (checked) T("✓", 11.sp, C.Text, FontWeight.Bold) }
         Box(Modifier.width(10.dp))
         Column {
-            T(title, 13.5.sp)
+            T(title, 13.5.sp, if (enabled) C.Text else C.Dim)
             T(sub, 11.5.sp, C.Dim2)
         }
     }

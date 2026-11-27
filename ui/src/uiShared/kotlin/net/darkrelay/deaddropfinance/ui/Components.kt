@@ -132,12 +132,25 @@ fun AmountField(label: String, text: String, onChange: (String) -> Unit, modifie
 }
 
 @Composable
-fun TextFieldRow(label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false) {
+fun TextFieldRow(
+    label: String, text: String, onChange: (String) -> Unit, modifier: Modifier = Modifier, warn: String? = null, listed: Boolean = false,
+    /** 1.9.10: the field's colors from the palette (a dialog's), in place of Material's; null keeps Material's. */
+    colors: androidx.compose.material3.TextFieldColors? = null,
+) {
     OutlinedTextField(
         value = text, onValueChange = onChange, label = { Text(label) }, singleLine = true, modifier = modifier.fillMaxWidth(),
-        colors = warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
+        colors = colors ?: warnColors(warn), supportingText = warnText(warn.takeUnless { listed }),
     )
 }
+
+/** A text field in the palette's colors (1.9.10): its text the palette's text, its hint (label) the secondary color. */
+@Composable
+fun paletteFieldColors() = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+    focusedTextColor = DdfColors.Text, unfocusedTextColor = DdfColors.Text,
+    focusedLabelColor = DdfColors.Cyan, unfocusedLabelColor = DdfColors.Muted,
+    focusedPlaceholderColor = DdfColors.Muted, unfocusedPlaceholderColor = DdfColors.Muted,
+    focusedBorderColor = DdfColors.Cyan, unfocusedBorderColor = DdfColors.OutlineHigh, cursorColor = DdfColors.Cyan,
+)
 
 /**
  * 1.9.5: a field the receipt reader wasn't sure of: a yellow outline (the program's warning color), the same style as

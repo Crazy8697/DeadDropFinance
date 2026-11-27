@@ -63,7 +63,7 @@ private fun pillColor(s: SyncStatus.State) = when (s) {
     SyncStatus.State.SYNCING -> C.Cyan
     SyncStatus.State.OFFLINE -> C.Warn
     SyncStatus.State.ERROR -> C.Bad
-    SyncStatus.State.NOT_CONNECTED -> C.Dim2
+    SyncStatus.State.NOT_CONNECTED -> C.Dim2Screen
 }
 
 /** The header's sync pill: the state, the last synced time and the waiting count; Sync now beside it once connected. */
